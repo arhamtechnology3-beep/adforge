@@ -21,7 +21,9 @@ export default function OnboardingClient() {
 
   const [step, setStep] = useState(queryStep ?? 0);
   const [websiteUrl, setWebsiteUrl] = useState('');
-  const [competitorUrls, setCompetitorUrls] = useState<string[]>(['']);
+  const [competitors, setCompetitors] = useState<Array<{ url: string; meta_page_id: string }>>([
+    { url: '', meta_page_id: '' },
+  ]);
   const [metaConnected, setMetaConnected] = useState(connectedQuery);
   const [loading, setLoading] = useState(false);
   const [hydrating, setHydrating] = useState(true);
@@ -42,16 +44,21 @@ export default function OnboardingClient() {
           setWebsiteUrl(data.website_url);
         }
 
-        const urlsFromCompetitors = Array.isArray(data.competitors)
-          ? data.competitors.map((c: { url?: string }) => c.url).filter(Boolean)
+        const fromCompetitors = Array.isArray(data.competitors)
+          ? data.competitors
+              .map((c: { url?: string; meta_page_id?: string | null }) => ({
+                url: c.url || '',
+                meta_page_id: c.meta_page_id || '',
+              }))
+              .filter((c: { url: string }) => c.url)
           : [];
-        const urls =
-          urlsFromCompetitors.length > 0
-            ? urlsFromCompetitors
+        const list =
+          fromCompetitors.length > 0
+            ? fromCompetitors
             : data.competitor_url
-              ? [data.competitor_url]
-              : [''];
-        setCompetitorUrls(urls.length > 0 ? urls : ['']);
+              ? [{ url: data.competitor_url, meta_page_id: '' }]
+              : [{ url: '', meta_page_id: '' }];
+        setCompetitors(list);
 
         const hasMeta = connectedQuery || !!data.meta_connected;
         setMetaConnected(hasMeta);
@@ -59,7 +66,7 @@ export default function OnboardingClient() {
         // Resume at the right step unless URL already forces one
         if (queryStep === null) {
           if (hasMeta) setStep(2);
-          else if (data.website_url && (urlsFromCompetitors.length > 0 || data.competitor_url)) setStep(2);
+          else if (data.website_url && (fromCompetitors.length > 0 || data.competitor_url)) setStep(2);
           else if (data.website_url) setStep(1);
           else setStep(0);
         }
@@ -74,18 +81,20 @@ export default function OnboardingClient() {
     };
   }, [connectedQuery, queryStep]);
 
-  function updateCompetitor(index: number, value: string) {
-    setCompetitorUrls((prev) => prev.map((url, i) => (i === index ? value : url)));
+  function updateCompetitor(index: number, field: 'url' | 'meta_page_id', value: string) {
+    setCompetitors((prev) =>
+      prev.map((c, i) => (i === index ? { ...c, [field]: value } : c))
+    );
   }
 
   function addCompetitor() {
-    if (competitorUrls.length >= MAX_COMPETITORS) return;
-    setCompetitorUrls((prev) => [...prev, '']);
+    if (competitors.length >= MAX_COMPETITORS) return;
+    setCompetitors((prev) => [...prev, { url: '', meta_page_id: '' }]);
   }
 
   function removeCompetitor(index: number) {
-    setCompetitorUrls((prev) => {
-      if (prev.length === 1) return [''];
+    setCompetitors((prev) => {
+      if (prev.length === 1) return [{ url: '', meta_page_id: '' }];
       return prev.filter((_, i) => i !== index);
     });
   }
@@ -94,15 +103,18 @@ export default function OnboardingClient() {
     setLoading(true);
     setErrorMsg('');
 
-    const competitors = competitorUrls
-      .map((url) => url.trim())
-      .filter(Boolean)
-      .map((url) => ({ url, type: detectCompetitorType(url) }));
+    const payloadCompetitors = competitors
+      .map((c) => ({
+        url: c.url.trim(),
+        meta_page_id: c.meta_page_id.trim() || null,
+        type: detectCompetitorType(c.url.trim()),
+      }))
+      .filter((c) => c.url);
 
     const res = await fetch('/api/onboarding', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ website_url: websiteUrl, competitors }),
+      body: JSON.stringify({ website_url: websiteUrl, competitors: payloadCompetitors }),
     });
 
     const data = await res.json();
@@ -180,37 +192,45 @@ export default function OnboardingClient() {
         {step === 1 && (
           <div className="space-y-4">
             <div>
-              <label className="label">Competitor URLs or Ad Links</label>
+              <label className="label">Competitor URLs or Ad Library links</label>
               <p className="text-xs text-muted mb-3">
-                Add website, Facebook, or Instagram ad links. Type is detected automatically.
+                Add website or Meta Ad Library URLs. Optional Page ID unlocks the same live ads you see in Facebook&apos;s Ad Library (e.g. FarmDidi = 108788791719221).
               </p>
 
               <div className="space-y-3">
-                {competitorUrls.map((url, index) => {
-                  const type = url.trim() ? detectCompetitorType(url) : null;
+                {competitors.map((comp, index) => {
+                  const type = comp.url.trim() ? detectCompetitorType(comp.url) : null;
                   return (
-                    <div key={index} className="space-y-1">
+                    <div key={index} className="space-y-2 rounded-lg border border-gray-100 p-3">
                       <div className="flex gap-2">
                         <input
                           type="url"
                           className="input"
-                          placeholder="https://competitor.com or Facebook/Instagram ad link"
-                          value={url}
-                          onChange={(e) => updateCompetitor(index, e.target.value)}
+                          placeholder="https://competitor.com or Ad Library URL"
+                          value={comp.url}
+                          onChange={(e) => updateCompetitor(index, 'url', e.target.value)}
                         />
                         <button
                           type="button"
                           className="btn-secondary px-3 shrink-0"
                           onClick={() => removeCompetitor(index)}
                           aria-label="Remove competitor"
-                          disabled={competitorUrls.length === 1 && !url}
+                          disabled={competitors.length === 1 && !comp.url}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
+                      <input
+                        type="text"
+                        className="input text-sm"
+                        placeholder="Meta Page ID (optional) — from Ad Library URL page_ids[0]"
+                        value={comp.meta_page_id}
+                        onChange={(e) => updateCompetitor(index, 'meta_page_id', e.target.value)}
+                      />
                       {type && (
                         <p className="text-xs text-muted pl-1">
                           Detected: <span className="font-medium capitalize">{type}</span>
+                          {comp.meta_page_id.trim() ? ' · Page ID saved' : ''}
                         </p>
                       )}
                     </div>
@@ -218,7 +238,7 @@ export default function OnboardingClient() {
                 })}
               </div>
 
-              {competitorUrls.length < MAX_COMPETITORS && (
+              {competitors.length < MAX_COMPETITORS && (
                 <button
                   type="button"
                   className="mt-3 flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"

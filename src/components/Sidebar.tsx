@@ -12,6 +12,8 @@ import {
   LogOut,
   Menu,
   X,
+  Shield,
+  FileBarChart2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
@@ -24,6 +26,8 @@ const navItems = [
   { href: '/ads', label: 'Ad Generation', icon: Sparkles },
   { href: '/campaigns', label: 'Campaigns', icon: Megaphone },
   { href: '/performance', label: 'Performance', icon: BarChart3 },
+  { href: '/reports', label: 'Reports', icon: FileBarChart2 },
+  { href: '/ops', label: 'Ops Agent', icon: Shield },
   { href: '/billing', label: 'Billing', icon: CreditCard },
 ];
 
@@ -45,7 +49,7 @@ export default function Sidebar() {
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-light to-accent flex items-center justify-center">
             <Megaphone className="w-4 h-4 text-white" />
           </div>
-          <span className="font-bold text-white text-lg">Meta Ads</span>
+          <span className="font-bold text-white text-lg">AdForge</span>
         </Link>
       </div>
 

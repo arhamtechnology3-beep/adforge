@@ -4,22 +4,32 @@ import { detectCompetitorType } from '@/lib/utils';
 import type { CompetitorEntry } from '@/types/database';
 
 function normalizeCompetitors(body: {
-  competitors?: Array<{ url?: string }>;
+  competitors?: Array<{ url?: string; meta_page_id?: string | null }>;
   competitor_url?: string;
 }): CompetitorEntry[] {
   const fromList = (body.competitors || [])
-    .map((c) => (c.url || '').trim())
-    .filter(Boolean);
+    .map((c) => ({
+      url: (c.url || '').trim(),
+      meta_page_id: c.meta_page_id?.toString().trim() || null,
+    }))
+    .filter((c) => c.url);
 
   if (fromList.length === 0 && body.competitor_url?.trim()) {
-    fromList.push(body.competitor_url.trim());
+    fromList.push({ url: body.competitor_url.trim(), meta_page_id: null });
   }
 
-  const unique = [...new Set(fromList)];
+  const seen = new Set<string>();
+  const unique: Array<{ url: string; meta_page_id: string | null }> = [];
+  for (const c of fromList) {
+    if (seen.has(c.url)) continue;
+    seen.add(c.url);
+    unique.push(c);
+  }
 
-  return unique.map((url) => ({
-    url,
-    type: detectCompetitorType(url),
+  return unique.map((c) => ({
+    url: c.url,
+    type: detectCompetitorType(c.url),
+    meta_page_id: c.meta_page_id && /^\d{5,}$/.test(c.meta_page_id) ? c.meta_page_id : null,
   }));
 }
 

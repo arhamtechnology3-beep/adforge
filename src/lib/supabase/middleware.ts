@@ -34,7 +34,9 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith('/signup');
   const isPublicApi =
     request.nextUrl.pathname.startsWith('/api/webhooks') ||
-    request.nextUrl.pathname.startsWith('/api/oauth/meta/callback');
+    request.nextUrl.pathname.startsWith('/api/oauth/meta/callback') ||
+    request.nextUrl.pathname.startsWith('/api/ads/creative') ||
+    request.nextUrl.pathname.startsWith('/api/ads/product-image');
 
   if (!user && !isAuthPage && !isPublicApi && request.nextUrl.pathname !== '/') {
     const url = request.nextUrl.clone();

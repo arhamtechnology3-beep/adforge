@@ -14,8 +14,15 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: 'Facebook Meta Ads — AI Ad Generation for D2C',
-  description: 'AI-powered ad generation and campaign automation for D2C Shopify sellers in India',
+  title: 'AdForge — AI Meta Ads for Indian D2C',
+  description:
+    'Replace your digital marketing team. AI creatives, campaign launch, and performance optimization for Shopify brands on Facebook & Instagram.',
+  manifest: '/manifest.webmanifest',
+  themeColor: '#0b1220',
+  appleWebApp: {
+    capable: true,
+    title: 'AdForge',
+  },
 };
 
 export default function RootLayout({

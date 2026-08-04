@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { BarChart3, Loader2 } from 'lucide-react';
+import { BarChart3, Loader2, ArrowRight, Shield } from 'lucide-react';
 import type { MetaCampaign, PerformanceSnapshot } from '@/types/database';
 import { formatCurrency } from '@/lib/utils';
 
@@ -65,15 +66,28 @@ export default function PerformanceClient() {
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold">Performance</h1>
-        <p className="text-muted mt-1">Track campaign metrics and CPA health</p>
+      <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Performance</h1>
+          <p className="text-muted mt-1">Campaign drill-down — full library in Reports Hub</p>
+        </div>
+        <div className="flex gap-2">
+          <Link href="/reports" className="btn-secondary text-sm inline-flex items-center gap-1.5">
+            All reports <ArrowRight className="w-4 h-4" />
+          </Link>
+          <Link href="/ops" className="btn-secondary text-sm inline-flex items-center gap-1.5">
+            <Shield className="w-4 h-4" /> Ops Agent
+          </Link>
+        </div>
       </div>
 
       {campaigns.length === 0 ? (
         <div className="card text-center py-12">
           <BarChart3 className="w-10 h-10 text-muted mx-auto mb-3" />
           <p className="text-muted">No active campaigns to track. Launch a campaign first.</p>
+          <Link href="/reports?view=executive" className="text-sm text-primary font-medium mt-3 inline-block">
+            Preview sample reports →
+          </Link>
         </div>
       ) : (
         <>
@@ -86,26 +100,30 @@ export default function PerformanceClient() {
                   selectedId === c.id ? 'bg-primary text-white' : 'bg-gray-100 text-muted hover:bg-gray-200'
                 }`}
               >
-                {c.objective || 'Campaign'}
+                {c.name || c.objective || 'Campaign'}
               </button>
             ))}
           </div>
 
           {latest && (
-            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-3 mb-8">
               {[
                 { label: 'Spend', value: formatCurrency(latest.spend || 0) },
+                { label: 'Revenue', value: formatCurrency(latest.revenue || 0) },
+                { label: 'ROAS', value: latest.roas != null ? `${Number(latest.roas).toFixed(2)}x` : '—' },
                 { label: 'CPC', value: formatCurrency(latest.cpc || 0) },
                 { label: 'CPA', value: latest.cpa ? formatCurrency(latest.cpa) : '—', status: true },
                 { label: 'CTR', value: `${(latest.ctr || 0).toFixed(2)}%` },
+                { label: 'Purchases', value: String(latest.purchases ?? '—') },
+                { label: 'Frequency', value: latest.frequency != null ? Number(latest.frequency).toFixed(1) : '—' },
               ].map((stat) => (
-                <div key={stat.label} className="card">
-                  <p className="text-sm text-muted">{stat.label}</p>
+                <div key={stat.label} className="card !p-4">
+                  <p className="text-xs text-muted">{stat.label}</p>
                   <div className="flex items-center gap-2 mt-1">
-                    <p className="text-2xl font-bold">{stat.value}</p>
+                    <p className="text-lg font-bold">{stat.value}</p>
                     {stat.status && latest.cpa && (
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${getStatusColor(latest.cpa, cpaTarget)}`}>
-                        {cpaTarget ? `Target: ${formatCurrency(cpaTarget)}` : 'No target'}
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${getStatusColor(latest.cpa, cpaTarget)}`}>
+                        {cpaTarget ? `≤${formatCurrency(cpaTarget)}` : ''}
                       </span>
                     )}
                   </div>
@@ -124,7 +142,7 @@ export default function PerformanceClient() {
                     <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                     <YAxis tick={{ fontSize: 12 }} />
                     <Tooltip />
-                    <Line type="monotone" dataKey="spend" stroke="#6c3ce0" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="spend" stroke="#e85d04" strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -136,14 +154,14 @@ export default function PerformanceClient() {
                     <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                     <YAxis tick={{ fontSize: 12 }} />
                     <Tooltip />
-                    <Line type="monotone" dataKey="cpc" stroke="#f97316" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="cpc" stroke="#0f766e" strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
             </div>
           ) : (
             <div className="card text-center py-8 text-muted text-sm">
-              Performance data will appear after the daily sync job runs.
+              Performance data will appear after the Ops Agent sync runs. Sample reports are available now.
             </div>
           )}
 
@@ -162,7 +180,7 @@ export default function PerformanceClient() {
                 <tbody>
                   {campaigns.map((c) => (
                     <tr key={c.id} className="border-b border-[var(--border)] last:border-0">
-                      <td className="py-3">{c.objective}</td>
+                      <td className="py-3">{c.name || c.objective}</td>
                       <td className="py-3 capitalize">{c.status}</td>
                       <td className="py-3">{formatCurrency(c.budget || 0)}/day</td>
                       <td className="py-3">

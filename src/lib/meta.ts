@@ -82,28 +82,48 @@ export async function createCampaign(
   return res.json();
 }
 
+export type MetaAdSetTargeting = {
+  countries?: string[];
+  age_min?: number;
+  age_max?: number;
+  genders?: number[]; // 1 male, 2 female
+};
+
 export async function createAdSet(
   accessToken: string,
   adAccountId: string,
   campaignId: string,
   budget: number,
-  name: string
+  name: string,
+  targeting?: MetaAdSetTargeting
 ) {
+  const ageMin = Math.min(65, Math.max(13, Number(targeting?.age_min) || 18));
+  const ageMax = Math.min(65, Math.max(ageMin, Number(targeting?.age_max) || 65));
+  const countries =
+    targeting?.countries && targeting.countries.length > 0
+      ? targeting.countries
+      : ['IN'];
+
+  const targetingSpec: Record<string, unknown> = {
+    geo_locations: { countries },
+    age_min: ageMin,
+    age_max: ageMax,
+  };
+  if (targeting?.genders?.length) {
+    targetingSpec.genders = targeting.genders;
+  }
+
   const res = await fetch(`${META_BASE}/${adAccountId}/adsets`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       name,
       campaign_id: campaignId,
-      daily_budget: Math.round(budget * 100),
+      daily_budget: Math.round(budget * 100), // Meta expects cents/paise
       billing_event: 'IMPRESSIONS',
       optimization_goal: 'LINK_CLICKS',
       bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-      targeting: {
-        geo_locations: { countries: ['IN'] },
-        age_min: 18,
-        age_max: 65,
-      },
+      targeting: targetingSpec,
       status: 'PAUSED',
       access_token: accessToken,
     }),
@@ -121,8 +141,25 @@ export async function createAd(
   adSetId: string,
   copyText: string,
   imageUrl: string,
-  pageId: string
+  pageId: string,
+  link?: string,
+  headline?: string,
+  ctaType?: string
 ) {
+  const destination = link || process.env.DEFAULT_AD_LINK || 'https://example.com';
+  const linkData: Record<string, unknown> = {
+    message: copyText.slice(0, 2200),
+    link: destination,
+    picture: imageUrl,
+  };
+  if (headline) linkData.name = headline.slice(0, 40);
+  // Meta call_to_action types: SHOP_NOW, LEARN_MORE, ORDER_NOW, SIGN_UP, etc.
+  const cta = (ctaType || 'SHOP_NOW').toUpperCase().replace(/\s+/g, '_');
+  linkData.call_to_action = {
+    type: cta,
+    value: { link: destination },
+  };
+
   const creativeRes = await fetch(`${META_BASE}/${adAccountId}/adcreatives`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -130,16 +167,15 @@ export async function createAd(
       name: `Creative ${Date.now()}`,
       object_story_spec: {
         page_id: pageId,
-        link_data: {
-          message: copyText,
-          link: process.env.DEFAULT_AD_LINK || 'https://example.com',
-          picture: imageUrl,
-        },
+        link_data: linkData,
       },
       access_token: accessToken,
     }),
   });
-  if (!creativeRes.ok) throw new Error('Creative creation failed');
+  if (!creativeRes.ok) {
+    const err = await creativeRes.text();
+    throw new Error(`Creative creation failed: ${err}`);
+  }
   const creative = await creativeRes.json();
 
   const adRes = await fetch(`${META_BASE}/${adAccountId}/ads`, {
@@ -153,7 +189,10 @@ export async function createAd(
       access_token: accessToken,
     }),
   });
-  if (!adRes.ok) throw new Error('Ad creation failed');
+  if (!adRes.ok) {
+    const err = await adRes.text();
+    throw new Error(`Ad creation failed: ${err}`);
+  }
   return adRes.json();
 }
 
@@ -177,18 +216,182 @@ export async function pauseCampaign(accessToken: string, campaignId: string) {
   return res.json();
 }
 
+export async function pauseAd(accessToken: string, adId: string) {
+  const res = await fetch(`${META_BASE}/${adId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'PAUSED', access_token: accessToken }),
+  });
+  if (!res.ok) throw new Error('Failed to pause ad');
+  return res.json();
+}
+
+export async function updateCampaignBudget(
+  accessToken: string,
+  adSetId: string,
+  dailyBudgetInr: number
+) {
+  const res = await fetch(`${META_BASE}/${adSetId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      daily_budget: Math.round(dailyBudgetInr * 100),
+      access_token: accessToken,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Budget update failed: ${err}`);
+  }
+  return res.json();
+}
+
+export type ParsedInsights = {
+  spend: number;
+  impressions: number;
+  reach: number;
+  clicks: number;
+  cpc: number;
+  cpm: number;
+  ctr: number;
+  frequency: number;
+  purchases: number;
+  add_to_cart: number;
+  initiate_checkout: number;
+  cost_per_purchase: number | null;
+  revenue: number;
+  roas: number | null;
+  conversion_rate: number | null;
+  video_views: number;
+  engagement_rate: number | null;
+  raw: Record<string, unknown>;
+};
+
+function actionValue(
+  actions: Array<{ action_type: string; value: string }> | undefined,
+  type: string
+): number {
+  if (!actions) return 0;
+  const hit = actions.find((a) => a.action_type === type || a.action_type.endsWith(type));
+  return hit ? parseFloat(hit.value) : 0;
+}
+
+export function parseInsightsPayload(raw: Record<string, unknown> | null): ParsedInsights | null {
+  if (!raw) return null;
+  const actions = raw.actions as Array<{ action_type: string; value: string }> | undefined;
+  const actionValues = raw.action_values as
+    | Array<{ action_type: string; value: string }>
+    | undefined;
+  const costPerAction = raw.cost_per_action_type as
+    | Array<{ action_type: string; value: string }>
+    | undefined;
+
+  const spend = parseFloat(String(raw.spend || '0'));
+  const impressions = parseInt(String(raw.impressions || '0'), 10);
+  const clicks = parseInt(String(raw.clicks || raw.inline_link_clicks || '0'), 10);
+  const purchases = actionValue(actions, 'purchase');
+  const add_to_cart = actionValue(actions, 'add_to_cart');
+  const initiate_checkout = actionValue(actions, 'initiate_checkout');
+  const revenue = actionValue(actionValues, 'purchase');
+  const cpaPurchase = costPerAction?.find(
+    (a) => a.action_type === 'purchase' || a.action_type.endsWith('purchase')
+  )?.value;
+  const video_views = actionValue(
+    (raw.video_play_actions as Array<{ action_type: string; value: string }>) || actions,
+    'video_view'
+  );
+  const engagements = parseFloat(String(raw.inline_post_engagement || '0'));
+  const reach = parseInt(String(raw.reach || '0'), 10);
+
+  return {
+    spend,
+    impressions,
+    reach,
+    clicks,
+    cpc: parseFloat(String(raw.cpc || '0')),
+    cpm: parseFloat(String(raw.cpm || '0')),
+    ctr: parseFloat(String(raw.ctr || '0')),
+    frequency: parseFloat(String(raw.frequency || '0')),
+    purchases,
+    add_to_cart,
+    initiate_checkout,
+    cost_per_purchase: cpaPurchase ? parseFloat(cpaPurchase) : purchases > 0 ? spend / purchases : null,
+    revenue,
+    roas: spend > 0 && revenue > 0 ? revenue / spend : null,
+    conversion_rate: clicks > 0 ? (purchases / clicks) * 100 : null,
+    video_views,
+    engagement_rate: impressions > 0 ? (engagements / impressions) * 100 : null,
+    raw,
+  };
+}
+
 export async function getCampaignInsights(
   accessToken: string,
   campaignId: string,
   datePreset: string = 'last_7d'
 ) {
-  const fields = 'spend,impressions,ctr,cpc,cost_per_action_type';
+  const fields = [
+    'spend',
+    'impressions',
+    'reach',
+    'clicks',
+    'inline_link_clicks',
+    'ctr',
+    'cpc',
+    'cpm',
+    'frequency',
+    'actions',
+    'action_values',
+    'cost_per_action_type',
+    'video_play_actions',
+    'inline_post_engagement',
+  ].join(',');
+
   const res = await fetch(
     `${META_BASE}/${campaignId}/insights?fields=${fields}&date_preset=${datePreset}&access_token=${accessToken}`
   );
   if (!res.ok) throw new Error('Failed to fetch insights');
   const data = await res.json();
   return data.data?.[0] || null;
+}
+
+export async function getCampaignInsightBreakdowns(
+  accessToken: string,
+  campaignId: string,
+  breakdown: 'publisher_platform' | 'age' | 'gender' | 'impression_device' | 'country',
+  datePreset: string = 'last_7d'
+) {
+  const fields = 'spend,impressions,ctr,cpc,actions,action_values';
+  const res = await fetch(
+    `${META_BASE}/${campaignId}/insights?fields=${fields}&breakdowns=${breakdown}&date_preset=${datePreset}&access_token=${accessToken}`
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.data || [];
+}
+
+export async function getAdEffectiveStatus(accessToken: string, adId: string) {
+  const res = await fetch(
+    `${META_BASE}/${adId}?fields=id,name,effective_status,configured_status,issues_info,ad_review_feedback&access_token=${accessToken}`
+  );
+  if (!res.ok) throw new Error('Failed to fetch ad status');
+  return res.json() as Promise<{
+    id: string;
+    name?: string;
+    effective_status?: string;
+    configured_status?: string;
+    issues_info?: unknown;
+    ad_review_feedback?: unknown;
+  }>;
+}
+
+export async function getCampaignAds(accessToken: string, campaignId: string) {
+  const res = await fetch(
+    `${META_BASE}/${campaignId}/ads?fields=id,name,effective_status,creative{id,body,title,name}&access_token=${accessToken}`
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.data || [];
 }
 
 export function storeToken(token: string): string {

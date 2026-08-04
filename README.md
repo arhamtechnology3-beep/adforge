@@ -9,7 +9,41 @@ AI-powered ad generation and campaign automation platform for D2C Shopify seller
 - **Database:** PostgreSQL via Supabase (auth + DB)
 - **Billing:** Razorpay Subscriptions
 - **Queue:** BullMQ + Redis
-- **AI:** OpenAI GPT-4o-mini + DALL-E 3
+- **AI:** Free brand-aware copy + Meta-compliant creative renderer (`/api/ads/creative`). Optional OpenAI / Groq.
+
+## Product vision — replace the digital marketing + creative team
+
+This platform is built to cover the full Meta ads lifecycle that agencies usually staff with multiple people:
+
+| Team role today | What our system does |
+|-----------------|----------------------|
+| Strategist | Onboarding: brand URL + competitor URLs, angle planning |
+| Copywriter | 10 Meta primary-text variants (offer, UGC, urgency, etc.) |
+| Creative designer | Multi-format creatives: Feed 1:1, Carousel, Stories 9:16, Video slideshow |
+| Media buyer | Draft campaign → Ad set → Ads via Marketing API, manual Confirm & Launch |
+| Analyst | Insights sync, spend/CPC/CPA charts, WhatsApp reports |
+| Optimizer | Auto-pause when CPA exceeds target for 3+ days |
+
+### Roadmap (phased)
+
+**Phase A — live now**
+- Auth, billing scaffold, onboarding, Meta-ready creative review, launch confirm flow, performance + workers scaffold
+
+**Phase B — creative studio**
+- Image / Carousel / Stories / Video format options at review (client picks winners → launch)
+- Multi-product image scrape from Shopify
+- (Next) A/B creative sets + brand kit + real MP4 export
+- Ad Library competitor insight assist
+
+**Phase C — full media buying**
+- Audience suggestions (India interests / lookalikes)
+- Budget pacing + bid strategy presets
+- Creative fatigue detection + auto refresh variants
+
+**Phase D — reporting & optimization**
+- Weekly client-ready PDF/WhatsApp decks
+- Rule engine (scale winners / kill losers)
+- ROAS goals per SKU
 
 ## Getting Started
 
@@ -22,7 +56,7 @@ npm install
 ### 2. Set up Supabase
 
 1. Create a project at [supabase.com](https://supabase.com)
-2. Run the migration in `supabase/migrations/001_initial_schema.sql` via the SQL Editor
+2. Run migrations in `supabase/migrations/` via the SQL Editor (001 → 006)
 3. Enable Phone Auth in Supabase Dashboard → Authentication → Providers → Phone
 4. Copy your project URL and keys to `.env.local`
 
@@ -61,6 +95,22 @@ Before connecting Meta ad accounts, you need:
 2. Set `META_APP_ID`, `META_APP_SECRET`, `META_REDIRECT_URI` in `.env.local`
 3. Add the redirect URI to your Meta App's OAuth settings
 
+### Email reports (Ops Agent)
+
+Digests and policy alerts are **email-only** (no WhatsApp reporting).
+
+1. Set `RESEND_API_KEY` + `EMAIL_FROM`, or leave empty for console stubs
+2. Users need `email` + `email_reports_opt_in` (default true after migration 006)
+3. Run `npm run worker` for morning/midday/afternoon/evening Ops slots + digests
+
+### Meta Policy Guard
+
+Versioned norms pack (`META_POLICY_PACK_VERSION` / `meta_policy_rules`). Critical/high matches auto-pause offending ads and email the founder. Bump pack version when Meta policies change, then re-scan on next morning slot.
+
+### Reports Hub
+
+In-app library at `/reports` — executive, daily/weekly/monthly, creative, audience, funnel, policy audit, and strategy packs. Uses dry-run sample data until Meta Insights sync.
+
 ### Razorpay Plans
 
 Create 3 subscription plans in the Razorpay Dashboard and set the plan IDs in env vars.
@@ -79,6 +129,9 @@ Create 3 subscription plans in the Razorpay Dashboard and set the plan IDs in en
 | 8 | Performance dashboard | ✅ |
 | 9 | BullMQ automated jobs | ✅ |
 | 10 | Dashboard layout & design | ✅ |
+| 11 | Ops Agent + Policy Guard | ✅ (email alerts; dry-run without Meta) |
+| 12 | Reports Hub (DM library) | ✅ |
+| 13 | Email digests (no WA reports) | ✅ |
 
 ## Project Structure
 
@@ -105,6 +158,9 @@ supabase/
 - `POST /api/campaigns/[id]/confirm` — Confirm & launch campaign
 - `GET /api/performance/[campaignId]` — Campaign metrics
 - `GET /api/oauth/meta/connect` — Meta OAuth redirect
+- `GET /api/reports` — Reports Hub catalog + view builders
+- `GET /api/ops/recommendations` — Ops Agent inbox
+- `POST /api/ops/recommendations/[id]/confirm` — Approve / reject actions
 - `POST /api/webhooks/razorpay` — Billing webhook
 
 ## License
