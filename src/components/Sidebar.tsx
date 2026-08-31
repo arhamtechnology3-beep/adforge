@@ -102,7 +102,7 @@ export default function Sidebar() {
 
       <aside
         className={cn(
-          'fixed lg:static inset-y-0 left-0 z-40 w-64 bg-gradient-to-b from-[#1a1a2e] to-[#2d1b69] flex flex-col transition-transform',
+          'fixed lg:static inset-y-0 left-0 z-40 w-64 bg-gradient-to-b from-[#1a1a2e] to-[#1877f2] flex flex-col transition-transform',
           mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         )}
       >

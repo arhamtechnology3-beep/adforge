@@ -2,6 +2,14 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { detectCompetitorType } from '@/lib/utils';
 import type { CompetitorEntry } from '@/types/database';
+import { getSessionUser } from '@/lib/auth/session';
+import {
+  DEMO_CAMPAIGN_INPUT_ID,
+  readDemoOnboarding,
+  withDemoOnboardingCookie,
+  type DemoOnboarding,
+} from '@/lib/auth/demo-onboarding';
+import { getDefaultDemoOnboarding } from '@/lib/auth/campaign-input';
 
 function normalizeCompetitors(body: {
   competitors?: Array<{ url?: string; meta_page_id?: string | null }>;
@@ -34,8 +42,7 @@ function normalizeCompetitors(body: {
 }
 
 export async function POST(request: Request) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getSessionUser();
 
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -57,6 +64,20 @@ export async function POST(request: Request) {
     competitor_url: primary?.url || null,
     competitor_type: primary?.type || null,
   };
+
+  if (user.isDemo) {
+    const existing = await readDemoOnboarding();
+    const row: DemoOnboarding = {
+      id: existing?.id || DEMO_CAMPAIGN_INPUT_ID,
+      user_id: user.id,
+      ...payload,
+      meta_connected: existing?.meta_connected || false,
+      demo: true,
+    };
+    return withDemoOnboardingCookie(NextResponse.json(row), row);
+  }
+
+  const supabase = await createClient();
 
   // Resume existing onboarding row instead of creating duplicates
   const { data: existing } = await supabase
@@ -94,12 +115,23 @@ export async function POST(request: Request) {
 }
 
 export async function GET() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getSessionUser();
 
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  if (user.isDemo) {
+    const saved = await readDemoOnboarding();
+    return NextResponse.json(
+      saved || {
+        ...getDefaultDemoOnboarding(user.id),
+        demo: true,
+      }
+    );
+  }
+
+  const supabase = await createClient();
 
   const { data: campaign } = await supabase
     .from('campaigns_input')

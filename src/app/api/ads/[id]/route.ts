@@ -1,18 +1,15 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import type { AdFormat, AdMediaPayload } from '@/types/database';
-import { META_AD_FORMATS } from '@/lib/creatives';
+import { getSessionUser } from '@/lib/auth/session';
+import { readDemoAds, withDemoAdsCookie } from '@/lib/auth/demo-ads';
 
 export async function PATCH(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -35,6 +32,19 @@ export async function PATCH(
     return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
   }
 
+  if (sessionUser.isDemo) {
+    const ads = await readDemoAds();
+    const idx = ads.findIndex((a) => a.id === params.id);
+    if (idx < 0) {
+      return NextResponse.json({ error: 'Ad not found' }, { status: 404 });
+    }
+    const updated = { ...ads[idx], ...update };
+    ads[idx] = updated;
+    const response = NextResponse.json(updated);
+    return withDemoAdsCookie(response, ads);
+  }
+
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from('generated_ads')
     .update(update)
@@ -50,21 +60,30 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  request: Request,
+  _request: Request,
   { params }: { params: { id: string } }
 ) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  if (sessionUser.isDemo) {
+    const ads = await readDemoAds();
+    const next = ads.filter((a) => a.id !== params.id);
+    if (next.length === ads.length) {
+      return NextResponse.json({ error: 'Ad not found' }, { status: 404 });
+    }
+    const response = NextResponse.json({ success: true });
+    return withDemoAdsCookie(response, next);
+  }
+
+  const supabase = await createClient();
   const { error } = await supabase.from('generated_ads').delete().eq('id', params.id);
+
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ ok: true });
+
+  return NextResponse.json({ success: true });
 }

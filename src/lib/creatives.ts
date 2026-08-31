@@ -373,7 +373,7 @@ export function productSceneUrl(category: string, angle: string, seed: number): 
 }
 
 export function buildCreativeUrl(params: {
-  baseUrl: string;
+  baseUrl?: string;
   brand: string;
   headline: string;
   subline: string;
@@ -399,5 +399,9 @@ export function buildCreativeUrl(params: {
   if (params.productImage) q.set('img', params.productImage);
   if (params.sceneImage) q.set('scene', params.sceneImage);
   if (params.adFormat) q.set('ad_format', params.adFormat);
-  return `${params.baseUrl}/api/ads/creative?${q.toString()}`;
+  const path = `/api/ads/creative?${q.toString()}`;
+  if (params.baseUrl) {
+    return `${params.baseUrl.replace(/\/$/, '')}${path}`;
+  }
+  return path;
 }

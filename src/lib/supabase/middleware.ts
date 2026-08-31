@@ -25,9 +25,24 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const isDemo = request.cookies.get('demo_session')?.value === 'true';
+
+  let user = null;
+  if (!isDemo) {
+    try {
+      const { data } = await Promise.race([
+        supabase.auth.getUser(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('supabase-timeout')), 3000)
+        ),
+      ]);
+      user = data.user;
+    } catch {
+      // Supabase network / DNS / timeout — allow login + demo fallback
+    }
+  }
+
+  const effectiveUser = user || (isDemo ? { id: 'demo-user-id', email: 'jesalp85@gmail.com' } : null);
 
   const isAuthPage =
     request.nextUrl.pathname.startsWith('/login') ||
@@ -36,15 +51,16 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith('/api/webhooks') ||
     request.nextUrl.pathname.startsWith('/api/oauth/meta/callback') ||
     request.nextUrl.pathname.startsWith('/api/ads/creative') ||
-    request.nextUrl.pathname.startsWith('/api/ads/product-image');
+    request.nextUrl.pathname.startsWith('/api/ads/product-image') ||
+    request.nextUrl.pathname.startsWith('/api/auth/demo');
 
-  if (!user && !isAuthPage && !isPublicApi && request.nextUrl.pathname !== '/') {
+  if (!effectiveUser && !isAuthPage && !isPublicApi && request.nextUrl.pathname !== '/') {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
   }
 
-  if (user && isAuthPage) {
+  if (effectiveUser && isAuthPage) {
     const url = request.nextUrl.clone();
     url.pathname = '/dashboard';
     return NextResponse.redirect(url);

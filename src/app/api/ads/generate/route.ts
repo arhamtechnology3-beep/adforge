@@ -1,5 +1,16 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getSessionUser } from '@/lib/auth/session';
+import { checkTrialAccess } from '@/lib/trial-gate';
+import {
+  resolveCampaignInput,
+  competitorsFromInput,
+} from '@/lib/auth/campaign-input';
+import {
+  readDemoAds,
+  withDemoAdsCookie,
+  normalizeDemoAd,
+} from '@/lib/auth/demo-ads';
 import {
   scrapeWebsite,
   scrapeWebsiteImages,
@@ -21,8 +32,9 @@ import {
 } from '@/lib/creatives';
 import { buildReplicatedAds, type SelectedLibraryAdInput } from '@/lib/replicate-ads';
 import type { AdMediaPayload } from '@/types/database';
+import type { CompetitorEntry } from '@/types/database';
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 type AdRow = {
   campaign_input_id: string;
@@ -37,14 +49,18 @@ type AdRow = {
 };
 
 export async function POST(request: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const trial = await checkTrialAccess(sessionUser);
+  if (!trial.allowed) {
+    return NextResponse.json({ error: trial.message, trial_expired: true }, { status: 402 });
+  }
+
+  const supabase = await createClient();
+  const user = { id: sessionUser.id };
 
   const body = await request.json();
   const campaign_input_id = body.campaign_input_id as string;
@@ -66,27 +82,36 @@ export async function POST(request: Request) {
     .eq('user_id', user.id)
     .single();
 
-  if (!campaignInput) {
+  const resolvedInput = sessionUser.isDemo
+    ? await resolveCampaignInput(sessionUser, campaign_input_id)
+    : campaignInput
+      ? {
+          id: campaignInput.id,
+          user_id: campaignInput.user_id,
+          website_url: campaignInput.website_url,
+          competitors: (campaignInput.competitors as CompetitorEntry[]) || [],
+          competitor_url: campaignInput.competitor_url,
+          competitor_type: campaignInput.competitor_type,
+          isDemo: false,
+        }
+      : null;
+
+  if (!resolvedInput) {
     return NextResponse.json({ error: 'Campaign input not found' }, { status: 404 });
   }
 
-  const websiteContent = await scrapeWebsite(campaignInput.website_url);
-  const productImages = await scrapeWebsiteImages(campaignInput.website_url, 10);
+  const websiteContent = await scrapeWebsite(resolvedInput.website_url);
+  const productImages = await scrapeWebsiteImages(resolvedInput.website_url, 10);
   const { brand, category } = extractBrandContext(
     websiteContent,
-    campaignInput.website_url
+    resolvedInput.website_url
   );
 
-  const competitors =
-    Array.isArray(campaignInput.competitors) && campaignInput.competitors.length > 0
-      ? campaignInput.competitors
-      : campaignInput.competitor_url
-        ? [{ url: campaignInput.competitor_url, type: campaignInput.competitor_type || 'website' }]
-        : [];
+  const competitors = competitorsFromInput(resolvedInput);
 
   const competitorIntel = await scrapeAllCompetitors(competitors, { fetchLiveAds: false });
 
-  let resolvedSelected = selectedAds.filter((a) => a && (a.library_id || a.id));
+  const resolvedSelected = selectedAds.filter((a) => a && (a.library_id || a.id));
   if (resolvedSelected.length === 0 && selectedIds.length > 0) {
     for (const comp of competitorIntel) {
       for (const ad of comp.live_meta_ads || []) {
@@ -108,21 +133,16 @@ export async function POST(request: Request) {
     }
   }
 
-  const appUrl = (
-    process.env.NEXT_PUBLIC_APP_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3010')
-  ).replace(/\/$/, '');
 
   let ads: AdRow[] = [];
 
   if (resolvedSelected.length > 0) {
-    ads = buildReplicatedAds({
-      campaignInputId: campaignInput.id,
+    ads = await buildReplicatedAds({
+      campaignInputId: resolvedInput.id,
       selected: resolvedSelected,
       brand,
       category,
       productImages,
-      appUrl,
       competitorBrand: competitorIntel[0]?.brand || null,
       competitorNames: competitorIntel.map((c) => c.brand),
     });
@@ -130,7 +150,7 @@ export async function POST(request: Request) {
     const variants = await generateAdCopy(
       websiteContent,
       competitors,
-      campaignInput.website_url
+      resolvedInput.website_url
     );
 
     let n = 0;
@@ -162,11 +182,10 @@ export async function POST(request: Request) {
     for (const item of enriched.slice(0, 4)) {
       n += 1;
       ads.push({
-        campaign_input_id: campaignInput.id,
+        campaign_input_id: resolvedInput.id,
         variant_number: n,
         copy_text: item.primaryText,
         image_url: buildCreativeUrl({
-          baseUrl: appUrl,
           brand,
           headline: item.headline,
           subline: item.subline,
@@ -194,11 +213,10 @@ export async function POST(request: Request) {
     for (const item of enriched.slice(4, 6)) {
       n += 1;
       ads.push({
-        campaign_input_id: campaignInput.id,
+        campaign_input_id: resolvedInput.id,
         variant_number: n,
         copy_text: item.primaryText,
         image_url: buildCreativeUrl({
-          baseUrl: appUrl,
           brand,
           headline: item.headline,
           subline: item.subline,
@@ -238,9 +256,8 @@ export async function POST(request: Request) {
             : extractSubline(item.primaryText, category, brand).split(' · ')[i - 1] ||
               `${brand} · Shop`;
         return {
-          image_url: buildCreativeUrl({
-            baseUrl: appUrl,
-            brand,
+            image_url: buildCreativeUrl({
+              brand,
             headline: String(cardHeadline).slice(0, 40),
             subline: item.subline,
             angle: item.angle,
@@ -257,7 +274,7 @@ export async function POST(request: Request) {
         };
       });
       ads.push({
-        campaign_input_id: campaignInput.id,
+        campaign_input_id: resolvedInput.id,
         variant_number: n,
         copy_text: item.primaryText,
         image_url: cards[0]?.image_url || '',
@@ -290,9 +307,8 @@ export async function POST(request: Request) {
           item.cta,
         ];
         return {
-          image_url: buildCreativeUrl({
-            baseUrl: appUrl,
-            brand,
+            image_url: buildCreativeUrl({
+              brand,
             headline: frameHeadlines[i] || item.headline,
             subline: item.subline,
             angle: item.angle,
@@ -309,7 +325,7 @@ export async function POST(request: Request) {
         };
       });
       ads.push({
-        campaign_input_id: campaignInput.id,
+        campaign_input_id: resolvedInput.id,
         variant_number: n,
         copy_text: item.primaryText,
         image_url: frames[0]?.image_url || '',
@@ -327,9 +343,34 @@ export async function POST(request: Request) {
     }
   }
 
+  if (sessionUser.isDemo) {
+    const savedAds = ads.map((ad, i) => normalizeDemoAd(ad as unknown as Record<string, unknown>, i));
+    const byFormat = savedAds.reduce<Record<string, number>>((acc, ad) => {
+      const f = ad.ad_format || 'single_image';
+      acc[f] = (acc[f] || 0) + 1;
+      return acc;
+    }, {});
+
+    const response = NextResponse.json({
+      ads: savedAds,
+      count: savedAds.length,
+      brand,
+      category,
+      product_images: productImages,
+      competitor_intel: competitorIntel,
+      selected_count: resolvedSelected.length,
+      formats: byFormat,
+      note:
+        resolvedSelected.length > 0
+          ? `Replicated ${resolvedSelected.length} selected competitor ads into Meta formats using your product creatives. Review, edit, then approve for launch.`
+          : 'Review Image, Carousel, Stories & Video options — approve what you want to launch.',
+    });
+    return withDemoAdsCookie(response, savedAds);
+  }
+
   const { createServiceClient } = await import('@/lib/supabase/server');
   const admin = await createServiceClient();
-  await admin.from('generated_ads').delete().eq('campaign_input_id', campaignInput.id);
+  await admin.from('generated_ads').delete().eq('campaign_input_id', resolvedInput.id);
 
   let { data: savedAds, error } = await supabase.from('generated_ads').insert(ads).select();
 
@@ -379,41 +420,40 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const { searchParams } = new URL(request.url);
   const campaignInputId = searchParams.get('campaign_input_id');
 
-  if (!campaignInputId) {
-    return NextResponse.json({ error: 'campaign_input_id required' }, { status: 400 });
+  const resolvedInput = await resolveCampaignInput(sessionUser, campaignInputId);
+  if (!resolvedInput) {
+    return NextResponse.json({ error: 'Campaign input not found' }, { status: 404 });
   }
 
-  const { data: campaignInput } = await supabase
-    .from('campaigns_input')
-    .select('*')
-    .eq('id', campaignInputId)
-    .single();
-
-  const competitors =
-    campaignInput && Array.isArray(campaignInput.competitors) && campaignInput.competitors.length > 0
-      ? campaignInput.competitors
-      : campaignInput?.competitor_url
-        ? [{ url: campaignInput.competitor_url, type: campaignInput.competitor_type || 'website' }]
-        : [];
-
+  const competitors = competitorsFromInput(resolvedInput);
   const competitorIntel = await scrapeAllCompetitors(competitors, { fetchLiveAds: false });
 
+  if (sessionUser.isDemo) {
+    const ads = await readDemoAds();
+    return NextResponse.json({
+      ads,
+      competitor_intel: competitorIntel,
+      demo: true,
+      note:
+        competitors.length === 0
+          ? 'Add competitors in Onboarding to load Ad Library ads.'
+          : undefined,
+    });
+  }
+
+  const supabase = await createClient();
   const { data: ads } = await supabase
     .from('generated_ads')
     .select('*')
-    .eq('campaign_input_id', campaignInputId)
+    .eq('campaign_input_id', resolvedInput.id)
     .order('variant_number');
 
   return NextResponse.json({

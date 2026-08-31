@@ -6,6 +6,180 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+## 2026-08-31
+
+### Gemini API integration — Nano Banana images + Veo video
+Wired Google Gemini for agency-grade creatives: native image generation with product reference, Veo for real video ads.
+
+**What changed**
+- `GEMINI_API_KEY` in `.env.local` — image via `gemini-2.5-flash-image`, video via `veo-3.1-fast-generate-preview`
+- `generateGeminiImage()` / `generateGeminiVideo()` — saves to `public/uploads/gemini/`
+- Replicate flow uses Gemini output directly (skips Satori overlay when Gemini succeeds)
+- Video ads play real `.mp4` when Veo succeeds
+
+**Manual steps**
+- Add `GEMINI_API_KEY` to `.env.local` (from Google AI Studio)
+- Enable billing on the GCP project for Veo (paid tier only)
+- Restart dev server after env change
+- Regenerate ads — first run may take 30–90s per image
+
+**Files**
+- `src/lib/gemini-creative.ts`, `src/lib/creative-providers.ts`, `src/lib/replicate-ads.ts`
+
+---
+
+## 2026-08-31
+
+### Creative engine: competitor-informed briefs + pluggable image providers
+Agency-quality upgrade path — briefs derived from selected competitor ads; scene generation via Photoroom / Fal / OpenAI when keys are set.
+
+**What changed**
+- `buildCreativeBrief()` — mood, layout, counter-hook, scene prompts from competitor ad copy
+- `generateSceneImage()` — provider chain: Photoroom → Fal FLUX → DALL·E → Pollinations fallback
+- Replicate flow now async; stores `creative_brief` on each ad
+
+**API keys to add** (`.env.local`): `PHOTOROOM_API_KEY` (recommended), `FAL_KEY`, optional `CREATOMATE_API_KEY` for video
+
+**Files**
+- `src/lib/creative-brief.ts`, `src/lib/creative-providers.ts`, `src/lib/replicate-ads.ts`
+
+---
+
+## 2026-08-31
+
+### Fix: local dev broken + creative previews failing
+Corrupted `.next` cache caused JS chunk 404s; generated creatives pointed at `localhost:3010` instead of `:3000`.
+
+**What changed**
+- Creative URLs now use relative paths (`/api/ads/creative?...`) — works on any port
+- `normalizeCreativeUrl()` fixes already-saved demo ads with wrong port on load
+- `resolveAppOrigin()` helper; default port 3010 → 3000
+- Restart dev with `rm -rf .next && npm run dev` when chunks 404
+
+**Manual steps**
+- If page is blank/broken: stop dev server → `rm -rf .next` → `npm run dev`
+- Hard refresh `/ads` (Cmd+Shift+R) then click **Regenerate from selection**
+
+**Files**
+- `src/lib/app-url.ts`, `src/lib/creatives.ts`
+- `src/app/api/ads/generate/route.ts`, `src/app/(dashboard)/ads/page.tsx`
+
+---
+
+## 2026-08-31
+
+### Fix: competitor ads not visible on /ads (demo + empty state)
+Ads page showed blank Step 1 because APIs required Supabase auth and demo onboarding had no default competitors.
+
+**What changed**
+- `resolveCampaignInput()` — shared demo/real campaign input resolver
+- Default demo onboarding seeds FarmDidi competitor + Page ID when onboarding not completed
+- `GET /api/ads/generate` and `POST /api/competitors/meta-library` work in demo mode
+- Demo generated ads stored in `demo_generated_ads` cookie; PATCH/DELETE supported
+- `/ads` auto-fetches live Ad Library on load; empty state + loading spinner when no competitors
+
+**Manual steps**
+- Refresh `/ads` after demo login — competitor ads should load within ~10–30s (Playwright fetch)
+- If Step 1 is still empty: `npx playwright install chromium` (also runs on `npm install` via postinstall)
+- Or complete onboarding with your own competitor URLs
+
+**Files**
+- `src/lib/auth/campaign-input.ts`, `src/lib/auth/demo-ads.ts`
+- `src/app/api/ads/generate/route.ts`, `src/app/api/competitors/meta-library/route.ts`, `src/app/api/ads/[id]/route.ts`
+- `src/app/(dashboard)/ads/page.tsx`
+
+---
+
+## 2026-08-31
+
+### Sale-ready polish: onboarding, templates, unified flow, trial gate
+Completed the remaining UX unification and sale-readiness features.
+
+**What changed**
+- **Onboarding** — Meta blue design, `WizardStepper`, clearer copy, safety note on PAUSED campaigns
+- **Campaign templates** — Festive Sale, New Launch, Store Traffic, Retargeting, Engagement (auto-fill wizard fields)
+- **Unified flow** — `/ads` Step 3 removed; "Launch campaign" redirects to `/campaigns?from=ads` with competitor strategy prefill via `sessionStorage`
+- **Trial gate** — `TrialGate` overlay blocks ads/campaigns after trial expires; API returns 402 on generate/launch
+- **Dashboard** — Contextual next-step CTAs (onboarding → ads → campaigns)
+- **Demo session** — validate/launch APIs work with demo cookie
+
+**Manual steps**
+- Test flow: onboarding → ads (approve) → Launch campaign → pick template → review checklist → create on Meta
+
+**Files**
+- `src/lib/campaign-templates.ts`, `src/lib/campaign-prefill.ts`, `src/lib/trial-gate.ts`
+- `src/components/TrialGate.tsx`, `src/components/DashboardShell.tsx`
+- `src/app/(dashboard)/onboarding/OnboardingClient.tsx`, `src/app/(dashboard)/ads/page.tsx`
+- `src/components/campaign-wizard/CampaignWizard.tsx`
+
+---
+
+## 2026-08-31
+
+### Campaign wizard UX + Meta field wiring + pre-launch validation
+Replaced the basic campaigns form with a **6-step Meta-style wizard** (Goal → Audience → Budget → Creatives → Review → Launch), Facebook Feed/Stories/Reels live preview, and a pre-launch checklist that blocks invalid payloads before they hit Meta.
+
+**What changed**
+- Meta blue design system (`#1877F2`) in `globals.css` + sidebar gradient
+- New `CampaignWizard` with sticky stepper, placement toggles, city/interest fields, daily/lifetime budget, schedule
+- `FacebookAdPreview` — phone mockup with Feed / Stories / Reels tabs + character counters
+- `ValidationChecklist` — green/amber/red pre-flight checks on Review step
+- `src/lib/meta-campaign.ts` — objective → optimization_goal mapping (Traffic/Sales/Awareness/Engagement)
+- `src/lib/meta-targeting.ts` — city/interest resolution + placement spec builder
+- `src/lib/campaign-validation.ts` — validates name, budget, URL, CTA, age, headline ≤40, copy ≤2200
+- `POST /api/campaigns/validate` — live validation endpoint (demo-session aware)
+- Enhanced `createAdSet()` — placements, interests, cities, schedule, lifetime budget, pixel for Sales
+- `npm run test:e2e` — 17 automated tests for validation + Meta field mapping
+
+**Manual steps**
+- Run `npm run dev` → `/campaigns` for the new wizard
+- Run `npm run test:e2e` to verify validation logic
+- Set `META_PAGE_ID`, `META_PIXEL_ID` in `.env.local` for live Meta launches
+
+**Files**
+- `src/components/campaign-wizard/*`, `src/components/ad-preview/FacebookAdPreview.tsx`
+- `src/app/(dashboard)/campaigns/page.tsx`
+- `src/lib/meta.ts`, `src/lib/meta-campaign.ts`, `src/lib/meta-targeting.ts`, `src/lib/campaign-validation.ts`
+- `src/app/api/campaigns/validate/route.ts`, `scripts/e2e-campaign.test.ts`
+
+---
+
+## 2026-08-14
+
+### Login “Failed to fetch” — Supabase DNS + local demo fallback
+Email sign-in showed **Failed to fetch** because `NEXT_PUBLIC_SUPABASE_URL` (`*.supabase.co`) returns **NXDOMAIN** — the project host no longer exists, so the browser cannot reach Auth.
+
+**What changed**
+- Login/signup map network errors instead of showing the raw `Failed to fetch` string
+- When Supabase is unreachable, sign-in automatically starts a local demo session and opens `/dashboard`
+- Demo API is disabled in production (`NODE_ENV === 'production'`)
+- Middleware skips `getUser()` when a demo cookie is set, and times out live Auth after 3s
+
+**Manual steps**
+- Refresh `/login` and click **Sign In** (or **Continue in Demo Mode**)
+- To restore real auth: recreate/unpause the Supabase project and update `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `.env.local`, then restart `npm run dev`
+
+**Files**
+- `src/lib/auth/demo.ts`, `src/app/(auth)/login/page.tsx`, `src/app/(auth)/signup/page.tsx`
+- `src/app/api/auth/demo/route.ts`, `src/lib/supabase/middleware.ts`
+
+### Onboarding Unauthorized in demo session
+Demo login could open the dashboard, but `GET/POST /api/onboarding` still called `supabase.auth.getUser()` and returned **401 Unauthorized** (Supabase host is NXDOMAIN). Continue on Step 1 failed.
+
+**What changed**
+- Shared `getSessionUser()` treats the `demo_session` cookie as an authenticated user
+- Demo onboarding is saved in an httpOnly `demo_onboarding` cookie (no live DB)
+- Step 3 shows **Continue without Meta (local preview)** in demo mode
+
+**Manual steps**
+- Refresh `/onboarding` and click **Continue** again with the website URL
+
+**Files**
+- `src/lib/auth/session.ts`, `src/lib/auth/demo-onboarding.ts`
+- `src/app/api/onboarding/route.ts`, `src/app/(dashboard)/onboarding/OnboardingClient.tsx`
+
+---
+
 ## 2026-08-04
 
 ### Step 2/3 polish — brand scrub, media upload, strategy mirror

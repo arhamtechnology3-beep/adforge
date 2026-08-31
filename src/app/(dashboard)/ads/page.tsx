@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { saveCampaignPrefill } from '@/lib/campaign-prefill';
 import {
   Sparkles,
   Check,
-  X,
   Pencil,
   Loader2,
-  Megaphone,
   Image as ImageIcon,
   LayoutGrid,
   Smartphone,
@@ -21,25 +21,18 @@ import {
   ExternalLink,
   Eye,
   Radio,
-  Layers,
-  MapPin,
-  Sliders,
-  Target,
   Flame,
-  Zap,
-  BarChart3,
   CheckCircle2,
-  IndianRupee,
   Rocket,
   Info,
-  Save,
   Plus,
   Trash2,
 } from 'lucide-react';
-import type { AdFormat, GeneratedAd } from '@/types/database';
-import { META_AD_FORMATS, type MetaAdFormat } from '@/lib/creatives';
 import type { CompetitorIntel, MetaAdLibraryAd } from '@/lib/ai';
 import { performanceBadgeClass } from '@/lib/ad-performance';
+import { normalizeCreativeUrl } from '@/lib/app-url';
+import { META_AD_FORMATS, type MetaAdFormat } from '@/lib/creatives';
+import type { AdFormat, GeneratedAd } from '@/types/database';
 
 const FORMAT_FILTERS: { id: 'all' | MetaAdFormat; label: string; icon: typeof ImageIcon }[] = [
   { id: 'all', label: 'All formats', icon: LayoutGrid },
@@ -48,6 +41,27 @@ const FORMAT_FILTERS: { id: 'all' | MetaAdFormat; label: string; icon: typeof Im
   { id: 'stories', label: 'Stories', icon: Smartphone },
   { id: 'video', label: 'Video', icon: Clapperboard },
 ];
+
+function normalizeLoadedAd(ad: GeneratedAd): GeneratedAd {
+  const payload = ad.media_payload;
+  return {
+    ...ad,
+    image_url: ad.image_url ? normalizeCreativeUrl(ad.image_url) : ad.image_url,
+    media_payload: payload
+      ? {
+          ...payload,
+          cards: payload.cards?.map((c) => ({
+            ...c,
+            image_url: normalizeCreativeUrl(c.image_url),
+          })),
+          frames: payload.frames?.map((f) => ({
+            ...f,
+            image_url: normalizeCreativeUrl(f.image_url),
+          })),
+        }
+      : payload,
+  };
+}
 
 function normalizeFormat(ad: GeneratedAd): MetaAdFormat {
   const f = ad.ad_format as MetaAdFormat | undefined;
@@ -157,7 +171,34 @@ function CarouselPreview({ ad }: { ad: GeneratedAd }) {
   );
 }
 
+function VeoVideoPreview({ url }: { url: string }) {
+  return (
+    <div className="relative aspect-square bg-black">
+      <video
+        src={url}
+        className="w-full h-full object-cover"
+        controls
+        autoPlay
+        muted
+        loop
+        playsInline
+      />
+      <p className="absolute top-2 left-2 z-10 text-[10px] font-semibold uppercase tracking-wide bg-black/55 text-white px-2 py-1 rounded">
+        Veo video
+      </p>
+    </div>
+  );
+}
+
 function VideoPreview({ ad }: { ad: GeneratedAd }) {
+  const videoUrl = ad.media_payload?.video_url;
+  if (videoUrl && /\.mp4(\?|$)/i.test(videoUrl)) {
+    return <VeoVideoPreview url={videoUrl} />;
+  }
+  return <SlideshowVideoPreview ad={ad} />;
+}
+
+function SlideshowVideoPreview({ ad }: { ad: GeneratedAd }) {
   const frames = ad.media_payload?.frames || [];
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(true);
@@ -223,12 +264,13 @@ function AdMedia({ ad }: { ad: GeneratedAd }) {
 }
 
 export default function AdsPage() {
+  const router = useRouter();
   const [campaignInputId, setCampaignInputId] = useState<string | null>(null);
   const [ads, setAds] = useState<GeneratedAd[]>([]);
   const [competitorIntel, setCompetitorIntel] = useState<CompetitorIntel[]>([]);
   const [compTab, setCompTab] = useState<'strategy' | 'meta_ads'>('meta_ads');
   const [activeStep, setActiveStep] = useState<
-    'step1_select_competitor' | 'step2_our_counter_ads' | 'step3_campaign_builder'
+    'step1_select_competitor' | 'step2_our_counter_ads'
   >('step1_select_competitor');
   const [selectedCompetitorAdIds, setSelectedCompetitorAdIds] = useState<string[]>([]);
   const [selectedLibraryAds, setSelectedLibraryAds] = useState<MetaAdLibraryAd[]>([]);
@@ -251,62 +293,82 @@ export default function AdsPage() {
   } | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editText, setEditText] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null); // eslint-disable-line @typescript-eslint/no-unused-vars
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [formatFilter, setFormatFilter] = useState<'all' | MetaAdFormat>('all');
-
-  // Step 3: Editable Campaign Builder State
-  const [builderName, setBuilderName] = useState('Counter-Campaign — D2C Scale Pack');
-  const [builderObjective, setBuilderObjective] = useState('OUTCOME_SALES');
-  const [builderBudgetType, setBuilderBudgetType] = useState<'daily' | 'lifetime'>('daily');
-  const [builderBudgetAmount, setBuilderBudgetAmount] = useState('3500');
-  const [builderStartDate, setBuilderStartDate] = useState(new Date().toISOString().split('T')[0]);
-  const [builderEndDate, setBuilderEndDate] = useState('');
-  const [builderPlacements, setBuilderPlacements] = useState({
-    reels: true,
-    ig_feed: true,
-    fb_feed: true,
-    stories: true,
-  });
-  const [builderAgeMin, setBuilderAgeMin] = useState('24');
-  const [builderAgeMax, setBuilderAgeMax] = useState('55');
-  const [builderGender, setBuilderGender] = useState<'ALL' | 'MEN' | 'WOMEN'>('ALL');
-  const [builderLocations, setBuilderLocations] = useState(
-    'Mumbai, Delhi NCR, Bengaluru, Hyderabad, Pune, Ahmedabad, Kolkata'
-  );
-  const [builderInterests, setBuilderInterests] = useState(
-    'Indian Cuisine, Organic Food, Traditional Pickles, Gifting, Online Shopping'
-  );
-  const [builderCta, setBuilderCta] = useState('SHOP_NOW');
-  const [builderWebsiteUrl, setBuilderWebsiteUrl] = useState('');
-  const [builderLinkDescription, setBuilderLinkDescription] = useState('');
   const [uploadingMedia, setUploadingMedia] = useState(false);
-  const [builderSelectedAdIds, setBuilderSelectedAdIds] = useState<string[]>([]);
-  const [builderSubmitting, setBuilderSubmitting] = useState(false);
+
+  function goToCampaignLaunch(adsList: MetaAdLibraryAd[] = selectedLibraryAds) {
+    const platforms = new Set(
+      adsList.flatMap((a) => (a.publisher_platforms || []).map((p) => p.toLowerCase()))
+    );
+    const ctaRaw = (adsList[0]?.cta || 'SHOP_NOW').toUpperCase().replace(/\s+/g, '_');
+    const allowed = ['SHOP_NOW', 'ORDER_NOW', 'LEARN_MORE', 'SIGN_UP', 'GET_OFFER', 'BUY_NOW'];
+    const hooks = adsList
+      .map((a) => a.headline || a.primary_text?.slice(0, 60))
+      .filter(Boolean)
+      .slice(0, 3);
+    const hasWinner = adsList.some((a) => a.performance_rating === 'WINNER');
+
+    saveCampaignPrefill({
+      fromAds: true,
+      name: hasWinner ? 'Counter-Campaign — Winner Pack' : 'Counter-Campaign — D2C Pack',
+      objective: 'OUTCOME_SALES',
+      budget: hasWinner ? 3500 : 1500,
+      budget_type: 'daily',
+      cta: allowed.includes(ctaRaw) ? ctaRaw : 'SHOP_NOW',
+      link_description: hooks.length ? hooks.join(' · ').slice(0, 120) : undefined,
+      placements: {
+        reels: platforms.has('instagram') || platforms.size === 0,
+        ig_feed: platforms.has('instagram') || platforms.size === 0,
+        fb_feed: platforms.has('facebook') || platforms.size === 0,
+        stories: platforms.has('instagram') || platforms.has('facebook') || platforms.size === 0,
+      },
+    });
+    router.push('/campaigns?from=ads');
+  }
 
   useEffect(() => {
+    setLoadError(null);
     fetch('/api/onboarding')
       .then((r) => r.json())
       .then((data) => {
-        if (data?.id) {
-          setCampaignInputId(data.id);
-          if (data.website_url) setBuilderWebsiteUrl(data.website_url);
-          return fetch(`/api/ads/generate?campaign_input_id=${data.id}`);
+        if (!data?.id) {
+          setLoadError('Complete onboarding first — add your website and competitor URLs.');
+          setLoading(false);
+          return;
         }
+        setCampaignInputId(data.id);
+        return fetch(`/api/ads/generate?campaign_input_id=${data.id}`);
       })
-      .then((r) => r?.json())
+      .then((r) => {
+        if (!r) return null;
+        if (!r.ok) throw new Error('Failed to load competitor data');
+        return r.json();
+      })
       .then((data) => {
-        if (data?.ads) {
-          setAds(data.ads);
-          const approvedIds = data.ads.filter((a: any) => a.status === 'approved').map((a: any) => a.id);
-          if (approvedIds.length > 0) setBuilderSelectedAdIds(approvedIds);
-        }
+        if (!data) return;
+        if (data?.ads) setAds(data.ads.map(normalizeLoadedAd));
         if (data?.competitor_intel) setCompetitorIntel(data.competitor_intel);
+        if (data?.note && !data?.competitor_intel?.length) {
+          setLoadError(data.note);
+        }
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch((err) => {
+        setLoadError(err instanceof Error ? err.message : 'Failed to load ads page');
+        setLoading(false);
+      });
   }, []);
+
+  // Auto-fetch live Ad Library ads once we have competitors
+  useEffect(() => {
+    if (campaignInputId && competitorIntel.length > 0 && !liveMetaFetched && !loadingLiveMeta) {
+      void fetchLiveMetaAds();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaignInputId, competitorIntel.length]);
 
   async function fetchLiveMetaAds(force = false) {
     if (!campaignInputId) return;
@@ -337,7 +399,7 @@ export default function AdsPage() {
     }
   }
 
-  // Auto-fetch live Library ads when Meta tab is active
+  // Auto-fetch live Library ads when Meta tab is active (manual refresh)
   useEffect(() => {
     if (
       activeStep === 'step1_select_competitor' &&
@@ -372,34 +434,6 @@ export default function AdsPage() {
     }
   }
 
-  function applyCompetitorStrategy(adsList: MetaAdLibraryAd[]) {
-    if (!adsList.length) return;
-    const platforms = new Set(
-      adsList.flatMap((a) => (a.publisher_platforms || []).map((p) => p.toLowerCase()))
-    );
-    setBuilderPlacements({
-      reels: platforms.has('instagram') || platforms.has('facebook'),
-      ig_feed: platforms.has('instagram'),
-      fb_feed: platforms.has('facebook'),
-      stories: platforms.has('instagram') || platforms.has('facebook'),
-    });
-    const ctaRaw = (adsList[0]?.cta || 'SHOP_NOW').toUpperCase().replace(/\s+/g, '_');
-    const allowed = ['SHOP_NOW', 'ORDER_NOW', 'LEARN_MORE', 'SIGN_UP', 'GET_OFFER', 'BUY_NOW'];
-    setBuilderCta(allowed.includes(ctaRaw) ? ctaRaw : 'SHOP_NOW');
-    const hooks = adsList
-      .map((a) => a.headline || a.primary_text?.slice(0, 60))
-      .filter(Boolean)
-      .slice(0, 3);
-    if (hooks.length) {
-      setBuilderLinkDescription(hooks.join(' · ').slice(0, 120));
-    }
-    // Prefer slightly higher budget when winners selected
-    const hasWinner = adsList.some((a) => a.performance_rating === 'WINNER');
-    if (hasWinner && Number(builderBudgetAmount) < 3500) {
-      setBuilderBudgetAmount('3500');
-    }
-  }
-
   function toggleCompetitorAdSelection(ad: MetaAdLibraryAd | string) {
     if (typeof ad === 'string') {
       setSelectedCompetitorAdIds((prev) =>
@@ -415,12 +449,6 @@ export default function AdsPage() {
       const next = exists ? prev.filter((a) => a.id !== ad.id) : [...prev, ad];
       return next;
     });
-  }
-
-  function toggleBuilderAdSelection(adId: string) {
-    setBuilderSelectedAdIds((prev) =>
-      prev.includes(adId) ? prev.filter((id) => id !== adId) : [...prev, adId]
-    );
   }
 
   async function handleGenerate() {
@@ -466,11 +494,9 @@ export default function AdsPage() {
       return;
     }
     if (data.ads) {
-      setAds(data.ads);
-      setBuilderSelectedAdIds(data.ads.map((a: GeneratedAd) => a.id));
+      setAds(data.ads.map(normalizeLoadedAd));
     }
     if (data.competitor_intel) setCompetitorIntel(data.competitor_intel);
-    applyCompetitorStrategy(selectedLibraryAds);
     setFormatFilter('all');
     setActiveStep('step2_our_counter_ads');
     setGenerating(false);
@@ -493,7 +519,6 @@ export default function AdsPage() {
       return;
     }
     setAds((prev) => [...prev, data]);
-    setBuilderSelectedAdIds((prev) => [...prev, data.id]);
     setShowManualAdd(false);
     setManualForm({ headline: '', copy_text: '', image_url: '', ad_format: 'single_image' });
     setToastMessage('Manual ad added — edit & approve when ready');
@@ -536,81 +561,6 @@ export default function AdsPage() {
       return;
     }
     setAds((prev) => prev.filter((a) => a.id !== id));
-    setBuilderSelectedAdIds((prev) => prev.filter((x) => x !== id));
-  }
-
-  async function handleSaveCampaign(isDraft: boolean) {
-    const approvedIds = approved.map((a) => a.id);
-    const targetAdIds =
-      builderSelectedAdIds.filter((id) => approvedIds.includes(id)).length > 0
-        ? builderSelectedAdIds.filter((id) => approvedIds.includes(id))
-        : approvedIds;
-
-    if (targetAdIds.length === 0) {
-      alert('Approve at least one creative in Step 2, then select it here for Meta launch.');
-      return;
-    }
-    if (!builderWebsiteUrl.trim()) {
-      alert('Destination website URL is required for Meta ads.');
-      return;
-    }
-    if (!builderName.trim()) {
-      alert('Campaign name is required.');
-      return;
-    }
-
-    setBuilderSubmitting(true);
-    try {
-      const res = await fetch('/api/campaigns/launch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: builderName,
-          objective: builderObjective,
-          budget: Number(builderBudgetAmount),
-          ad_ids: targetAdIds,
-          is_draft: isDraft,
-          website_url: builderWebsiteUrl || undefined,
-          cta: builderCta,
-          audience: {
-            countries: ['IN'],
-            age_min: Number(builderAgeMin),
-            age_max: Number(builderAgeMax),
-            gender: builderGender,
-            locations: builderLocations.split(',').map((s) => s.trim()).filter(Boolean),
-            interests: builderInterests.split(',').map((s) => s.trim()).filter(Boolean),
-            placements: builderPlacements,
-            start_date: builderStartDate,
-            end_date: builderEndDate || null,
-            cta: builderCta,
-            link_description: builderLinkDescription || null,
-          },
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to save campaign');
-        setBuilderSubmitting(false);
-        return;
-      }
-
-      setToastMessage(
-        isDraft
-          ? 'Campaign saved as draft (Meta sync if connected).'
-          : data.message ||
-            'Campaign created on Meta as PAUSED — review in Ads Manager, then activate.'
-      );
-      setTimeout(() => setToastMessage(null), 5000);
-
-      if (!isDraft) {
-        window.location.href = '/campaigns';
-      }
-    } catch (err: any) {
-      alert(err.message || 'Network error');
-    } finally {
-      setBuilderSubmitting(false);
-    }
   }
 
   async function updateAd(id: string, status?: string, copy_text?: string) {
@@ -703,18 +653,15 @@ export default function AdsPage() {
             Step 2: Replicate &amp; edit ({ads.length})
           </button>
 
-          <button
-            type="button"
-            className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
-              activeStep === 'step3_campaign_builder'
-                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-            onClick={() => setActiveStep('step3_campaign_builder')}
-          >
-            <span className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-[10px] shrink-0">3</span>
-            Step 3: Meta review &amp; launch
-          </button>
+          {approvedCount > 0 && (
+            <button
+              type="button"
+              className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 bg-[var(--meta-blue)] text-white shadow-md"
+              onClick={() => goToCampaignLaunch(selectedLibraryAds)}
+            >
+              <Rocket className="w-4 h-4" /> Launch on Meta →
+            </button>
+          )}
         </div>
 
         <button
@@ -726,6 +673,35 @@ export default function AdsPage() {
           {ads.length > 0 ? 'Regenerate from selection' : 'Generate & Replicate'}
         </button>
       </div>
+
+      {loadError && (
+        <div className="mb-6 meta-card p-4 border-amber-200 bg-amber-50 text-amber-900 text-sm">
+          {loadError}{' '}
+          <a href="/onboarding" className="font-semibold text-[var(--meta-blue)] hover:underline">
+            Go to Onboarding →
+          </a>
+        </div>
+      )}
+
+      {loading && (
+        <div className="meta-card p-12 flex flex-col items-center justify-center text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-[var(--meta-blue)] mb-3" />
+          <p className="text-sm text-[var(--muted)]">Loading competitor ads from Meta Ad Library…</p>
+        </div>
+      )}
+
+      {!loading && activeStep === 'step1_select_competitor' && competitorIntel.length === 0 && (
+        <div className="meta-card p-10 text-center">
+          <Swords className="w-12 h-12 text-[var(--muted)] mx-auto mb-4" />
+          <h2 className="text-lg font-bold mb-2">No competitors configured yet</h2>
+          <p className="text-sm text-[var(--muted)] mb-6 max-w-md mx-auto">
+            Add your website and at least one competitor URL in onboarding. We&apos;ll fetch their live Meta ads for you to clone.
+          </p>
+          <a href="/onboarding" className="btn-primary inline-flex items-center gap-2">
+            Complete onboarding →
+          </a>
+        </div>
+      )}
 
       {activeStep === 'step1_select_competitor' && competitorIntel.length > 0 && (
         <div className="mb-6 border border-purple-200 bg-gradient-to-r from-purple-50/90 via-indigo-50/70 to-blue-50/90 rounded-2xl p-5 shadow-sm space-y-4">
@@ -1485,427 +1461,39 @@ export default function AdsPage() {
             )}
           </p>
           <p className="text-sm text-muted">
-            Next: final Meta review — strategy, targeting, and push-ready formats.
+            Next: launch your approved creatives in the campaign wizard.
           </p>
           <button
             type="button"
-            className="btn-primary inline-flex items-center gap-2 font-bold py-2.5 px-6 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-md text-white"
-            onClick={() => {
-              setBuilderSelectedAdIds(approved.map((a) => a.id));
-              applyCompetitorStrategy(selectedLibraryAds);
-              setActiveStep('step3_campaign_builder');
-            }}
+            className="btn-primary inline-flex items-center gap-2 font-bold py-2.5 px-6"
+            onClick={() => goToCampaignLaunch(selectedLibraryAds)}
           >
-            <Rocket className="w-4 h-4" /> Step 3: Final review &amp; Meta launch →
+            <Rocket className="w-4 h-4" /> Launch campaign →
           </button>
         </div>
       )}
         </div>
       )}
 
-      {/* Floating Step 2 → Step 3 */}
+      {/* Floating launch CTA */}
       {activeStep === 'step2_our_counter_ads' && approvedCount > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-emerald-950/95 backdrop-blur text-white border border-emerald-400/40 px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-4">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-[var(--meta-blue)] text-white px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-4">
           <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-emerald-500 text-white text-xs font-bold flex items-center justify-center shadow">
+            <span className="w-6 h-6 rounded-full bg-white/20 text-white text-xs font-bold flex items-center justify-center">
               {approvedCount}
             </span>
-            <p className="text-xs font-semibold">Approved — ready for Meta review</p>
+            <p className="text-xs font-semibold">Approved — ready to launch</p>
           </div>
           <button
             type="button"
-            className="btn-primary text-xs py-2.5 px-5 bg-gradient-to-r from-emerald-500 to-teal-500 font-bold text-white shadow-lg flex items-center gap-1.5"
-            onClick={() => {
-              setBuilderSelectedAdIds(approved.map((a) => a.id));
-              applyCompetitorStrategy(selectedLibraryAds);
-              setActiveStep('step3_campaign_builder');
-            }}
+            className="bg-white text-[var(--meta-blue)] text-xs py-2.5 px-5 font-bold rounded-lg shadow flex items-center gap-1.5"
+            onClick={() => goToCampaignLaunch(selectedLibraryAds)}
           >
-            <Rocket className="w-4 h-4" /> Go to Step 3 →
+            <Rocket className="w-4 h-4" /> Launch campaign →
           </button>
         </div>
       )}
 
-      {/* Step 3: Editable Campaign Builder & Meta Manager Setup */}
-      {activeStep === 'step3_campaign_builder' && (
-        <div className="bg-white border border-purple-200 rounded-2xl p-6 shadow-md space-y-6 animate-in fade-in duration-200 mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-gray-100">
-            <div>
-              <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                Step 3: Final review &amp; Meta launch
-                <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                  Meta-ready
-                </span>
-              </h2>
-              <p className="text-xs text-muted mt-1">
-                Confirm strategy + approved creatives. Payload follows Meta Marketing API limits (headline ≤40, primary ≤2200, daily budget in INR, campaign created PAUSED for safety).
-              </p>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700 space-y-2">
-            <p className="font-bold text-slate-900 flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Meta best-practice checklist
-            </p>
-            <ul className="list-disc pl-5 space-y-1">
-              <li>Only <strong>approved</strong> creatives are pushed</li>
-              <li>Headline ≤40 · primary ≤2200 · CTA + destination URL required</li>
-              <li>Placements mirror competitor platforms where possible</li>
-              <li>Daily budget min ₹100 · campaign created <strong>PAUSED</strong> until you activate</li>
-            </ul>
-          </div>
-
-          {selectedLibraryAds.length > 0 && (
-            <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 space-y-2">
-              <p className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
-                <Swords className="w-4 h-4" /> Competitor strategy we&apos;re replicating
-              </p>
-              <ul className="text-xs text-indigo-900 space-y-1.5">
-                {selectedLibraryAds.map((ad) => (
-                  <li key={ad.id} className="flex flex-wrap gap-2 items-start">
-                    <span
-                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${performanceBadgeClass(
-                        ad.performance_rating
-                      )}`}
-                    >
-                      {ad.performance_label || ad.performance_rating || 'Active'}
-                    </span>
-                    <span className="font-semibold">{ad.headline || ad.library_id}</span>
-                    <span className="text-indigo-700">
-                      · {(ad.publisher_platforms || []).join(', ') || 'Meta'} · CTA{' '}
-                      {ad.cta || 'Shop Now'}
-                      {ad.runtime_days != null ? ` · ${ad.runtime_days}d live` : ''}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <p className="text-[11px] text-indigo-800 leading-snug">
-                We mirror their hooks, formats, CTA, and placements — with{' '}
-                <strong>your brand &amp; products</strong> only (competitor names scrubbed from copy).
-              </p>
-            </div>
-          )}
-
-          {/* Section 1: Campaign Identity & Objective */}
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-gray-800 uppercase tracking-wider">
-                Campaign Name *
-              </label>
-              <input
-                type="text"
-                value={builderName}
-                onChange={(e) => setBuilderName(e.target.value)}
-                className="w-full px-3.5 py-2 rounded-xl border border-gray-300 text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-purple-500"
-                placeholder="e.g. Counter-Campaign — Variety Pack Scale"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-gray-800 uppercase tracking-wider">
-                Campaign Objective *
-              </label>
-              <select
-                value={builderObjective}
-                onChange={(e) => setBuilderObjective(e.target.value)}
-                className="w-full px-3.5 py-2 rounded-xl border border-gray-300 text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-purple-500 bg-white"
-              >
-                <option value="OUTCOME_SALES">Sales & Conversions (OUTCOME_SALES) — Recommended</option>
-                <option value="OUTCOME_LEADS">Lead Generation (OUTCOME_LEADS)</option>
-                <option value="OUTCOME_TRAFFIC">Website Traffic (OUTCOME_TRAFFIC)</option>
-                <option value="OUTCOME_ENGAGEMENT">Post Engagement & Likes (OUTCOME_ENGAGEMENT)</option>
-                <option value="OUTCOME_AWARENESS">Brand Awareness (OUTCOME_AWARENESS)</option>
-              </select>
-            </div>
-
-            <div className="space-y-1.5 sm:col-span-2">
-              <label className="text-xs font-bold text-gray-800 uppercase tracking-wider">
-                Destination website URL *
-              </label>
-              <input
-                type="url"
-                value={builderWebsiteUrl}
-                onChange={(e) => setBuilderWebsiteUrl(e.target.value)}
-                className="w-full px-3.5 py-2 rounded-xl border border-gray-300 text-xs font-semibold"
-                placeholder="https://yourstore.com"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-gray-800 uppercase tracking-wider">
-                Call to action *
-              </label>
-              <select
-                value={builderCta}
-                onChange={(e) => setBuilderCta(e.target.value)}
-                className="w-full px-3.5 py-2 rounded-xl border border-gray-300 text-xs font-semibold bg-white"
-              >
-                <option value="SHOP_NOW">Shop Now</option>
-                <option value="ORDER_NOW">Order Now</option>
-                <option value="LEARN_MORE">Learn More</option>
-                <option value="BUY_NOW">Buy Now</option>
-                <option value="SIGN_UP">Sign Up</option>
-                <option value="GET_OFFER">Get Offer</option>
-              </select>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-gray-800 uppercase tracking-wider">
-                Link description (optional)
-              </label>
-              <input
-                type="text"
-                value={builderLinkDescription}
-                onChange={(e) => setBuilderLinkDescription(e.target.value.slice(0, 120))}
-                className="w-full px-3.5 py-2 rounded-xl border border-gray-300 text-xs font-semibold"
-                placeholder="Short offer line under the link"
-              />
-            </div>
-          </div>
-
-          {/* Section 2: Budget & Schedule */}
-          <div className="bg-purple-50/50 border border-purple-100 rounded-xl p-4 space-y-4">
-            <h3 className="text-xs font-bold text-purple-900 uppercase tracking-wider flex items-center gap-1.5">
-              <IndianRupee className="w-4 h-4 text-emerald-600" /> Budget & Schedule Strategy
-            </h3>
-
-            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-              <div className="space-y-1.5">
-                <label className="font-semibold text-gray-700">Budget Type *</label>
-                <select
-                  value={builderBudgetType}
-                  onChange={(e) => setBuilderBudgetType(e.target.value as 'daily' | 'lifetime')}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 font-semibold bg-white"
-                >
-                  <option value="daily">Daily Budget (Recommended)</option>
-                  <option value="lifetime">Lifetime Budget</option>
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="font-semibold text-gray-700">Amount (₹) *</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-2 text-gray-500 font-bold">₹</span>
-                  <input
-                    type="number"
-                    min={100}
-                    value={builderBudgetAmount}
-                    onChange={(e) => setBuilderBudgetAmount(e.target.value)}
-                    className="w-full pl-7 pr-3 py-2 rounded-lg border border-gray-300 font-bold text-gray-900"
-                    placeholder="3500"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="font-semibold text-gray-700">Start Date *</label>
-                <input
-                  type="date"
-                  value={builderStartDate}
-                  onChange={(e) => setBuilderStartDate(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 font-semibold bg-white"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="font-semibold text-gray-700">End Date (optional)</label>
-                <input
-                  type="date"
-                  value={builderEndDate}
-                  onChange={(e) => setBuilderEndDate(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 font-semibold bg-white"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Section 3: Placements & Devices */}
-          <div className="space-y-3">
-            <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5">
-              <Smartphone className="w-4 h-4 text-indigo-600" /> Target Placements (Meta Advantage+)
-            </h3>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-              <label className="flex items-center gap-2 p-2.5 bg-gray-50 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-100">
-                <input
-                  type="checkbox"
-                  checked={builderPlacements.reels}
-                  onChange={(e) => setBuilderPlacements((prev) => ({ ...prev, reels: e.target.checked }))}
-                  className="rounded text-purple-600"
-                />
-                <span className="font-semibold text-gray-900">Instagram Reels (9:16)</span>
-              </label>
-              <label className="flex items-center gap-2 p-2.5 bg-gray-50 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-100">
-                <input
-                  type="checkbox"
-                  checked={builderPlacements.ig_feed}
-                  onChange={(e) => setBuilderPlacements((prev) => ({ ...prev, ig_feed: e.target.checked }))}
-                  className="rounded text-purple-600"
-                />
-                <span className="font-semibold text-gray-900">Instagram Feed (1:1)</span>
-              </label>
-              <label className="flex items-center gap-2 p-2.5 bg-gray-50 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-100">
-                <input
-                  type="checkbox"
-                  checked={builderPlacements.fb_feed}
-                  onChange={(e) => setBuilderPlacements((prev) => ({ ...prev, fb_feed: e.target.checked }))}
-                  className="rounded text-purple-600"
-                />
-                <span className="font-semibold text-gray-900">Facebook Feed (1:1)</span>
-              </label>
-              <label className="flex items-center gap-2 p-2.5 bg-gray-50 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-100">
-                <input
-                  type="checkbox"
-                  checked={builderPlacements.stories}
-                  onChange={(e) => setBuilderPlacements((prev) => ({ ...prev, stories: e.target.checked }))}
-                  className="rounded text-purple-600"
-                />
-                <span className="font-semibold text-gray-900">Facebook Stories & Reels</span>
-              </label>
-            </div>
-          </div>
-
-          {/* Section 4: Audience Targeting Parameters */}
-          <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-4 space-y-4">
-            <h3 className="text-xs font-bold text-indigo-950 uppercase tracking-wider flex items-center gap-1.5">
-              <Target className="w-4 h-4 text-emerald-600" /> Audience Targeting Parameters
-            </h3>
-
-            <div className="grid sm:grid-cols-3 gap-4 text-xs">
-              <div className="space-y-1.5">
-                <label className="font-semibold text-gray-700">Age Range</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    value={builderAgeMin}
-                    onChange={(e) => setBuilderAgeMin(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 font-semibold text-center"
-                    placeholder="18"
-                  />
-                  <span className="text-gray-400">to</span>
-                  <input
-                    type="number"
-                    value={builderAgeMax}
-                    onChange={(e) => setBuilderAgeMax(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 font-semibold text-center"
-                    placeholder="65"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="font-semibold text-gray-700">Gender</label>
-                <select
-                  value={builderGender}
-                  onChange={(e) => setBuilderGender(e.target.value as 'ALL' | 'MEN' | 'WOMEN')}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 font-semibold bg-white"
-                >
-                  <option value="ALL">All Genders</option>
-                  <option value="WOMEN">Women Only</option>
-                  <option value="MEN">Men Only</option>
-                </select>
-              </div>
-
-              <div className="space-y-1.5 sm:col-span-1">
-                <label className="font-semibold text-gray-700">Target Cities / States</label>
-                <input
-                  type="text"
-                  value={builderLocations}
-                  onChange={(e) => setBuilderLocations(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 font-medium"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5 text-xs">
-              <label className="font-semibold text-gray-700">Detailed Interest Targeting</label>
-              <input
-                type="text"
-                value={builderInterests}
-                onChange={(e) => setBuilderInterests(e.target.value)}
-                className="w-full px-3.5 py-2 rounded-lg border border-gray-300 font-medium"
-                placeholder="Comma separated interests"
-              />
-            </div>
-          </div>
-
-          {/* Section 5: Approved creatives for Meta */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-purple-600" /> Approved creatives ({builderSelectedAdIds.length} for push)
-              </h3>
-              <span className="text-xs text-muted">Only approved Step 2 ads can go to Meta</span>
-            </div>
-
-            {approved.length === 0 ? (
-              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg p-3">
-                No approved creatives yet — go back to Step 2, edit if needed, then Approve.
-              </p>
-            ) : (
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {approved.map((ad) => {
-                  const isSelected = builderSelectedAdIds.includes(ad.id);
-                  return (
-                    <div
-                      key={ad.id}
-                      className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center gap-3 ${
-                        isSelected
-                          ? 'bg-purple-50 border-purple-400 ring-2 ring-purple-300'
-                          : 'bg-gray-50 border-gray-200 opacity-70 hover:opacity-100'
-                      }`}
-                      onClick={() => toggleBuilderAdSelection(ad.id)}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => toggleBuilderAdSelection(ad.id)}
-                        className="rounded text-purple-600 shrink-0"
-                      />
-                      <div className="min-w-0 flex-1 text-xs">
-                        <span className="font-bold text-purple-900 block truncate">
-                          {ad.headline || 'Creative'}
-                        </span>
-                        <span className="text-[10px] text-gray-500 capitalize">
-                          {normalizeFormat(ad)} · {(ad.copy_text || '').slice(0, 40)}…
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Action Buttons */}
-          <div className="pt-4 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-end gap-3">
-            <button
-              type="button"
-              className="w-full sm:w-auto btn-secondary text-xs py-3 px-5 font-bold flex items-center justify-center gap-2 border-gray-300 text-gray-700 hover:bg-gray-100"
-              disabled={builderSubmitting}
-              onClick={() => handleSaveCampaign(true)}
-            >
-              <Save className="w-4 h-4" /> Save Campaign as Draft
-            </button>
-
-            <button
-              type="button"
-              className="w-full sm:w-auto btn-primary text-xs py-3 px-7 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 font-bold text-white shadow-lg flex items-center justify-center gap-2"
-              disabled={builderSubmitting}
-              onClick={() => handleSaveCampaign(false)}
-            >
-              {builderSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" /> Launching Campaign...
-                </>
-              ) : (
-                <>
-                  <Rocket className="w-4 h-4" /> Confirm & Launch Campaign on Meta
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      )}
       {/* Floating Notification Toast */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 max-w-md bg-slate-900 text-white p-4 rounded-xl shadow-2xl border border-purple-500/30 flex items-center gap-3 animate-in slide-in-from-bottom-5 duration-200">

@@ -5,13 +5,15 @@ import {
   extractSubline,
   metaCtaForAngle,
   badgeForAngle,
-  productSceneUrl,
   META_AD_FORMATS,
   type MetaAdFormat,
 } from '@/lib/creatives';
 import type { AdMediaPayload } from '@/types/database';
 import type { MetaAdLibraryAd } from '@/lib/ai';
 import { scrubCompetitorBrands, scrubHeadline } from '@/lib/brand-scrub';
+import { buildCreativeBrief } from '@/lib/creative-brief';
+import { generateSceneImage } from '@/lib/creative-providers';
+import { generateGeminiVideo } from '@/lib/gemini-creative';
 
 export type SelectedLibraryAdInput = Pick<
   MetaAdLibraryAd,
@@ -66,27 +68,21 @@ function adaptHeadline(
   return extractHeadline(scrubbed, brand).slice(0, 40);
 }
 
-/**
- * Build Meta-ready creatives that replicate selected competitor Library ads
- * using the client's store product images + adapted copy (competitor brands scrubbed).
- */
-export function buildReplicatedAds(opts: {
+export async function buildReplicatedAds(opts: {
   campaignInputId: string;
   selected: SelectedLibraryAdInput[];
   brand: string;
   category: string;
   productImages: string[];
-  appUrl: string;
   competitorBrand?: string | null;
   competitorNames?: Array<string | null | undefined>;
-}): ReplicatedAdRow[] {
+}): Promise<ReplicatedAdRow[]> {
   const {
     campaignInputId,
     selected,
     brand,
     category,
     productImages,
-    appUrl,
     competitorBrand,
     competitorNames = [],
   } = opts;
@@ -117,7 +113,41 @@ export function buildReplicatedAds(opts: {
     const badge = badgeForAngle(angle);
     const productImage =
       productImages.length > 0 ? productImages[n % productImages.length] : null;
-    const sceneImage = productSceneUrl(category, angle, (n + 1) * 19 + 7);
+
+    const brief = buildCreativeBrief({
+      brand,
+      category,
+      competitorAd: src,
+      productName: category,
+    });
+
+    const [feedScene, storyScene] = await Promise.all([
+      generateSceneImage({
+        brief,
+        category,
+        angle,
+        seed: (n + 1) * 19 + 7,
+        aspect: '1:1',
+        productImageUrl: productImage,
+        brand,
+        headline,
+      }),
+      generateSceneImage({
+        brief,
+        category,
+        angle,
+        seed: (n + 1) * 31 + 11,
+        aspect: '9:16',
+        productImageUrl: productImage,
+        brand,
+        headline,
+      }),
+    ]);
+
+    const useGeminiFeed = feedScene.isFinalCreative === true;
+    const useGeminiStory = storyScene.isFinalCreative === true;
+
+    const sceneImage = feedScene.url;
     const sourceMeta: AdMediaPayload = {
       source_library_id: src.library_id || src.id,
       source_headline: scrubCompetitorBrands(src.headline || '', brand, names) || null,
@@ -125,6 +155,12 @@ export function buildReplicatedAds(opts: {
       source_brand: competitorBrand || src.brand || null,
       replicate: true,
       product_images: productImage ? [productImage] : productImages.slice(0, 3),
+      creative_brief: {
+        mood: brief.mood,
+        counter_hook: brief.counterHook,
+        layout: brief.layoutStyle,
+        scene_provider: feedScene.provider,
+      },
     };
 
     const targetFormat: MetaAdFormat =
@@ -146,7 +182,6 @@ export function buildReplicatedAds(opts: {
           i === 0 ? headline : `${brand} · ${category}`.slice(0, 40);
         return {
           image_url: buildCreativeUrl({
-            baseUrl: appUrl,
             brand,
             headline: cardHeadline,
             subline,
@@ -154,7 +189,7 @@ export function buildReplicatedAds(opts: {
             cta,
             badge: i === 0 ? badge : `CARD ${i + 1}`,
             productImage: img,
-            sceneImage: img ? null : sceneImage,
+            sceneImage: feedScene.url,
             format: 'feed_1x1',
             adFormat: 'carousel',
             variant: n * 10 + i,
@@ -180,6 +215,33 @@ export function buildReplicatedAds(opts: {
         angle: `replicate:${src.library_id || src.id}`,
       });
     } else if (targetFormat === 'video') {
+      const videoPrompt = `${brief.scenePrompt} ${headline}. ${brief.counterHook}`;
+      const geminiVideo = await generateGeminiVideo({
+        prompt: videoPrompt,
+        aspect: '9:16',
+        referenceImageUrl: productImage,
+        durationSeconds: 6,
+      });
+
+      if (geminiVideo?.url) {
+        ads.push({
+          campaign_input_id: campaignInputId,
+          variant_number: n,
+          copy_text: primaryText,
+          image_url: geminiVideo.url,
+          status: 'pending',
+          ad_format: 'video',
+          media_payload: {
+            ...sourceMeta,
+            placement: META_AD_FORMATS.video.placement,
+            aspect: '9:16',
+            video_url: geminiVideo.url,
+            scene_provider: 'gemini',
+          },
+          headline,
+          angle: `replicate:${src.library_id || src.id}`,
+        });
+      } else {
       const frameCount = Math.min(4, Math.max(3, productImages.length || 3));
       const frames = Array.from({ length: frameCount }, (_, i) => {
         const img =
@@ -189,7 +251,6 @@ export function buildReplicatedAds(opts: {
         const frameHeadlines = [headline, subline.split(' · ')[0] || brand, cta, brand];
         return {
           image_url: buildCreativeUrl({
-            baseUrl: appUrl,
             brand,
             headline: frameHeadlines[i] || headline,
             subline,
@@ -197,7 +258,7 @@ export function buildReplicatedAds(opts: {
             cta,
             badge: i === 0 ? badge : 'WATCH',
             productImage: img,
-            sceneImage: img ? null : sceneImage,
+            sceneImage: feedScene.url,
             format: 'feed_1x1',
             adFormat: 'video',
             variant: n * 10 + i,
@@ -222,25 +283,27 @@ export function buildReplicatedAds(opts: {
         headline,
         angle: `replicate:${src.library_id || src.id}`,
       });
+      }
     } else {
       ads.push({
         campaign_input_id: campaignInputId,
         variant_number: n,
         copy_text: primaryText,
-        image_url: buildCreativeUrl({
-          baseUrl: appUrl,
-          brand,
-          headline,
-          subline,
-          angle,
-          cta,
-          badge,
-          productImage,
-          sceneImage,
-          format: 'feed_1x1',
-          adFormat: 'single_image',
-          variant: n,
-        }),
+        image_url: useGeminiFeed
+          ? feedScene.url
+          : buildCreativeUrl({
+              brand,
+              headline,
+              subline,
+              angle,
+              cta,
+              badge,
+              productImage,
+              sceneImage,
+              format: 'feed_1x1',
+              adFormat: 'single_image',
+              variant: n,
+            }),
         status: 'pending',
         ad_format: 'single_image',
         media_payload: {
@@ -258,23 +321,24 @@ export function buildReplicatedAds(opts: {
       campaign_input_id: campaignInputId,
       variant_number: n,
       copy_text: primaryText,
-      image_url: buildCreativeUrl({
-        baseUrl: appUrl,
-        brand,
-        headline,
-        subline,
-        angle,
-        cta,
-        badge,
-        productImage:
-          productImages.length > 0
-            ? productImages[(n + 1) % productImages.length]
-            : productImage,
-        sceneImage,
-        format: 'story_9x16',
-        adFormat: 'stories',
-        variant: n,
-      }),
+      image_url: useGeminiStory
+        ? storyScene.url
+        : buildCreativeUrl({
+            brand,
+            headline,
+            subline,
+            angle,
+            cta,
+            badge,
+            productImage:
+              productImages.length > 0
+                ? productImages[(n + 1) % productImages.length]
+                : productImage,
+            sceneImage: storyScene.url,
+            format: 'story_9x16',
+            adFormat: 'stories',
+            variant: n,
+          }),
       status: 'pending',
       ad_format: 'stories',
       media_payload: {

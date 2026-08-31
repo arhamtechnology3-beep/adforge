@@ -8,6 +8,8 @@ import {
   createAdSet,
   createAd,
 } from '@/lib/meta';
+import type { PlacementToggles } from '@/lib/meta-campaign';
+import { genderToMetaGenders } from '@/lib/meta-campaign';
 
 export async function POST(
   _request: Request,
@@ -106,12 +108,32 @@ export async function POST(
       );
       metaCampaignId = created.id;
 
+      const launchConfig = (campaign.launch_config || {}) as Record<string, unknown>;
+      const audience = (launchConfig.audience || {}) as Record<string, unknown>;
+      const budgetType = (launchConfig.budget_type as 'daily' | 'lifetime') || 'daily';
+
       const adSet = await createAdSet(
         token,
         adAccount!.meta_ad_account_id!,
         created.id,
         Number(campaign.budget || 500),
-        `${name} · Ad set`
+        `${name} · Ad set`,
+        {
+          countries: (audience.countries as string[]) || ['IN'],
+          age_min: Number(audience.age_min) || 18,
+          age_max: Number(audience.age_max) || 65,
+          genders: genderToMetaGenders(audience.gender as string),
+          locations: audience.locations as string[] | undefined,
+          interests: audience.interests as string[] | undefined,
+          placements: audience.placements as PlacementToggles | undefined,
+          start_date: audience.start_date as string | null,
+          end_date: audience.end_date as string | null,
+        },
+        {
+          budgetType,
+          objective: campaign.objective || 'OUTCOME_TRAFFIC',
+          accessToken: token,
+        }
       );
 
       const adIds: string[] = campaign.ad_ids || [];
@@ -124,6 +146,8 @@ export async function POST(
 
         const pageId = process.env.META_PAGE_ID || 'me';
         const link = campaign.website_url || process.env.DEFAULT_AD_LINK || 'https://example.com';
+        const ctaType = String(launchConfig.cta || audience.cta || 'SHOP_NOW');
+        const linkDescription = (audience.link_description as string) || undefined;
 
         for (const ad of ads || []) {
           await createAd(
@@ -134,7 +158,9 @@ export async function POST(
             ad.image_url || '',
             pageId,
             link,
-            ad.headline || undefined
+            ad.headline || undefined,
+            ctaType,
+            linkDescription
           );
         }
       }

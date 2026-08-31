@@ -34,6 +34,14 @@ export interface AdMediaPayload {
   source_brand?: string | null;
   replicate?: boolean;
   manual?: boolean;
+  creative_brief?: {
+    mood?: string;
+    counter_hook?: string;
+    layout?: string;
+    scene_provider?: string;
+  };
+  video_url?: string | null;
+  scene_provider?: string | null;
 }
 
 export interface User {

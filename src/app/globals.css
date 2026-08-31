@@ -3,19 +3,22 @@
 @tailwind utilities;
 
 :root {
-  --background: #fafafa;
-  --foreground: #1a1a2e;
-  --primary: #6c3ce0;
-  --primary-light: #8b5cf6;
-  --primary-dark: #5521b5;
+  --background: #f0f2f5;
+  --foreground: #1c1e21;
+  --primary: #1877f2;
+  --primary-light: #4599ff;
+  --primary-dark: #166fe5;
+  --meta-blue: #1877f2;
+  --meta-green: #31a24c;
+  --meta-bg: #f0f2f5;
   --accent: #f97316;
   --surface: #ffffff;
-  --surface-hover: #f5f3ff;
-  --border: #e5e7eb;
-  --muted: #6b7280;
-  --success: #10b981;
+  --surface-hover: #f0f2f5;
+  --border: #dddfe2;
+  --muted: #65676b;
+  --success: #31a24c;
   --warning: #f59e0b;
-  --danger: #ef4444;
+  --danger: #e41e3f;
 }
 
 body {
@@ -32,10 +35,22 @@ body {
 
 @layer components {
   .btn-primary {
-    @apply bg-[var(--primary)] hover:bg-[var(--primary-dark)] text-white font-medium px-4 py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply bg-[var(--meta-blue)] hover:bg-[var(--primary-dark)] text-white font-semibold px-4 py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-secondary {
     @apply bg-white hover:bg-[var(--surface-hover)] text-[var(--foreground)] font-medium px-4 py-2.5 rounded-lg border border-[var(--border)] transition-colors;
+  }
+  .meta-card {
+    @apply bg-white rounded-xl border border-[var(--border)] shadow-sm;
+  }
+  .meta-step-active {
+    @apply bg-[var(--meta-blue)] text-white;
+  }
+  .meta-step-done {
+    @apply bg-[var(--meta-green)] text-white;
+  }
+  .meta-step-pending {
+    @apply bg-gray-200 text-gray-500;
   }
   .btn-danger {
     @apply bg-[var(--danger)] hover:bg-red-600 text-white font-medium px-4 py-2.5 rounded-lg transition-colors;

@@ -82,11 +82,35 @@ export async function createCampaign(
   return res.json();
 }
 
+import {
+  getObjectiveConfig,
+  buildPlacementSpec,
+  buildScheduleTimes,
+  type CampaignAudienceInput,
+} from '@/lib/meta-campaign';
+import {
+  resolveTargeting,
+  buildTargetingSpec,
+} from '@/lib/meta-targeting';
+
 export type MetaAdSetTargeting = {
   countries?: string[];
   age_min?: number;
   age_max?: number;
   genders?: number[]; // 1 male, 2 female
+  /** City names from UI — resolved to Meta geo keys when token available */
+  locations?: string[];
+  /** Interest names from UI — resolved to Meta interest IDs */
+  interests?: string[];
+  placements?: CampaignAudienceInput['placements'];
+  start_date?: string | null;
+  end_date?: string | null;
+};
+
+export type MetaAdSetOptions = {
+  budgetType?: 'daily' | 'lifetime';
+  objective?: string;
+  accessToken?: string;
 };
 
 export async function createAdSet(
@@ -95,44 +119,75 @@ export async function createAdSet(
   campaignId: string,
   budget: number,
   name: string,
-  targeting?: MetaAdSetTargeting
+  targeting?: MetaAdSetTargeting,
+  options?: MetaAdSetOptions
 ) {
-  const ageMin = Math.min(65, Math.max(13, Number(targeting?.age_min) || 18));
-  const ageMax = Math.min(65, Math.max(ageMin, Number(targeting?.age_max) || 65));
-  const countries =
-    targeting?.countries && targeting.countries.length > 0
-      ? targeting.countries
-      : ['IN'];
+  const objConfig = getObjectiveConfig(options?.objective || 'OUTCOME_TRAFFIC');
+  const placementSpec = buildPlacementSpec(targeting?.placements);
+  const schedule = buildScheduleTimes({
+    start_date: targeting?.start_date,
+    end_date: targeting?.end_date,
+  });
 
-  const targetingSpec: Record<string, unknown> = {
-    geo_locations: { countries },
-    age_min: ageMin,
-    age_max: ageMax,
+  const resolved = await resolveTargeting(
+    targeting?.locations,
+    targeting?.interests,
+    options?.accessToken || accessToken
+  );
+
+  const targetingSpec = buildTargetingSpec({
+    countries: targeting?.countries,
+    age_min: targeting?.age_min,
+    age_max: targeting?.age_max,
+    genders: targeting?.genders,
+    cities: resolved.cities,
+    interests: resolved.interests,
+    placements: placementSpec,
+  });
+
+  const body: Record<string, unknown> = {
+    name,
+    campaign_id: campaignId,
+    billing_event: objConfig.billing_event,
+    optimization_goal: objConfig.optimization_goal,
+    bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+    targeting: targetingSpec,
+    status: 'PAUSED',
+    access_token: accessToken,
   };
-  if (targeting?.genders?.length) {
-    targetingSpec.genders = targeting.genders;
+
+  const budgetPaise = Math.round(budget * 100);
+  if (options?.budgetType === 'lifetime') {
+    body.lifetime_budget = budgetPaise;
+  } else {
+    body.daily_budget = budgetPaise;
+  }
+
+  if (schedule.start_time) body.start_time = schedule.start_time;
+  if (schedule.end_time) body.end_time = schedule.end_time;
+
+  // Sales objective: attach pixel for conversion optimization when configured
+  if (objConfig.optimization_goal === 'OFFSITE_CONVERSIONS' && process.env.META_PIXEL_ID) {
+    body.promoted_object = {
+      pixel_id: process.env.META_PIXEL_ID,
+      custom_event_type: 'PURCHASE',
+    };
   }
 
   const res = await fetch(`${META_BASE}/${adAccountId}/adsets`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      name,
-      campaign_id: campaignId,
-      daily_budget: Math.round(budget * 100), // Meta expects cents/paise
-      billing_event: 'IMPRESSIONS',
-      optimization_goal: 'LINK_CLICKS',
-      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-      targeting: targetingSpec,
-      status: 'PAUSED',
-      access_token: accessToken,
-    }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Ad set creation failed: ${err}`);
   }
-  return res.json();
+  const result = await res.json();
+  return {
+    ...result,
+    _targeting_resolved: resolved,
+  };
 }
 
 export async function createAd(
@@ -144,7 +199,8 @@ export async function createAd(
   pageId: string,
   link?: string,
   headline?: string,
-  ctaType?: string
+  ctaType?: string,
+  linkDescription?: string
 ) {
   const destination = link || process.env.DEFAULT_AD_LINK || 'https://example.com';
   const linkData: Record<string, unknown> = {
@@ -153,6 +209,7 @@ export async function createAd(
     picture: imageUrl,
   };
   if (headline) linkData.name = headline.slice(0, 40);
+  if (linkDescription) linkData.description = linkDescription.slice(0, 30);
   // Meta call_to_action types: SHOP_NOW, LEARN_MORE, ORDER_NOW, SIGN_UP, etc.
   const cta = (ctaType || 'SHOP_NOW').toUpperCase().replace(/\s+/g, '_');
   linkData.call_to_action = {

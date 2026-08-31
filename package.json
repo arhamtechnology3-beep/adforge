@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "worker": "npx tsx src/workers/start.ts"
+    "test:e2e": "npx tsx scripts/e2e-campaign.test.ts",
+    "worker": "npx tsx src/workers/start.ts",
+    "postinstall": "npx playwright install chromium || true"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",

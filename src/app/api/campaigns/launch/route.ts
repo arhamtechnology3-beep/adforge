@@ -7,6 +7,9 @@ import {
   createAd,
   isTokenExpired,
 } from '@/lib/meta';
+import { genderToMetaGenders } from '@/lib/meta-campaign';
+import { getSessionUser } from '@/lib/auth/session';
+import { checkTrialAccess } from '@/lib/trial-gate';
 
 const OBJECTIVE_LABELS: Record<string, string> = {
   OUTCOME_TRAFFIC: 'Traffic',
@@ -16,15 +19,18 @@ const OBJECTIVE_LABELS: Record<string, string> = {
 };
 
 export async function POST(request: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
 
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const trial = await checkTrialAccess(user);
+  if (!trial.allowed) {
+    return NextResponse.json({ error: trial.message, trial_expired: true }, { status: 402 });
+  }
+
+  const supabase = await createClient();
   const body = await request.json();
   const {
     ad_ids,
@@ -35,6 +41,7 @@ export async function POST(request: Request) {
     is_draft = false,
     cta,
     audience = { countries: ['IN'], age_min: 18, age_max: 65 },
+    budget_type = 'daily',
   } = body;
 
   if (!ad_ids?.length || !budget || !objective) {
@@ -98,12 +105,7 @@ export async function POST(request: Request) {
       const campaign = await createCampaign(token, adAccountId, campaignName, objective);
       metaCampaignId = campaign.id;
 
-      const genders =
-        audience?.gender === 'MEN'
-          ? [1]
-          : audience?.gender === 'WOMEN'
-            ? [2]
-            : undefined;
+      const genders = genderToMetaGenders(audience?.gender);
 
       const adSet = await createAdSet(
         token,
@@ -116,6 +118,16 @@ export async function POST(request: Request) {
           age_min: Number(audience?.age_min) || 18,
           age_max: Number(audience?.age_max) || 65,
           genders,
+          locations: audience?.locations,
+          interests: audience?.interests,
+          placements: audience?.placements,
+          start_date: audience?.start_date,
+          end_date: audience?.end_date,
+        },
+        {
+          budgetType: budget_type,
+          objective,
+          accessToken: token,
         }
       );
       metaAdSetId = adSet.id;
@@ -123,6 +135,7 @@ export async function POST(request: Request) {
       const pageId = process.env.META_PAGE_ID || 'me';
       const link = destination || website_url || 'https://example.com';
       const ctaType = String(cta || audience?.cta || 'SHOP_NOW');
+      const linkDescription = audience?.link_description || undefined;
 
       for (const ad of ads) {
         // Meta Marketing API best practice: primary text ≤125 ideal / 2200 max, headline ≤40, feed image URL
@@ -140,7 +153,8 @@ export async function POST(request: Request) {
           pageId,
           link,
           headline || undefined,
-          ctaType
+          ctaType,
+          linkDescription
         );
         if (created?.id) metaAdIds.push(created.id);
       }
@@ -153,6 +167,7 @@ export async function POST(request: Request) {
 
   const launchConfig = {
     audience,
+    budget_type,
     cta: cta || audience?.cta || 'SHOP_NOW',
     website_url: destination,
     format_mix: formatMix,
@@ -225,14 +240,13 @@ export async function POST(request: Request) {
 }
 
 export async function GET() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
 
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const supabase = await createClient();
 
   const [{ data: campaigns }, { data: adAccount }] = await Promise.all([
     supabase

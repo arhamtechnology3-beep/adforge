@@ -5,6 +5,12 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import { Megaphone, Mail, Phone } from 'lucide-react';
+import {
+  isSupabaseUnreachable,
+  enterDemoIfOffline,
+  startDemoSession,
+  SUPABASE_UNREACHABLE_MESSAGE,
+} from '@/lib/auth/demo';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -17,22 +23,39 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  function goToDashboard() {
+    router.push('/dashboard');
+    router.refresh();
+  }
+
   async function handleEmailLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError('');
 
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
 
-    if (error) {
-      setError(error.message);
+      if (error) {
+        if (await enterDemoIfOffline(error, goToDashboard)) return;
+        setError(isSupabaseUnreachable(error) ? SUPABASE_UNREACHABLE_MESSAGE : error.message);
+        setLoading(false);
+        return;
+      }
+
+      goToDashboard();
+    } catch (err: unknown) {
+      if (await enterDemoIfOffline(err, goToDashboard)) return;
+      setError(
+        isSupabaseUnreachable(err)
+          ? SUPABASE_UNREACHABLE_MESSAGE
+          : err instanceof Error
+            ? err.message
+            : 'An error occurred during sign in.'
+      );
       setLoading(false);
-      return;
     }
-
-    router.push('/dashboard');
-    router.refresh();
   }
 
   async function handleSendOtp(e: React.FormEvent) {
@@ -40,18 +63,31 @@ export default function LoginPage() {
     setLoading(true);
     setError('');
 
-    const formattedPhone = phone.startsWith('+91') ? phone : `+91${phone}`;
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithOtp({ phone: formattedPhone });
+    try {
+      const formattedPhone = phone.startsWith('+91') ? phone : `+91${phone}`;
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithOtp({ phone: formattedPhone });
 
-    if (error) {
-      setError(error.message);
+      if (error) {
+        if (await enterDemoIfOffline(error, goToDashboard)) return;
+        setError(isSupabaseUnreachable(error) ? SUPABASE_UNREACHABLE_MESSAGE : error.message);
+        setLoading(false);
+        return;
+      }
+
+      setOtpSent(true);
       setLoading(false);
-      return;
+    } catch (err: unknown) {
+      if (await enterDemoIfOffline(err, goToDashboard)) return;
+      setError(
+        isSupabaseUnreachable(err)
+          ? SUPABASE_UNREACHABLE_MESSAGE
+          : err instanceof Error
+            ? err.message
+            : 'An error occurred while sending OTP.'
+      );
+      setLoading(false);
     }
-
-    setOtpSent(true);
-    setLoading(false);
   }
 
   async function handleVerifyOtp(e: React.FormEvent) {
@@ -59,22 +95,50 @@ export default function LoginPage() {
     setLoading(true);
     setError('');
 
-    const formattedPhone = phone.startsWith('+91') ? phone : `+91${phone}`;
-    const supabase = createClient();
-    const { error } = await supabase.auth.verifyOtp({
-      phone: formattedPhone,
-      token: otp,
-      type: 'sms',
-    });
+    try {
+      const formattedPhone = phone.startsWith('+91') ? phone : `+91${phone}`;
+      const supabase = createClient();
+      const { error } = await supabase.auth.verifyOtp({
+        phone: formattedPhone,
+        token: otp,
+        type: 'sms',
+      });
 
-    if (error) {
-      setError(error.message);
+      if (error) {
+        if (await enterDemoIfOffline(error, goToDashboard)) return;
+        setError(isSupabaseUnreachable(error) ? SUPABASE_UNREACHABLE_MESSAGE : error.message);
+        setLoading(false);
+        return;
+      }
+
+      goToDashboard();
+    } catch (err: unknown) {
+      if (await enterDemoIfOffline(err, goToDashboard)) return;
+      setError(
+        isSupabaseUnreachable(err)
+          ? SUPABASE_UNREACHABLE_MESSAGE
+          : err instanceof Error
+            ? err.message
+            : 'An error occurred during verification.'
+      );
       setLoading(false);
-      return;
     }
+  }
 
-    router.push('/dashboard');
-    router.refresh();
+  async function handleDemoLogin() {
+    setLoading(true);
+    setError('');
+    try {
+      const started = await startDemoSession();
+      if (started) {
+        goToDashboard();
+        return;
+      }
+      setError('Failed to start demo session.');
+    } catch {
+      setError('Failed to start demo session.');
+    }
+    setLoading(false);
   }
 
   return (
@@ -165,6 +229,20 @@ export default function LoginPage() {
               </button>
             </form>
           )}
+
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>
+            <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-2 text-muted">Or local preview</span></div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleDemoLogin}
+            disabled={loading}
+            className="w-full py-2.5 px-4 rounded-lg border border-primary text-primary font-medium hover:bg-primary/5 transition-colors flex items-center justify-center gap-2"
+          >
+            ⚡ Continue in Demo Mode
+          </button>
 
           <p className="text-sm text-muted text-center mt-6">
             Don&apos;t have an account?{' '}

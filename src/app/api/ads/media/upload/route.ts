@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { mkdir, writeFile } from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import { resolveAppOrigin } from '@/lib/app-url';
 
 const MAX_BYTES = 25 * 1024 * 1024; // 25MB
 const ALLOWED = new Set([
@@ -62,10 +63,7 @@ export async function POST(request: Request) {
   const buf = Buffer.from(await file.arrayBuffer());
   await writeFile(path.join(dir, filename), buf);
 
-  const appUrl = (
-    process.env.NEXT_PUBLIC_APP_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3010')
-  ).replace(/\/$/, '');
+  const appUrl = resolveAppOrigin(request);
 
   const relative = `/uploads/${user.id}/${filename}`;
   const url = `${appUrl}${relative}`;

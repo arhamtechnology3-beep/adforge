@@ -45,7 +45,7 @@ export async function GET(request: Request) {
         'Cache-Control': 'public, max-age=86400, s-maxage=86400',
       },
     });
-  } catch (error) {
+  } catch {
     // Return SVG fallback if remote image fails
     const fallbackSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 450" width="600" height="450">
       <rect width="600" height="450" fill="#F3F4F6"/>
