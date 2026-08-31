@@ -1,20 +1,19 @@
 /**
  * Pluggable image providers for agency-grade ad creatives.
  *
- * Recommended stack (provide API keys in .env.local):
- *
- * 1. GEMINI_API_KEY — Google Nano Banana images + Veo video (recommended)
+ * Provider priority (set keys in .env.local):
+ * 1. OPENROUTER_API_KEY — FLUX via OpenRouter Image API (product reference supported)
+ * 2. CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID — FLUX Schnell (~200 free images/day)
  * 2. PHOTOROOM_API_KEY — product cutout + AI scene
- * 2. FAL_KEY — FLUX Pro backgrounds / full scenes (fal.ai)
- * 3. OPENAI_API_KEY + USE_OPENAI_IMAGES=true — DALL·E 3 fallback
- * 4. CREATOMATE_API_KEY — templated video + motion (replaces slideshow)
- *
- * Free tier (current fallback): Pollinations.ai — not agency quality.
+ * 3. FAL_KEY — FLUX backgrounds
+ * 4. OPENAI_API_KEY + USE_OPENAI_IMAGES=true — DALL·E 3
+ * 5. Pollinations.ai — free fallback
  */
 
 import type { CreativeBrief } from '@/lib/creative-brief';
 import { productSceneUrl } from '@/lib/creatives';
-import { generateGeminiImage } from '@/lib/gemini-creative';
+import { generateOpenRouterImage } from '@/lib/openrouter-creative';
+import { generateCloudflareImage } from '@/lib/cloudflare-creative';
 
 export type SceneGenerateInput = {
   brief: CreativeBrief;
@@ -29,7 +28,7 @@ export type SceneGenerateInput = {
 
 export type SceneGenerateResult = {
   url: string;
-  provider: 'gemini' | 'photoroom' | 'fal' | 'openai' | 'pollinations';
+  provider: 'openrouter' | 'cloudflare' | 'photoroom' | 'fal' | 'openai' | 'pollinations';
   /** When true, use URL as final creative (skip Satori text overlay) */
   isFinalCreative?: boolean;
 };
@@ -41,41 +40,55 @@ export async function generateSceneImage(
   const prompt =
     input.aspect === '9:16' ? input.brief.storyPrompt : input.brief.scenePrompt;
 
-  // 1) Google Gemini — native image (Nano Banana) + product reference
-  if (process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-    const gemini = await generateGeminiImage({
+  // 1) OpenRouter — FLUX + reference image
+  if (process.env.OPENROUTER_API_KEY) {
+    const or = await generateOpenRouterImage({
       prompt,
       aspect: input.aspect,
+      brand: input.brand,
+      headline: input.headline,
       productImageUrl: input.productImageUrl,
+      seed: input.seed,
+    });
+    if (or?.url) {
+      return { url: or.url, provider: 'openrouter', isFinalCreative: true };
+    }
+  }
+
+  // 2) Cloudflare Workers AI — FLUX Schnell (free tier)
+  if (process.env.CLOUDFLARE_API_TOKEN && process.env.CLOUDFLARE_ACCOUNT_ID) {
+    const cf = await generateCloudflareImage({
+      prompt,
+      aspect: input.aspect,
       brand: input.brand,
       headline: input.headline,
     });
-    if (gemini?.url) {
-      return { url: gemini.url, provider: 'gemini', isFinalCreative: true };
+    if (cf?.url) {
+      return { url: cf.url, provider: 'cloudflare', isFinalCreative: true };
     }
   }
-  // 2) Photoroom — product-in-scene (agency D2C standard)
+
+  // 3) Photoroom — product-in-scene (agency D2C standard)
   if (process.env.PHOTOROOM_API_KEY && input.productImageUrl) {
     const url = await generatePhotoroomScene(input.productImageUrl, prompt, input.aspect);
     if (url) return { url, provider: 'photoroom', isFinalCreative: true };
   }
 
-  // 3) Fal.ai FLUX — high-quality scene generation
+  // 4) Fal.ai FLUX — high-quality scene generation
   if (process.env.FAL_KEY) {
     const url = await generateFalFlux(prompt, input.aspect, input.seed);
     if (url) return { url, provider: 'fal' };
   }
 
-  // 3) OpenAI DALL·E 3
+  // 5) OpenAI DALL·E 3
   if (process.env.OPENAI_API_KEY && process.env.USE_OPENAI_IMAGES === 'true') {
     const url = await generateOpenAiScene(prompt);
     if (url) return { url, provider: 'openai' };
   }
 
-  // 4) Free fallback — Pollinations (limited quality)
+  // 6) Free fallback — Pollinations
   const seed = input.seed;
   const sceneUrl = productSceneUrl(input.category, input.angle, seed);
-  // Override Pollinations prompt via brief when possible
   const params = new URLSearchParams({
     width: input.aspect === '9:16' ? '768' : '1080',
     height: input.aspect === '9:16' ? '1344' : '1080',
@@ -107,7 +120,6 @@ async function generatePhotoroomScene(
     });
     if (!res.ok) return null;
     const buf = Buffer.from(await res.arrayBuffer());
-    // Photoroom returns image bytes — for now return data URL or we'd need to upload to storage
     const b64 = buf.toString('base64');
     const ct = res.headers.get('content-type') || 'image/png';
     return `data:${ct};base64,${b64}`;

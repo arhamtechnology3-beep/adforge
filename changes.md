@@ -8,6 +8,27 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-08-31
 
+### Switch creative engine: OpenRouter + Cloudflare (remove Gemini)
+Replaced paid Gemini/Veo with OpenRouter FLUX (primary) and Cloudflare Workers AI (free fallback).
+
+**What changed**
+- `generateOpenRouterImage()` — OpenRouter Image API with product `input_references`
+- `generateCloudflareImage()` — FLUX Schnell via Workers AI
+- Removed `gemini-creative.ts` and all `GEMINI_*` env vars
+- Video ads use slideshow frames again (no paid video API)
+
+**Env vars** (`.env.local`)
+- `OPENROUTER_API_KEY` — primary image generation
+- `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` — free fallback
+
+**Files**
+- `src/lib/openrouter-creative.ts`, `src/lib/cloudflare-creative.ts`
+- `src/lib/creative-providers.ts`, `src/lib/replicate-ads.ts`
+
+---
+
+## 2026-08-31
+
 ### Gemini API integration — Nano Banana images + Veo video
 Wired Google Gemini for agency-grade creatives: native image generation with product reference, Veo for real video ads.
 

@@ -13,7 +13,6 @@ import type { MetaAdLibraryAd } from '@/lib/ai';
 import { scrubCompetitorBrands, scrubHeadline } from '@/lib/brand-scrub';
 import { buildCreativeBrief } from '@/lib/creative-brief';
 import { generateSceneImage } from '@/lib/creative-providers';
-import { generateGeminiVideo } from '@/lib/gemini-creative';
 
 export type SelectedLibraryAdInput = Pick<
   MetaAdLibraryAd,
@@ -144,8 +143,8 @@ export async function buildReplicatedAds(opts: {
       }),
     ]);
 
-    const useGeminiFeed = feedScene.isFinalCreative === true;
-    const useGeminiStory = storyScene.isFinalCreative === true;
+    const useAiFeed = feedScene.isFinalCreative === true;
+    const useAiStory = storyScene.isFinalCreative === true;
 
     const sceneImage = feedScene.url;
     const sourceMeta: AdMediaPayload = {
@@ -215,33 +214,6 @@ export async function buildReplicatedAds(opts: {
         angle: `replicate:${src.library_id || src.id}`,
       });
     } else if (targetFormat === 'video') {
-      const videoPrompt = `${brief.scenePrompt} ${headline}. ${brief.counterHook}`;
-      const geminiVideo = await generateGeminiVideo({
-        prompt: videoPrompt,
-        aspect: '9:16',
-        referenceImageUrl: productImage,
-        durationSeconds: 6,
-      });
-
-      if (geminiVideo?.url) {
-        ads.push({
-          campaign_input_id: campaignInputId,
-          variant_number: n,
-          copy_text: primaryText,
-          image_url: geminiVideo.url,
-          status: 'pending',
-          ad_format: 'video',
-          media_payload: {
-            ...sourceMeta,
-            placement: META_AD_FORMATS.video.placement,
-            aspect: '9:16',
-            video_url: geminiVideo.url,
-            scene_provider: 'gemini',
-          },
-          headline,
-          angle: `replicate:${src.library_id || src.id}`,
-        });
-      } else {
       const frameCount = Math.min(4, Math.max(3, productImages.length || 3));
       const frames = Array.from({ length: frameCount }, (_, i) => {
         const img =
@@ -283,13 +255,12 @@ export async function buildReplicatedAds(opts: {
         headline,
         angle: `replicate:${src.library_id || src.id}`,
       });
-      }
     } else {
       ads.push({
         campaign_input_id: campaignInputId,
         variant_number: n,
         copy_text: primaryText,
-        image_url: useGeminiFeed
+        image_url: useAiFeed
           ? feedScene.url
           : buildCreativeUrl({
               brand,
@@ -321,7 +292,7 @@ export async function buildReplicatedAds(opts: {
       campaign_input_id: campaignInputId,
       variant_number: n,
       copy_text: primaryText,
-      image_url: useGeminiStory
+      image_url: useAiStory
         ? storyScene.url
         : buildCreativeUrl({
             brand,
