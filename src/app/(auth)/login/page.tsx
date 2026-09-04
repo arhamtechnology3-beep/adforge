@@ -134,9 +134,13 @@ export default function LoginPage() {
         goToDashboard();
         return;
       }
-      setError('Failed to start demo session.');
+      setError(
+        'Demo Mode is for local preview only. Sign in with your account (e.g. jesalp85@gmail.com) on production.'
+      );
     } catch {
-      setError('Failed to start demo session.');
+      setError(
+        'Demo Mode is for local preview only. Sign in with your account (e.g. jesalp85@gmail.com) on production.'
+      );
     }
     setLoading(false);
   }

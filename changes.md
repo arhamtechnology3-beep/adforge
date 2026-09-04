@@ -8,6 +8,17 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-04
 
+### Admin: lifetime account `jesalp85@gmail.com`
+Created/updated Supabase auth user with lifetime access (no trial expiry).
+
+**Access**
+- Email: `jesalp85@gmail.com`
+- Password: set via `scripts/ensure-admin-user.mjs` (not stored in git)
+- Allowlisted in `src/lib/auth/admins.ts` + `ADMIN_EMAILS` env
+- Profile: `plan_tier=scale`, `razorpay_subscription_id=admin-lifetime`, `trial_ends_at=null`
+
+**Manual:** Sign in at `/login` (not Demo Mode — disabled in production). Optional Hostinger env: `ADMIN_EMAILS=jesalp85@gmail.com`. Re-run: `node --env-file=.env.local scripts/ensure-admin-user.mjs`
+
 ### Fix: Hostinger build failed on `fab0069` (queues name clash)
 `fab0069` failed compile: `creativeGenerationQueue` declared both as `let` and `export const`. Renamed internal instance so lazy Redis queue builds cleanly. Redeploy this commit; also add remaining env vars (Supabase, etc.) and attach the custom domain to the Node app.
 

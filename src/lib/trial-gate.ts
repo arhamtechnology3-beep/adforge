@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { isTrialActive } from '@/lib/utils';
+import { isAdminEmail } from '@/lib/auth/admins';
 import type { SessionUser } from '@/lib/auth/session';
 
 export type TrialAccess = {
@@ -7,17 +8,19 @@ export type TrialAccess = {
   expired: boolean;
   hasSubscription: boolean;
   trialEndsAt: string | null;
+  isAdmin?: boolean;
   message?: string;
 };
 
-/** Demo sessions always have full access for local testing */
+/** Demo sessions + platform admins always have full access */
 export async function checkTrialAccess(user: SessionUser): Promise<TrialAccess> {
-  if (user.isDemo) {
+  if (user.isDemo || isAdminEmail(user.email)) {
     return {
       allowed: true,
       expired: false,
-      hasSubscription: false,
+      hasSubscription: true,
       trialEndsAt: null,
+      isAdmin: isAdminEmail(user.email),
     };
   }
 
@@ -25,9 +28,19 @@ export async function checkTrialAccess(user: SessionUser): Promise<TrialAccess> 
     const supabase = await createClient();
     const { data: profile } = await supabase
       .from('users')
-      .select('trial_ends_at, razorpay_subscription_id')
+      .select('trial_ends_at, razorpay_subscription_id, email')
       .eq('id', user.id)
       .maybeSingle();
+
+    if (isAdminEmail(profile?.email || user.email)) {
+      return {
+        allowed: true,
+        expired: false,
+        hasSubscription: true,
+        trialEndsAt: null,
+        isAdmin: true,
+      };
+    }
 
     const hasSubscription = !!profile?.razorpay_subscription_id;
     const trialEndsAt = profile?.trial_ends_at || null;
