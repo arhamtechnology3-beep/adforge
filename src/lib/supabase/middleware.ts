@@ -16,13 +16,16 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith('/data-deletion');
   const isAuthPage =
     request.nextUrl.pathname.startsWith('/login') ||
-    request.nextUrl.pathname.startsWith('/signup');
+    request.nextUrl.pathname.startsWith('/signup') ||
+    request.nextUrl.pathname.startsWith('/forgot-password');
+  const isPasswordResetPage = request.nextUrl.pathname.startsWith('/reset-password');
   const isPublicApi =
     request.nextUrl.pathname.startsWith('/api/webhooks') ||
     request.nextUrl.pathname.startsWith('/api/oauth/meta/callback') ||
     request.nextUrl.pathname.startsWith('/api/ads/creative') ||
     request.nextUrl.pathname.startsWith('/api/ads/product-image') ||
-    request.nextUrl.pathname.startsWith('/api/auth/demo');
+    request.nextUrl.pathname.startsWith('/api/auth/demo') ||
+    request.nextUrl.pathname.startsWith('/api/auth/callback');
 
   // Skip Supabase entirely on public marketing/legal pages (avoids Hostinger header errors)
   if (isPublicPage) {
@@ -65,13 +68,14 @@ export async function updateSession(request: NextRequest) {
 
   const effectiveUser = user || (isDemo ? { id: 'demo-user-id', email: 'jesalp85@gmail.com' } : null);
 
-  if (!effectiveUser && !isAuthPage && !isPublicApi) {
+  if (!effectiveUser && !isAuthPage && !isPublicApi && !isPasswordResetPage) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
   }
 
-  if (effectiveUser && isAuthPage) {
+  // Don't bounce recovery sessions away from /reset-password
+  if (effectiveUser && isAuthPage && !isPasswordResetPage) {
     const url = request.nextUrl.clone();
     url.pathname = '/dashboard';
     return NextResponse.redirect(url);

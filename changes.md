@@ -8,6 +8,20 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-04
 
+### Feature: Forgot / reset password
+Email password recovery via Supabase.
+
+**What changed**
+- Login → **Forgot password?** → `/forgot-password` sends reset email
+- Link lands on `/api/auth/callback?next=/reset-password` then `/reset-password` to set a new password
+- Middleware allows forgot/reset pages; recovery session not bounced to dashboard
+
+**Manual (Supabase Dashboard → Authentication → URL Configuration)**  
+Add Redirect URLs:
+- `https://adforge.arhamtechnology.com/api/auth/callback`
+- `http://localhost:3000/api/auth/callback`  
+Site URL can stay production app URL. Redeploy after push.
+
 ### Admin: lifetime account `jesalp85@gmail.com`
 Created/updated Supabase auth user with lifetime access (no trial expiry).
 
