@@ -4,45 +4,10 @@ import { NextResponse, type NextRequest } from 'next/server';
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
-          supabaseResponse = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          );
-        },
-      },
-    }
-  );
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
 
   const isDemo = request.cookies.get('demo_session')?.value === 'true';
-
-  let user = null;
-  if (!isDemo) {
-    try {
-      const { data } = await Promise.race([
-        supabase.auth.getUser(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('supabase-timeout')), 3000)
-        ),
-      ]);
-      user = data.user;
-    } catch {
-      // Supabase network / DNS / timeout — allow login + demo fallback
-    }
-  }
-
-  const effectiveUser = user || (isDemo ? { id: 'demo-user-id', email: 'jesalp85@gmail.com' } : null);
 
   const isPublicPage =
     request.nextUrl.pathname === '/' ||
@@ -59,7 +24,48 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith('/api/ads/product-image') ||
     request.nextUrl.pathname.startsWith('/api/auth/demo');
 
-  if (!effectiveUser && !isAuthPage && !isPublicApi && !isPublicPage) {
+  // Skip Supabase entirely on public marketing/legal pages (avoids Hostinger header errors)
+  if (isPublicPage) {
+    return supabaseResponse;
+  }
+
+  let user = null;
+  if (!isDemo && supabaseUrl && supabaseAnon) {
+    try {
+      const supabase = createServerClient(supabaseUrl, supabaseAnon, {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll();
+          },
+          setAll(cookiesToSet) {
+            try {
+              cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+              supabaseResponse = NextResponse.next({ request });
+              cookiesToSet.forEach(({ name, value, options }) =>
+                supabaseResponse.cookies.set(name, value, options)
+              );
+            } catch {
+              // Hostinger / undici: headers may already be committed
+            }
+          },
+        },
+      });
+
+      const { data } = await Promise.race([
+        supabase.auth.getUser(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('supabase-timeout')), 3000)
+        ),
+      ]);
+      user = data.user;
+    } catch {
+      // Supabase network / DNS / timeout / headers — allow demo & public fallback
+    }
+  }
+
+  const effectiveUser = user || (isDemo ? { id: 'demo-user-id', email: 'jesalp85@gmail.com' } : null);
+
+  if (!effectiveUser && !isAuthPage && !isPublicApi) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);

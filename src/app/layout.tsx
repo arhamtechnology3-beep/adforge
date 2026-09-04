@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import localFont from 'next/font/local';
 import './globals.css';
 
@@ -18,11 +18,14 @@ export const metadata: Metadata = {
   description:
     'Replace your digital marketing team. AI creatives, campaign launch, and performance optimization for Shopify brands on Facebook & Instagram.',
   manifest: '/manifest.webmanifest',
-  themeColor: '#0b1220',
   appleWebApp: {
     capable: true,
     title: 'AdForge',
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#0b1220',
 };
 
 export default function RootLayout({

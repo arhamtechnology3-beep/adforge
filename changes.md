@@ -8,6 +8,22 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-04
 
+### Fix: Hostinger Next.js 500 + Redis-at-build + headers error
+Runtime logs show AdForge **does** start (`Next.js 14.2.35 Ready`), but:
+1. Preview `*.hostingersite.com` returned **500** (`ERR_HTTP_HEADERS_SENT` in middleware + Redis connect to `localhost:6379` during import/build).
+2. Custom domain `adforge.arhamtechnology.com` still serves the **Arham Technology Express** site (wrong domain mapping).
+
+**Code**
+- Lazy Redis/BullMQ in `src/workers/queues.ts` (no connect at import time).
+- Middleware: skip Supabase on public pages; swallow cookie set after headers sent.
+- Move `themeColor` to `viewport` export.
+- `SKIP_PLAYWRIGHT=1` skips Chromium download in `postinstall` (set on Hostinger).
+
+**Manual (Hostinger)**
+1. Web App → **Environment variables** — copy from `.env.example` at least: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_APP_URL=https://adforge.arhamtechnology.com`, `ENCRYPTION_KEY`, Meta keys, `SKIP_PLAYWRIGHT=1`. Redis optional until workers needed (`REDIS_URL`).
+2. Web App → **Domains** — attach `adforge.arhamtechnology.com` to **this** Node app (not the main Arham site).
+3. Redeploy. Confirm preview URL shows AdForge (not 500), then custom domain.
+
 ### Fix: Hostinger `next build` ESLint + TypeScript failures
 Deploy of `6ca9300` failed on lint (`prefer-const` / unused vars) and then typecheck. Cleaned unused imports/params, re-exported `clearMetaAdPromptLibraryCache`, typed demo user ids as `string`, and fixed Node `lookup` callback arity in product-page fetch.
 
