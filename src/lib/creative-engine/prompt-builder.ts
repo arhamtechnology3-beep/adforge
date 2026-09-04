@@ -15,15 +15,6 @@ export {
   clearMetaAdPromptLibraryCache,
 } from './meta-ad-prompt-library';
 
-const FORMAT_SCENE_HINT: Record<CreativeAspect, string> = {
-  '1:1':
-    'Square 1:1 Meta Feed composition. Product placement zone in center-lower third. Top third reserved for headline/badge overlay.',
-  '4:5':
-    'Vertical 4:5 Meta Feed composition. Product in center, generous top and bottom negative space for ad copy.',
-  '9:16':
-    'Vertical 9:16 Stories/Reels composition. Product in upper-center, bottom third clear for CTA button overlay.',
-};
-
 export function buildMasterImagePrompt(input: {
   truth: ProductTruthSheet;
   direction: CreativeDirection;

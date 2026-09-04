@@ -21,8 +21,7 @@ function median(values: number[]): number {
 function colorDistance(
   pixels: Buffer,
   offset: number,
-  bg: [number, number, number],
-  channels: number
+  bg: [number, number, number]
 ): number {
   return Math.sqrt(
     (pixels[offset] - bg[0]) ** 2 +
@@ -70,7 +69,7 @@ function floodBackgroundMask(
   const enqueue = (position: number) => {
     if (mask[position]) return;
     const offset = position * channels;
-    if (colorDistance(pixels, offset, bg, channels) > tolerance) return;
+    if (colorDistance(pixels, offset, bg) > tolerance) return;
     mask[position] = 1;
     queue[end++] = position;
   };
@@ -331,7 +330,7 @@ async function normalizePackshotBufferLocal(
       pixels[offset + 3] = 0;
       continue;
     }
-    const d = colorDistance(pixels, offset, bg, channels);
+    const d = colorDistance(pixels, offset, bg);
     if (d < 32) {
       pixels[offset + 3] = 0;
     } else if (d < 110) {

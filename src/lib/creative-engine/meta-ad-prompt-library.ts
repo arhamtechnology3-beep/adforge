@@ -5,6 +5,8 @@ import {
   loadMetaAdPromptLibraryFromMarkdown,
 } from './meta-ad-prompt-md-parser';
 
+export { clearMetaAdPromptLibraryCache } from './meta-ad-prompt-md-parser';
+
 export type { MetaAdPromptPreset, MetaAdPromptPresetId } from './meta-ad-prompt-library.types';
 
 /** Embedded fallback when MD file is missing (dev/build safety) */

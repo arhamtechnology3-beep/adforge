@@ -52,7 +52,7 @@ export async function saveDemoAds(ads: GeneratedAd[]): Promise<void> {
   await writeDemoAdsToFile(ads);
 }
 
-export function withDemoAdsCookie(response: NextResponse, ads: GeneratedAd[]) {
+export function withDemoAdsCookie(response: NextResponse) {
   // Persist reliably on disk (async fire-and-forget is unsafe here — caller should await saveDemoAds).
   // Keep a tiny cookie marker so older clients still know demo ads exist.
   response.cookies.set(DEMO_ADS_COOKIE, 'file', {
@@ -70,7 +70,7 @@ export async function persistDemoAds(
   ads: GeneratedAd[]
 ): Promise<NextResponse> {
   await saveDemoAds(ads);
-  return withDemoAdsCookie(response, ads);
+  return withDemoAdsCookie(response);
 }
 
 export function normalizeDemoAd(ad: Record<string, unknown>, index: number): GeneratedAd {

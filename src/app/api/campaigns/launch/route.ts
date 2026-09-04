@@ -43,7 +43,6 @@ export async function POST(request: Request) {
     objective,
     website_url,
     name,
-    is_draft = false,
     cta,
     audience = { countries: ['IN'], age_min: 18, age_max: 65 },
     budget_type = 'daily',

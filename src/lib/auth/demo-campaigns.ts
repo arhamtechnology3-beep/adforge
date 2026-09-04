@@ -4,11 +4,11 @@ import { randomUUID } from 'crypto';
 import type { MetaCampaign } from '@/types/database';
 import { DEMO_USER } from '@/lib/auth/session';
 
-function demoCampaignsPath(userId = DEMO_USER.id): string {
+function demoCampaignsPath(userId: string = DEMO_USER.id): string {
   return path.join(process.cwd(), '.data', `demo-campaigns-${userId}.json`);
 }
 
-export async function readDemoCampaigns(userId = DEMO_USER.id): Promise<MetaCampaign[]> {
+export async function readDemoCampaigns(userId: string = DEMO_USER.id): Promise<MetaCampaign[]> {
   try {
     const raw = await readFile(demoCampaignsPath(userId), 'utf8');
     const parsed = JSON.parse(raw) as MetaCampaign[];
@@ -20,7 +20,7 @@ export async function readDemoCampaigns(userId = DEMO_USER.id): Promise<MetaCamp
 
 export async function saveDemoCampaigns(
   campaigns: MetaCampaign[],
-  userId = DEMO_USER.id
+  userId: string = DEMO_USER.id
 ): Promise<void> {
   const dir = path.dirname(demoCampaignsPath(userId));
   await mkdir(dir, { recursive: true });
@@ -29,7 +29,7 @@ export async function saveDemoCampaigns(
 
 export async function getDemoCampaign(
   id: string,
-  userId = DEMO_USER.id
+  userId: string = DEMO_USER.id
 ): Promise<MetaCampaign | null> {
   const campaigns = await readDemoCampaigns(userId);
   return campaigns.find((c) => c.id === id) || null;
@@ -37,7 +37,7 @@ export async function getDemoCampaign(
 
 export async function upsertDemoCampaign(
   campaign: MetaCampaign,
-  userId = DEMO_USER.id
+  userId: string = DEMO_USER.id
 ): Promise<MetaCampaign> {
   const campaigns = await readDemoCampaigns(userId);
   const index = campaigns.findIndex((c) => c.id === campaign.id);

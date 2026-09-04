@@ -8,6 +8,11 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-04
 
+### Fix: Hostinger `next build` ESLint + TypeScript failures
+Deploy of `6ca9300` failed on lint (`prefer-const` / unused vars) and then typecheck. Cleaned unused imports/params, re-exported `clearMetaAdPromptLibraryCache`, typed demo user ids as `string`, and fixed Node `lookup` callback arity in product-page fetch.
+
+**Manual:** Redeploy on Hostinger (or wait for auto-deploy from push). npm deprecation warnings are harmless; the hard fail was ESLint.
+
 ### Legal pages for Meta App Live mode (Privacy / Terms / Data deletion)
 Meta requires public URLs before switching the app to **Live** (needed to create ad creatives).
 

@@ -1,5 +1,3 @@
-import type { CompetitorPattern, CreativeAspect, CreativeDirection, ProductTruthSheet } from './types';
-
 /** Preset IDs — synced with docs/facebook_meta_product_ad_prompts.md */
 export type MetaAdPromptPresetId =
   | 'premium-luxury-studio'

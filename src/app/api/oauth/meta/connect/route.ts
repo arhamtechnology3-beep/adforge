@@ -9,7 +9,7 @@ import { getMetaAppConfig } from '@/lib/meta-app-config';
  */
 export async function GET(request: Request) {
   const origin = process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin;
-  let user = await getSessionUser();
+  const user = await getSessionUser();
 
   if (!user) {
     // Keep flow one-click in local/demo: start demo session then continue to Facebook

@@ -150,7 +150,7 @@ async function fetchPage(url: URL, redirects = 0): Promise<{ html: string; url: 
         lookup: (_hostname, _options, callback) => {
           const selected = addresses[0];
           if (!selected?.address) {
-            callback(new Error('Could not resolve product host'));
+            callback(new Error('Could not resolve product host') as NodeJS.ErrnoException, '', 4);
             return;
           }
           callback(null, selected.address, selected.family);

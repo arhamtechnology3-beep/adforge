@@ -1,10 +1,10 @@
 import { cookies } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
 
-export const DEMO_USER = {
+export const DEMO_USER: { id: string; email: string } = {
   id: 'demo-user-id',
   email: 'jesalp85@gmail.com',
-} as const;
+};
 
 export type SessionUser = {
   id: string;
