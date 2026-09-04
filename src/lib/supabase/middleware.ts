@@ -44,6 +44,11 @@ export async function updateSession(request: NextRequest) {
 
   const effectiveUser = user || (isDemo ? { id: 'demo-user-id', email: 'jesalp85@gmail.com' } : null);
 
+  const isPublicPage =
+    request.nextUrl.pathname === '/' ||
+    request.nextUrl.pathname.startsWith('/privacy') ||
+    request.nextUrl.pathname.startsWith('/terms') ||
+    request.nextUrl.pathname.startsWith('/data-deletion');
   const isAuthPage =
     request.nextUrl.pathname.startsWith('/login') ||
     request.nextUrl.pathname.startsWith('/signup');
@@ -54,7 +59,7 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith('/api/ads/product-image') ||
     request.nextUrl.pathname.startsWith('/api/auth/demo');
 
-  if (!effectiveUser && !isAuthPage && !isPublicApi && request.nextUrl.pathname !== '/') {
+  if (!effectiveUser && !isAuthPage && !isPublicApi && !isPublicPage) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);

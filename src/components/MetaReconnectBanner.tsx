@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
-import { isTokenExpired } from '@/lib/meta';
+import { isTokenExpired } from '@/lib/meta-token';
 import type { AdAccount } from '@/types/database';
 
 interface MetaReconnectBannerProps {

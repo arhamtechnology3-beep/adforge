@@ -9,6 +9,7 @@ export const performanceQueue = new Queue('performance-sync', { connection });
 export const reportsQueue = new Queue('reports', { connection });
 export const autoPauseQueue = new Queue('auto-pause', { connection });
 export const opsQueue = new Queue('ops-monitor', { connection });
+export { creativeGenerationQueue } from './queues';
 
 export function startWorkers() {
   new Worker(
@@ -47,7 +48,16 @@ export function startWorkers() {
     { connection }
   );
 
-  console.log('[Workers] BullMQ workers started (ops + email reports + policy)');
+  new Worker(
+    'creative-generation',
+    async (job) => {
+      const { processCreativeGenerationJob } = await import('./jobs/creative-generation');
+      return processCreativeGenerationJob(job);
+    },
+    { connection, concurrency: 1 }
+  );
+
+  console.log('[Workers] BullMQ workers started (ops + email reports + policy + creative generation)');
 }
 
 export async function scheduleRecurringJobs() {

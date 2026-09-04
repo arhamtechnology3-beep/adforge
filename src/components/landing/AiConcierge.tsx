@@ -16,7 +16,7 @@ const KNOWLEDGE: { q: RegExp; a: string }[] = [
   },
   {
     q: /carousel|stories|video|format|image/i,
-    a: 'We generate Image (Feed 1:1), Carousel, Stories 9:16, and Video slideshow previews. You approve winners, then launch only what you like.',
+    a: 'We generate Image (Feed 1:1), Carousel, Stories 9:16, and UGC-style motion video previews. You approve winners, then launch only what you like.',
   },
   {
     q: /price|cost|trial|plan|razorpay/i,

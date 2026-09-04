@@ -1,14 +1,42 @@
+import { mkdir, readFile, writeFile } from 'fs/promises';
+import path from 'path';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type { GeneratedAd } from '@/types/database';
 import { DEMO_CAMPAIGN_INPUT_ID } from '@/lib/auth/demo-onboarding';
+import { DEMO_USER } from '@/lib/auth/session';
 
 export const DEMO_ADS_COOKIE = 'demo_generated_ads';
 
+/** Prefer file storage — carousel payloads exceed browser cookie size (~4KB). */
+function demoAdsFilePath(userId = DEMO_USER.id): string {
+  return path.join(process.cwd(), '.data', `demo-ads-${userId}.json`);
+}
+
+async function readDemoAdsFromFile(userId = DEMO_USER.id): Promise<GeneratedAd[] | null> {
+  try {
+    const raw = await readFile(demoAdsFilePath(userId), 'utf8');
+    const parsed = JSON.parse(raw) as GeneratedAd[];
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeDemoAdsToFile(ads: GeneratedAd[], userId = DEMO_USER.id): Promise<void> {
+  const dir = path.dirname(demoAdsFilePath(userId));
+  await mkdir(dir, { recursive: true });
+  await writeFile(demoAdsFilePath(userId), JSON.stringify(ads), 'utf8');
+}
+
 export async function readDemoAds(): Promise<GeneratedAd[]> {
+  const fromFile = await readDemoAdsFromFile();
+  if (fromFile) return fromFile;
+
+  // Legacy fallback: small packs still in cookie (ignore marker "file")
   const cookieStore = await cookies();
   const raw = cookieStore.get(DEMO_ADS_COOKIE)?.value;
-  if (!raw) return [];
+  if (!raw || raw === 'file') return [];
   try {
     return JSON.parse(decodeURIComponent(raw)) as GeneratedAd[];
   } catch {
@@ -20,14 +48,29 @@ export async function readDemoAds(): Promise<GeneratedAd[]> {
   }
 }
 
+export async function saveDemoAds(ads: GeneratedAd[]): Promise<void> {
+  await writeDemoAdsToFile(ads);
+}
+
 export function withDemoAdsCookie(response: NextResponse, ads: GeneratedAd[]) {
-  response.cookies.set(DEMO_ADS_COOKIE, encodeURIComponent(JSON.stringify(ads)), {
+  // Persist reliably on disk (async fire-and-forget is unsafe here — caller should await saveDemoAds).
+  // Keep a tiny cookie marker so older clients still know demo ads exist.
+  response.cookies.set(DEMO_ADS_COOKIE, 'file', {
     path: '/',
     httpOnly: true,
     sameSite: 'lax',
     maxAge: 60 * 60 * 24 * 7,
   });
   return response;
+}
+
+/** Save demo ads to disk and attach a small cookie marker on the response. */
+export async function persistDemoAds(
+  response: NextResponse,
+  ads: GeneratedAd[]
+): Promise<NextResponse> {
+  await saveDemoAds(ads);
+  return withDemoAdsCookie(response, ads);
 }
 
 export function normalizeDemoAd(ad: Record<string, unknown>, index: number): GeneratedAd {

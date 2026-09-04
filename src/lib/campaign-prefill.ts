@@ -17,6 +17,13 @@ export type CampaignPrefill = {
   interests?: string;
   placements?: PlacementToggles;
   fromAds?: boolean;
+  approvedCreativeIds?: string[];
+  creativeAssets?: Array<{
+    id: string;
+    format: string;
+    imageUrl?: string | null;
+    videoUrl?: string | null;
+  }>;
 };
 
 export function saveCampaignPrefill(data: CampaignPrefill): void {

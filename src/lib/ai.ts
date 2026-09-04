@@ -495,13 +495,30 @@ export function extractBrandContext(websiteContent: string, websiteUrl?: string)
   }
 
   const rawTitle = parts[0] || hostBrand || 'Your Brand';
-  // Split on hyphen, en-dash, em-dash, pipe, colon, middle dot
-  const brand = rawTitle
+  const titleBrand = rawTitle
     .split(/\s*[-–—|·:]\s*/)[0]
     .replace(/\b(official|store|shop|india|home|online)\b/gi, '')
     .trim()
     .replace(/\b\w/g, (c) => c.toUpperCase())
-    .slice(0, 48) || hostBrand || 'Your Brand';
+    .slice(0, 48);
+
+  const KNOWN_BRANDS: Record<string, string> = {
+    farmdidi: 'FarmDidi',
+    jhaji: 'JhaJi',
+    goosebumps: 'Goosebumps',
+  };
+  const hostKey = hostBrand.toLowerCase().replace(/\s+/g, '');
+  const domainBrand =
+    KNOWN_BRANDS[hostKey] ||
+    (hostBrand
+      ? hostBrand.replace(/\b\w/g, (c) => c.toUpperCase())
+      : '');
+
+  // Prefer clean domain brand over noisy scraped titles like "Brand From Farmdidi.Com"
+  const brand =
+    (domainBrand && domainBrand.length >= 3
+      ? domainBrand
+      : titleBrand) || domainBrand || 'Your Brand';
 
   const categoryHint = rawTitle
     .split(/\s*[-–—|·:]\s*/)
@@ -537,13 +554,7 @@ export function extractBrandContext(websiteContent: string, websiteUrl?: string)
     .replace(/[\s—–\-:|]+$/, '')
     .trim();
 
-  if (/pickle/i.test(rawDesc + ' ' + categoryLabel)) {
-    const flavors = rawDesc.match(/Chana Keri|Sweet Mango|Sweet Lime|Methia Keri|Garlic/gi);
-    const flavorBit = flavors?.length
-      ? ` — ${[...new Set(flavors)].slice(0, 3).join(', ')} & more`
-      : '';
-    hook = `100% natural handmade Saurashtra pickles${flavorBit}`;
-  } else if (hook.length > 100) {
+  if (hook.length > 100) {
     hook = hook.slice(0, 97).replace(/\s+\S*$/, '') + '…';
   }
 
@@ -557,42 +568,19 @@ export function extractBrandContext(websiteContent: string, websiteUrl?: string)
 /** Free offline ad copy — no API key or credits required */
 export function generateFreeAdCopy(
   websiteContent: string,
-  competitors: Array<{ url: string; type: string }> = [],
+  _competitors: Array<{ url: string; type: string }> = [],
   websiteUrl?: string
 ): Array<{ variant_number: number; copy_text: string; angle: string }> {
+  void _competitors;
   const { brand, category, hook } = extractBrandContext(websiteContent, websiteUrl);
-  const competitorHint =
-    competitors.find((c) => c.type === 'website')?.url || competitors[0]?.url || null;
-  const competitorHost = competitorHint
-    ? competitorHint.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]
-    : null;
 
-  const templates: Record<string, string> = {
-    'competitor-beat': competitorHost
-      ? `Switched from ${competitorHost.split('.')[0]} to ${brand}? Here's why thousands of shoppers are making the move: 100% sun-dried Saurashtra mangos, 0 artificial acidity, and real homemade taste. ${hook} 🏆`
-      : `Why compare when you can get authentic? ${brand} delivers 100% sun-dried ${category.toLowerCase()} with 0 preservatives. Better taste, honest ingredients.`,
-    'trending-ugc': `3 reasons why everyone is ordering ${brand}'s ${category.toLowerCase()}: 1️⃣ Traditional authentic recipe 2️⃣ ${hook} 3️⃣ Unmatched taste. Try it once and you won't go back! 🔥`,
-    'unboxing-pov': `POV: You finally unboxed your ${brand} order 😍 Smells like home, tastes like pure nostalgia. ${hook}. Get yours today before stocks clear 🛍️`,
-    'rating-social-proof': `"Hands down the best ${category.toLowerCase()} I've ordered online!" ⭐⭐⭐⭐⭐ Over 10,000+ happy Indian families trust ${brand}. ${hook}. Order your batch today!`,
-    'stock-fomo': `🚨 RESTOCK ALERT! ${brand}'s best-selling ${category.toLowerCase()} is back after selling out 3x. ${hook}. Grab your jar before stocks clear again ⏰`,
-    'clean-ingredient': `Zero preservatives. Zero shortcuts. 100% authentic sun-dried & handmade ${category.toLowerCase()} by ${brand}. ${hook}. Taste pure tradition 🌿`,
-    'festive-celebration': `Bring festival warmth & authentic taste to your table with ${brand}. ${hook}. Special festive offer live — shop now! ✨`,
-    'comparison': competitorHost
-      ? `Compared ${competitorHost} and still came back to ${brand}. Reason: ${hook}. Choose authentic over average.`
-      : `Skip the generic aisle. ${brand} stands out with ${hook}. Taste the difference yourself.`,
-    'aesthetic-studio': `Crafted for true food lovers. ${brand} delivers ${hook}. Elevate every meal with authentic Indian taste 🍽️`,
-    'founder-craft': `Started in a home kitchen with a simple promise: real ${category.toLowerCase()}, no compromise. Today ${brand} brings ${hook} straight to your doorstep 🏡`,
-    'offer-led': `🔥 ${brand} special bundle deal! Get ${hook}. Free delivery on orders today — shop authentic ${category.toLowerCase()} now 🎁`,
-    // Legacy fallbacks
-    'ugc-style': `Not gonna lie… ${brand} surprised me 😍 Tried their ${category.toLowerCase()} and the quality feels homemade-premium. ${hook}. Linking before it sells out 👀`,
-    'testimonial': `"Once you try ${brand}, everything else feels average." Families across India trust our ${category.toLowerCase()}. ${hook} ⭐`,
-    'urgency': `⏰ Selling fast! ${brand}'s best ${category.toLowerCase()} won't last the weekend. ${hook}. Order today.`,
-    'benefit-led': `Why choose ${brand}? You get ${hook}. Honest ingredients, careful sourcing, and delivery across India.`,
-    'problem-solution': `Done with bland, mass-market ${category.toLowerCase()}? ${brand} brings ${hook}. One switch — better taste.`,
-    'lifestyle': `Bring home the taste of tradition with ${brand}. ${hook}. Perfect for modern Indian kitchens and celebrations ✨`,
-    'founder-story': `${brand} started with a simple promise — real ${category.toLowerCase()}, no shortcuts. Today that means ${hook}. Try what families already love.`,
-    'social-proof': `Loved by shoppers across India 🇮🇳 ${brand} — ${hook}. High reorders. Honest reviews. Join the community.`,
-  };
+  const base = `${brand} ${category.toLowerCase()}: ${hook}`.replace(/\s+/g, ' ').trim();
+  const templates: Record<string, string> = Object.fromEntries(
+    AD_ANGLES.map((item) => [
+      item.angle,
+      `${base}. Explore the product details and choose what fits your needs.`,
+    ])
+  );
 
   return AD_ANGLES.map((a, i) => ({
     variant_number: i + 1,

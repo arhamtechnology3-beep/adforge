@@ -1,32 +1,115 @@
 import { ImageResponse } from 'next/og';
+import { NextResponse } from 'next/server';
 import {
   ANGLE_PALETTES,
   META_CREATIVE_SPECS,
   type CreativeFormat,
 } from '@/lib/creatives';
 import { optimizeProductImageUrl } from '@/lib/creatives';
+import { ogSafeText } from '@/lib/og-text';
+import fs from 'fs';
+import path from 'path';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const MAX_HERO_BYTES = 1_400_000;
+const fontData = [
+  {
+    name: 'Noto Sans',
+    data: Uint8Array.from(
+      fs.readFileSync(
+        path.join(
+          process.cwd(),
+          'node_modules/@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff'
+        )
+      )
+    ).buffer,
+    weight: 400 as const,
+  },
+  {
+    name: 'Noto Sans',
+    data: Uint8Array.from(
+      fs.readFileSync(
+        path.join(
+          process.cwd(),
+          'node_modules/@fontsource/noto-sans/files/noto-sans-latin-700-normal.woff'
+        )
+      )
+    ).buffer,
+    weight: 700 as const,
+  },
+  {
+    name: 'Noto Sans Devanagari',
+    data: Uint8Array.from(
+      fs.readFileSync(
+        path.join(
+          process.cwd(),
+          'node_modules/@fontsource/noto-sans-devanagari/files/noto-sans-devanagari-devanagari-400-normal.woff'
+        )
+      )
+    ).buffer,
+    weight: 400 as const,
+  },
+  {
+    name: 'Noto Sans Devanagari',
+    data: Uint8Array.from(
+      fs.readFileSync(
+        path.join(
+          process.cwd(),
+          'node_modules/@fontsource/noto-sans-devanagari/files/noto-sans-devanagari-devanagari-700-normal.woff'
+        )
+      )
+    ).buffer,
+    weight: 700 as const,
+  },
+];
+
+function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
+function readLocalUpload(relativePath: string): string | null {
+  try {
+    const filePath = path.join(process.cwd(), 'public', relativePath.replace(/^\//, ''));
+    if (!fs.existsSync(filePath)) return null;
+    const buf = fs.readFileSync(filePath);
+    if (buf.length === 0 || buf.length > MAX_HERO_BYTES) return null;
+    const ext = path.extname(filePath).toLowerCase();
+    const type =
+      ext === '.png' ? 'image/png' : ext === '.gif' ? 'image/gif' : 'image/jpeg';
+    return `data:${type};base64,${buf.toString('base64')}`;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Fetch hero image into a data URL so ImageResponse never hangs on
  * multi-MB Shopify banners or flaky remote hosts.
  */
-async function loadHeroDataUrl(raw: string | null): Promise<string | null> {
+async function loadHeroDataUrl(raw: string | null, origin?: string): Promise<string | null> {
   if (!raw) return null;
+  if (raw.startsWith('/uploads/')) {
+    return readLocalUpload(raw);
+  }
   try {
-    const src = optimizeProductImageUrl(raw, 1080);
-    const res = await fetch(src, {
-      signal: AbortSignal.timeout(10000),
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        Accept: 'image/jpeg,image/png,image/*,*/*;q=0.8',
+    const resolved = raw.startsWith('/') && origin ? `${origin}${raw}` : raw;
+    const src = optimizeProductImageUrl(resolved, 1080);
+    const res = await fetchWithTimeout(
+      src,
+      {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          Accept: 'image/jpeg,image/png,image/*,*/*;q=0.8',
+        },
+        cache: 'no-store',
       },
-    });
+      12000
+    );
     if (!res.ok) return null;
 
     const contentType = res.headers.get('content-type') || 'image/jpeg';
@@ -57,50 +140,61 @@ async function loadHeroDataUrl(raw: string | null): Promise<string | null> {
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const brand = searchParams.get('brand') || 'Your Brand';
-    const headline = searchParams.get('headline') || 'Discover quality products';
-    const subline = searchParams.get('subline') || 'Authentic products for India';
+    const origin = new URL(request.url).origin;
+    const brand = ogSafeText(searchParams.get('brand') || 'Your Brand', 48);
+    const headline = ogSafeText(searchParams.get('headline') || 'Discover quality products', 60);
+    const subline = ogSafeText(searchParams.get('subline') || 'Authentic products for India', 70);
     const angle = searchParams.get('angle') || 'offer-led';
-    const cta = searchParams.get('cta') || 'Shop Now';
-    const badge = searchParams.get('badge') || 'FEATURED';
+    const cta = ogSafeText(searchParams.get('cta') || 'Shop Now', 24);
+    const badge = ogSafeText(searchParams.get('badge') || 'FEATURED', 28);
     const productImage = searchParams.get('img');
     const sceneImage = searchParams.get('scene');
     const format = (searchParams.get('format') || 'feed_1x1') as CreativeFormat;
+    const template = searchParams.get('template') || 'hero-product';
 
     const spec = META_CREATIVE_SPECS[format] || META_CREATIVE_SPECS.feed_1x1;
     const palette = ANGLE_PALETTES[angle] || ANGLE_PALETTES['offer-led'];
     const isStory = format === 'story_9x16';
+    const isPortrait = format === 'feed_4x5';
     const isLandscape = format === 'landscape_1_91';
-    const pad = isStory ? 56 : isLandscape ? 36 : 44;
-    const headlineSize = isStory ? 64 : isLandscape ? 42 : 52;
+    const pad = isStory ? 56 : isLandscape ? 36 : isPortrait ? 40 : 44;
+    const headlineSize = isStory ? 64 : isLandscape ? 42 : isPortrait ? 48 : 52;
     const sublineSize = isStory ? 30 : 26;
     const badgeSize = isStory ? 26 : 24;
     const ctaSize = isStory ? 30 : 28;
 
     // Load authentic website product packshot and AI background scene
     const [productSrc, sceneSrc] = await Promise.all([
-      loadHeroDataUrl(productImage),
-      loadHeroDataUrl(sceneImage),
+      loadHeroDataUrl(productImage, origin),
+      loadHeroDataUrl(sceneImage, origin),
     ]);
+    if (!productImage || !productSrc) {
+      return NextResponse.json(
+        { error: 'An approved, loadable product packshot is required' },
+        { status: 422 }
+      );
+    }
 
-    // Fallback if neither loaded: use whichever is available or gradient
-    const bgSrc = sceneSrc || (!productSrc ? await loadHeroDataUrl(productImage) : null);
+    const bgSrc = sceneSrc;
 
-    // Trend-based floating sticker callout
-    const trendCallouts: Record<string, string> = {
-      'competitor-beat': '🏆 OUR BATCH vs OTHER BRANDS · WHY SHOPPERS SWITCH',
-      'trending-ugc': '⭐ 4.9/5 RATED · 10,000+ HAPPY BUYERS',
-      'unboxing-pov': '📦 VIRAL UNBOXING FIND ON REELS',
-      'rating-social-proof': '⭐⭐⭐⭐⭐ 4.9/5 VERIFIED CUSTOMER REVIEWS',
-      'stock-fomo': '🚨 RESTOCK ALERT · BATCH #4 SELLING FAST',
-      'clean-ingredient': '🌿 100% NATURAL · ZERO PRESERVATIVES',
-      'festive-celebration': '✨ FESTIVE THALI & CELEBRATION SPECIAL',
-      comparison: '⚖️ AUTHENTIC BATCH vs MASS MARKET',
-      'aesthetic-studio': '💎 D2C PREMIUM SELECTION',
-      'founder-craft': '🏡 TRADITIONAL HANDMADE SAURASHTRA RECIPE',
-      'offer-led': '🔥 EXCLUSIVE BUNDLE OFFER LIVE',
+    // Template labels describe layout only; they never introduce unapproved claims.
+    const templateLabels: Record<string, string> = {
+      'offer-card': 'SPECIAL OFFER',
+      'benefit-proof': 'PRODUCT BENEFIT',
+      'recipe-lifestyle': 'LIFESTYLE IDEA',
+      'variety-grid': 'PRODUCT RANGE',
+      'hero-product': 'FEATURED PRODUCT',
     };
-    const trendCallout = trendCallouts[angle] || null;
+    const trendCallout = templateLabels[template] || null;
+    const productTop =
+      template === 'recipe-lifestyle'
+        ? isStory
+          ? '22%'
+          : '18%'
+        : isStory
+          ? '16%'
+          : '12%';
+    const productHeight = template === 'offer-card' ? '44%' : '50%';
 
     return new ImageResponse(
       (
@@ -111,7 +205,7 @@ export async function GET(request: Request) {
             display: 'flex',
             flexDirection: 'column',
             background: palette.bg,
-            fontFamily: 'sans-serif',
+            fontFamily: 'Noto Sans, Noto Sans Devanagari',
             position: 'relative',
             overflow: 'hidden',
           }}
@@ -138,7 +232,7 @@ export async function GET(request: Request) {
                   width: '100%',
                   height: '100%',
                   objectFit: 'cover',
-                  filter: productSrc ? 'blur(3px) brightness(0.85)' : 'none',
+                  filter: productSrc ? 'brightness(0.9) saturate(1.05)' : 'none',
                 }}
               />
             ) : (
@@ -166,20 +260,47 @@ export async function GET(request: Request) {
             }}
           />
 
+          {/* Darken center zone so AI ghost products don't show through the packshot */}
+          <div
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              top: productTop,
+              height: productHeight,
+              display: 'flex',
+              background:
+                'radial-gradient(ellipse 72% 88% at 50% 48%, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.28) 52%, transparent 78%)',
+            }}
+          />
+
           {/* Authentic Product Hero Spotlight — Product kept 100% intact (logo, colors, design, shape) */}
           {productSrc && (
             <div
               style={{
                 position: 'absolute',
-                top: isStory ? '18%' : '14%',
+                top: productTop,
                 left: '8%',
                 right: '8%',
-                height: isStory ? '48%' : '48%',
+                height: productHeight,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
             >
+              {/* Soft contact shadow under packshot */}
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: '6%',
+                  width: '58%',
+                  height: '10%',
+                  display: 'flex',
+                  background:
+                    'radial-gradient(ellipse at center, rgba(0,0,0,0.48) 0%, transparent 72%)',
+                  filter: 'blur(10px)',
+                }}
+              />
               {/* Product Hero Image with objectFit contain so product is never cropped/altered */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -189,7 +310,8 @@ export async function GET(request: Request) {
                   maxHeight: '100%',
                   maxWidth: '100%',
                   objectFit: 'contain',
-                  filter: 'drop-shadow(0 20px 30px rgba(0,0,0,0.5))',
+                  filter:
+                    'drop-shadow(0 24px 36px rgba(0,0,0,0.55)) drop-shadow(0 4px 12px rgba(0,0,0,0.35))',
                 }}
               />
             </div>
@@ -345,6 +467,7 @@ export async function GET(request: Request) {
       {
         width: spec.width,
         height: spec.height,
+        fonts: fontData,
       }
     );
   } catch (err) {

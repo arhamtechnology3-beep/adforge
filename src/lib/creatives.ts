@@ -1,4 +1,4 @@
-export type CreativeFormat = 'feed_1x1' | 'story_9x16' | 'landscape_1_91';
+export type CreativeFormat = 'feed_1x1' | 'feed_4x5' | 'story_9x16' | 'landscape_1_91';
 
 /** Meta ad format types clients choose at review stage */
 export type MetaAdFormat = 'single_image' | 'carousel' | 'stories' | 'video';
@@ -35,9 +35,9 @@ export const META_AD_FORMATS: Record<
     aspect: '9:16',
   },
   video: {
-    label: 'Video (slideshow)',
+    label: 'UGC-style motion video',
     shortLabel: 'Video',
-    description: 'Multi-frame motion preview — hooks attention in Feed/Reels',
+    description: '8–12 second creator-style motion ad with varied scenes for Feed/Reels',
     placement: 'Feed, Stories & Reels',
     aspect: '1:1 / 9:16',
   },
@@ -51,6 +51,12 @@ export const META_CREATIVE_SPECS: Record<
     width: 1080,
     height: 1080,
     label: 'Feed / Square',
+    placement: 'Facebook & Instagram Feed',
+  },
+  feed_4x5: {
+    width: 1080,
+    height: 1350,
+    label: 'Feed / Portrait',
     placement: 'Facebook & Instagram Feed',
   },
   story_9x16: {
@@ -345,31 +351,21 @@ export function optimizeProductImageUrl(raw: string, width = 1080): string {
 }
 
 /** Free product scene matched to category/ad content (used when site photo missing) */
-export function productSceneUrl(category: string, angle: string, seed: number): string {
-  const isPickle = /pickle/i.test(category);
-  const prompt = isPickle
-    ? `aesthetic indian food studio backdrop, rustic wooden table with sun-drenched warm lighting, festive brass utensils and thali decor, commercial food photography background, shallow depth of field, blurred background for product placement, no text`
-    : `premium ${category} D2C brand commercial studio backdrop, minimal aesthetic pedestal with soft studio light and clean podium, blurred background for product hero placement, 8k ecommerce ad photo, no text`;
-
+export function productSceneUrl(
+  category: string,
+  angle: string,
+  seed: number,
+  aspect: '1:1' | '4:5' | '9:16' = '1:1',
+  preset?: string
+): string {
   const params = new URLSearchParams({
-    width: '1080',
-    height: '1080',
-    nologo: 'true',
+    category: category.slice(0, 80),
+    angle: angle.slice(0, 60),
     seed: String(seed),
+    aspect,
   });
-
-  const angleHint =
-    angle === 'trending-ugc' || angle === 'unboxing-pov'
-      ? ', cozy lifestyle home aesthetic'
-      : angle === 'festive-celebration'
-        ? ', indian festival lights and marigold accents'
-        : angle === 'clean-ingredient'
-          ? ', fresh natural leaves and rustic sunlit wood'
-          : angle === 'aesthetic-studio'
-            ? ', sleek pastel studio spotlight'
-            : ', high end commercial advertising backdrop';
-
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt + angleHint)}?${params}`;
+  if (preset) params.set('preset', preset.slice(0, 60));
+  return `/api/ads/background?${params}`;
 }
 
 export function buildCreativeUrl(params: {
@@ -385,6 +381,7 @@ export function buildCreativeUrl(params: {
   format?: CreativeFormat;
   adFormat?: MetaAdFormat;
   variant?: number;
+  template?: string | null;
 }): string {
   const q = new URLSearchParams({
     brand: params.brand.slice(0, 60),
@@ -399,6 +396,7 @@ export function buildCreativeUrl(params: {
   if (params.productImage) q.set('img', params.productImage);
   if (params.sceneImage) q.set('scene', params.sceneImage);
   if (params.adFormat) q.set('ad_format', params.adFormat);
+  if (params.template) q.set('template', params.template);
   const path = `/api/ads/creative?${q.toString()}`;
   if (params.baseUrl) {
     return `${params.baseUrl.replace(/\/$/, '')}${path}`;

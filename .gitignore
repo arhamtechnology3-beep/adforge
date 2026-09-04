@@ -19,6 +19,8 @@
 # misc
 .DS_Store
 *.pem
+.cache/
+.data/
 
 # debug
 npm-debug.log*
@@ -37,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Cursor / local temp
+.cursor/
+.tmp/
+.tmp-*
+*.tmp.png
+scripts/chromium-path.txt

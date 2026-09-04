@@ -1,17 +1,20 @@
 import { mkdir, writeFile } from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import { buildGuardedScenePrompt } from '@/lib/creative-product-guardrails';
 
 const API_URL = 'https://openrouter.ai/api/v1/images';
 const DEFAULT_MODEL = 'black-forest-labs/flux.2-klein-4b';
 
 export type OpenRouterImageInput = {
   prompt: string;
-  aspect: '1:1' | '9:16';
+  aspect: '1:1' | '9:16' | '4:5';
   brand?: string;
   headline?: string;
   productImageUrl?: string | null;
   seed?: number;
+  /** background = scene only (product composited later); full = entire creative */
+  mode?: 'background' | 'full';
 };
 
 function apiKey(): string | null {
@@ -45,29 +48,33 @@ export async function generateOpenRouterImage(
       ? 'Vertical 9:16 portrait for Instagram Stories/Reels.'
       : 'Square 1:1 for Meta Feed.';
 
-  const prompt = [
-    input.prompt,
-    aspectHint,
-    input.brand ? `Brand: ${input.brand}.` : '',
-    input.headline ? `Ad theme: ${input.headline}.` : '',
-    'Photorealistic Indian D2C food product advertising photography.',
-    'Professional studio lighting, appetizing, no watermark, no text in image.',
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .slice(0, 4000);
+  const mode = input.mode ?? (input.productImageUrl ? 'background' : 'full');
+  const guarded = buildGuardedScenePrompt(
+    [
+      input.prompt,
+      aspectHint,
+      input.brand ? `Brand: ${input.brand}.` : '',
+      input.headline ? `Ad theme: ${input.headline}.` : '',
+      'Photorealistic Indian D2C food product advertising photography.',
+    ]
+      .filter(Boolean)
+      .join(' '),
+    { mode, brand: input.brand, hasProductRef: Boolean(input.productImageUrl) }
+  );
 
   const body: Record<string, unknown> = {
     model: modelId(),
-    prompt,
-    aspect_ratio: input.aspect === '9:16' ? '9:16' : '1:1',
+    prompt: guarded.prompt,
+    negative_prompt: guarded.negativePrompt,
+    aspect_ratio: input.aspect === '9:16' ? '9:16' : input.aspect === '4:5' ? '4:5' : '1:1',
     output_format: 'png',
     n: 1,
   };
 
   if (input.seed != null) body.seed = input.seed;
 
-  if (input.productImageUrl) {
+  // Only use reference when generating a full creative (no separate product compositing)
+  if (input.productImageUrl && mode === 'full') {
     body.input_references = [
       {
         type: 'image_url',

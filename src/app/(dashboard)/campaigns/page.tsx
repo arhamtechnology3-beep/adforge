@@ -39,7 +39,7 @@ function CampaignsPageInner() {
         }
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [searchParams]);
 
   if (loading) {
     return (

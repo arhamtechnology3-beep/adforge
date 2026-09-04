@@ -10,6 +10,7 @@ import {
   type DemoOnboarding,
 } from '@/lib/auth/demo-onboarding';
 import { getDefaultDemoOnboarding } from '@/lib/auth/campaign-input';
+import { metaConnectionIsLive, resolveMetaConnection } from '@/lib/auth/demo-meta';
 
 function normalizeCompetitors(body: {
   competitors?: Array<{ url?: string; meta_page_id?: string | null }>;
@@ -123,12 +124,15 @@ export async function GET() {
 
   if (user.isDemo) {
     const saved = await readDemoOnboarding();
-    return NextResponse.json(
-      saved || {
-        ...getDefaultDemoOnboarding(user.id),
-        demo: true,
-      }
-    );
+    const meta = await resolveMetaConnection(user);
+    const base = saved || {
+      ...getDefaultDemoOnboarding(user.id),
+      demo: true as const,
+    };
+    return NextResponse.json({
+      ...base,
+      meta_connected: metaConnectionIsLive(meta) || base.meta_connected,
+    });
   }
 
   const supabase = await createClient();
@@ -141,14 +145,10 @@ export async function GET() {
     .limit(1)
     .maybeSingle();
 
-  const { data: adAccount } = await supabase
-    .from('ad_accounts')
-    .select('id, meta_ad_account_id, connected_at')
-    .eq('user_id', user.id)
-    .maybeSingle();
+  const meta = await resolveMetaConnection(user);
 
   return NextResponse.json({
     ...campaign,
-    meta_connected: !!(adAccount?.meta_ad_account_id || adAccount?.id),
+    meta_connected: metaConnectionIsLive(meta),
   });
 }

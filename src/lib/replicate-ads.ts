@@ -13,6 +13,12 @@ import type { MetaAdLibraryAd } from '@/lib/ai';
 import { scrubCompetitorBrands, scrubHeadline } from '@/lib/brand-scrub';
 import { buildCreativeBrief } from '@/lib/creative-brief';
 import { generateSceneImage } from '@/lib/creative-providers';
+import {
+  evaluateCreativeQuality,
+  type ProductBrief,
+} from '@/lib/creative-quality';
+import { generateGroundedConcepts } from '@/lib/grounded-copy';
+import type { GroundedConcept } from '@/lib/grounded-copy';
 
 export type SelectedLibraryAdInput = Pick<
   MetaAdLibraryAd,
@@ -73,6 +79,11 @@ export async function buildReplicatedAds(opts: {
   brand: string;
   category: string;
   productImages: string[];
+  product?: ProductBrief | null;
+  language?: string;
+  tone?: string;
+  template?: GroundedConcept['template'];
+  formats?: MetaAdFormat[];
   competitorBrand?: string | null;
   competitorNames?: Array<string | null | undefined>;
 }): Promise<ReplicatedAdRow[]> {
@@ -81,7 +92,12 @@ export async function buildReplicatedAds(opts: {
     selected,
     brand,
     category,
-    productImages,
+    productImages: scrapedProductImages,
+    product,
+    language,
+    tone,
+    template,
+    formats,
     competitorBrand,
     competitorNames = [],
   } = opts;
@@ -91,34 +107,59 @@ export async function buildReplicatedAds(opts: {
     ...competitorNames,
     ...selected.map((s) => s.brand),
   ];
+  const productImages = product?.packshots?.length
+    ? product.packshots
+    : scrapedProductImages;
+  const selectedSources = selected.slice(0, 8);
+  const groundedConcepts = product
+    ? await generateGroundedConcepts(
+        product,
+        selectedSources,
+        names.filter(Boolean) as string[],
+        { language, tone }
+      )
+    : [];
 
   const ads: ReplicatedAdRow[] = [];
   let n = 0;
 
-  for (const src of selected.slice(0, 8)) {
+  for (const [sourceIndex, src] of selectedSources.entries()) {
     const angle = 'competitor-beat';
-    const primaryText = adaptCopyForBrand(src.primary_text, brand, category, names);
-    const headline = adaptHeadline(src.headline, brand, category, names);
-    const subline = scrubCompetitorBrands(
-      extractSubline(primaryText, category, brand),
-      brand,
-      names
-    );
+    const grounded = groundedConcepts[sourceIndex];
+    const primaryText =
+      grounded?.primaryText || adaptCopyForBrand(src.primary_text, brand, category, names);
+    const headline =
+      grounded?.headline || adaptHeadline(src.headline, brand, category, names);
+    const subline =
+      grounded?.subline ||
+      scrubCompetitorBrands(extractSubline(primaryText, category, brand), brand, names);
     const cta =
+      grounded?.cta ||
       scrubCompetitorBrands(src.cta || metaCtaForAngle(angle), brand, names).replace(
         /_/g,
         ' '
-      ) || metaCtaForAngle(angle);
+      ) ||
+      metaCtaForAngle(angle);
     const badge = badgeForAngle(angle);
-    const productImage =
-      productImages.length > 0 ? productImages[n % productImages.length] : null;
+    // One approved hero packshot stays pinned across every placement for this concept.
+    const productImage = product?.primaryPackshot || productImages[0] || null;
 
     const brief = buildCreativeBrief({
       brand,
       category,
       competitorAd: src,
-      productName: category,
+      productName: product?.productName || category,
     });
+    const templateChoices = [
+      grounded?.template || brief.layoutStyle,
+      'hero-product',
+      'benefit-proof',
+      'recipe-lifestyle',
+      'variety-grid',
+      'offer-card',
+    ].filter((value, index, all) => value && all.indexOf(value) === index);
+    const creativeTemplate =
+      template || templateChoices[sourceIndex % templateChoices.length] || 'hero-product';
 
     const [feedScene, storyScene] = await Promise.all([
       generateSceneImage({
@@ -151,9 +192,14 @@ export async function buildReplicatedAds(opts: {
       source_library_id: src.library_id || src.id,
       source_headline: scrubCompetitorBrands(src.headline || '', brand, names) || null,
       source_primary_text: scrubCompetitorBrands(src.primary_text || '', brand, names) || null,
+      source_media_url: src.media_url || null,
       source_brand: competitorBrand || src.brand || null,
       replicate: true,
       product_images: productImage ? [productImage] : productImages.slice(0, 3),
+      product_id: product?.id || null,
+      product_name: product?.productName || category,
+      primary_packshot: productImage,
+      template: creativeTemplate,
       creative_brief: {
         mood: brief.mood,
         counter_hook: brief.counterHook,
@@ -162,21 +208,36 @@ export async function buildReplicatedAds(opts: {
       },
     };
 
-    const targetFormat: MetaAdFormat =
+    const sourceFormat: MetaAdFormat =
       src.ad_format === 'carousel'
         ? 'carousel'
         : src.ad_format === 'video'
           ? 'video'
           : 'single_image';
+    const requestedPrimary = (formats || []).filter((format) => format !== 'stories');
+    const targetFormat: MetaAdFormat = requestedPrimary.includes(sourceFormat)
+      ? sourceFormat
+      : requestedPrimary[sourceIndex % requestedPrimary.length] || sourceFormat;
 
     n += 1;
     if (targetFormat === 'carousel') {
       const cardCount = Math.min(5, Math.max(3, productImages.length || 3));
-      const cards = Array.from({ length: cardCount }, (_, i) => {
-        const img =
-          productImages.length > 0
-            ? productImages[i % productImages.length]
-            : productImage;
+      const cards = await Promise.all(Array.from({ length: cardCount }, async (_, i) => {
+        const img = productImage;
+        const cardAngle = i === 0 ? angle : i % 2 === 0 ? 'aesthetic-studio' : 'trending-ugc';
+        const cardScene =
+          i === 0
+            ? feedScene
+            : await generateSceneImage({
+                brief,
+                category,
+                angle: cardAngle,
+                seed: (sourceIndex + 1) * 101 + i * 37,
+                aspect: '1:1',
+                productImageUrl: productImage,
+                brand,
+                headline,
+              });
         const cardHeadline =
           i === 0 ? headline : `${brand} · ${category}`.slice(0, 40);
         return {
@@ -184,19 +245,20 @@ export async function buildReplicatedAds(opts: {
             brand,
             headline: cardHeadline,
             subline,
-            angle,
+            angle: cardAngle,
             cta,
             badge: i === 0 ? badge : `CARD ${i + 1}`,
             productImage: img,
-            sceneImage: feedScene.url,
+            sceneImage: cardScene.url,
             format: 'feed_1x1',
             adFormat: 'carousel',
             variant: n * 10 + i,
+            template: creativeTemplate,
           }),
           headline: cardHeadline,
           description: subline,
         };
-      });
+      }));
       ads.push({
         campaign_input_id: campaignInputId,
         variant_number: n,
@@ -215,30 +277,49 @@ export async function buildReplicatedAds(opts: {
       });
     } else if (targetFormat === 'video') {
       const frameCount = Math.min(4, Math.max(3, productImages.length || 3));
-      const frames = Array.from({ length: frameCount }, (_, i) => {
-        const img =
-          productImages.length > 0
-            ? productImages[(i + n) % productImages.length]
-            : productImage;
+      const frames = await Promise.all(Array.from({ length: frameCount }, async (_, i) => {
+        const img = productImage;
         const frameHeadlines = [headline, subline.split(' · ')[0] || brand, cta, brand];
+        const frameAngles = ['unboxing-pov', 'trending-ugc', 'benefit-led', 'offer-led'];
+        const frameTemplates = [
+          'hero-product',
+          'recipe-lifestyle',
+          'benefit-proof',
+          'offer-card',
+        ];
+        const frameBadges = ['UGC REVIEW', 'WHY I USE IT', 'PRODUCT BENEFIT', 'SHOP NOW'];
+        const frameScene =
+          i === 0
+            ? storyScene
+            : await generateSceneImage({
+                brief,
+                category,
+                angle: frameAngles[i] || angle,
+                seed: (sourceIndex + 1) * 149 + i * 43,
+                aspect: '9:16',
+                productImageUrl: productImage,
+                brand,
+                headline: frameHeadlines[i] || headline,
+              });
         return {
           image_url: buildCreativeUrl({
             brand,
             headline: frameHeadlines[i] || headline,
             subline,
-            angle,
+            angle: frameAngles[i] || angle,
             cta,
-            badge: i === 0 ? badge : 'WATCH',
+            badge: frameBadges[i] || 'WATCH',
             productImage: img,
-            sceneImage: feedScene.url,
-            format: 'feed_1x1',
+            sceneImage: frameScene.url,
+            format: 'story_9x16',
             adFormat: 'video',
             variant: n * 10 + i,
+            template: frameTemplates[i] || creativeTemplate,
           }),
           headline: frameHeadlines[i] || headline,
           duration_ms: 2200,
         };
-      });
+      }));
       ads.push({
         campaign_input_id: campaignInputId,
         variant_number: n,
@@ -249,8 +330,9 @@ export async function buildReplicatedAds(opts: {
         media_payload: {
           ...sourceMeta,
           placement: META_AD_FORMATS.video.placement,
-          aspect: '1:1',
+          aspect: '9:16',
           frames,
+          video_style: 'ugc-motion',
         },
         headline,
         angle: `replicate:${src.library_id || src.id}`,
@@ -274,6 +356,7 @@ export async function buildReplicatedAds(opts: {
               format: 'feed_1x1',
               adFormat: 'single_image',
               variant: n,
+              template: creativeTemplate,
             }),
         status: 'pending',
         ad_format: 'single_image',
@@ -287,8 +370,9 @@ export async function buildReplicatedAds(opts: {
       });
     }
 
-    n += 1;
-    ads.push({
+    if (!formats || formats.includes('stories')) {
+      n += 1;
+      ads.push({
       campaign_input_id: campaignInputId,
       variant_number: n,
       copy_text: primaryText,
@@ -301,14 +385,12 @@ export async function buildReplicatedAds(opts: {
             angle,
             cta,
             badge,
-            productImage:
-              productImages.length > 0
-                ? productImages[(n + 1) % productImages.length]
-                : productImage,
+            productImage,
             sceneImage: storyScene.url,
             format: 'story_9x16',
             adFormat: 'stories',
             variant: n,
+            template: creativeTemplate,
           }),
       status: 'pending',
       ad_format: 'stories',
@@ -319,8 +401,31 @@ export async function buildReplicatedAds(opts: {
       },
       headline,
       angle: `replicate-stories:${src.library_id || src.id}`,
-    });
+      });
+    }
   }
 
-  return ads;
+  const requestedAds = formats?.length
+    ? ads.filter((ad) => formats.includes(ad.ad_format))
+    : ads;
+  if (!product) return requestedAds;
+
+  return requestedAds.map((ad) => {
+    const quality = evaluateCreativeQuality({
+      headline: ad.headline,
+      primaryText: ad.copy_text,
+      imageUrl: ad.image_url,
+      product,
+      competitorNames: names.filter(Boolean) as string[],
+    });
+    return {
+      ...ad,
+      media_payload: {
+        ...ad.media_payload,
+        quality_score: quality.score,
+        quality_flags: quality.flags,
+        quality_valid: quality.valid,
+      },
+    };
+  });
 }

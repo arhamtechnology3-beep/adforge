@@ -1,0 +1,532 @@
+import { createHash, randomUUID } from 'crypto';
+import { mkdir, readFile, writeFile } from 'fs/promises';
+import path from 'path';
+import sharp from 'sharp';
+import { removeBackgroundWithRemoveBg, removeBgConfigured } from '@/lib/remove-bg';
+
+const MAX_SOURCE_BYTES = 15 * 1024 * 1024;
+
+type RawRgbaInfo = { width: number; height: number; channels: 4 };
+
+function rgbaRawInfo(info: { width: number; height: number; channels: number }): RawRgbaInfo {
+  return { width: info.width, height: info.height, channels: 4 };
+}
+
+function median(values: number[]): number {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+function colorDistance(
+  pixels: Buffer,
+  offset: number,
+  bg: [number, number, number],
+  channels: number
+): number {
+  return Math.sqrt(
+    (pixels[offset] - bg[0]) ** 2 +
+      (pixels[offset + 1] - bg[1]) ** 2 +
+      (pixels[offset + 2] - bg[2]) ** 2
+  );
+}
+
+function estimateBackgroundColor(
+  pixels: Buffer,
+  width: number,
+  height: number,
+  channels: number
+): [number, number, number] {
+  const samples: Array<[number, number, number]> = [];
+  const stride = Math.max(1, Math.floor(Math.min(width, height) / 80));
+  const sample = (x: number, y: number) => {
+    const offset = (y * width + x) * channels;
+    samples.push([pixels[offset], pixels[offset + 1], pixels[offset + 2]]);
+  };
+  for (let x = 0; x < width; x += stride) {
+    sample(x, 0);
+    sample(x, height - 1);
+  }
+  for (let y = 0; y < height; y += stride) {
+    sample(0, y);
+    sample(width - 1, y);
+  }
+  return [median(samples.map((c) => c[0])), median(samples.map((c) => c[1])), median(samples.map((c) => c[2]))];
+}
+
+function floodBackgroundMask(
+  pixels: Buffer,
+  width: number,
+  height: number,
+  channels: number,
+  bg: [number, number, number],
+  tolerance: number
+): Uint8Array {
+  const total = width * height;
+  const mask = new Uint8Array(total);
+  const queue = new Int32Array(total);
+  let start = 0;
+  let end = 0;
+  const enqueue = (position: number) => {
+    if (mask[position]) return;
+    const offset = position * channels;
+    if (colorDistance(pixels, offset, bg, channels) > tolerance) return;
+    mask[position] = 1;
+    queue[end++] = position;
+  };
+  for (let x = 0; x < width; x += 1) {
+    enqueue(x);
+    enqueue((height - 1) * width + x);
+  }
+  for (let y = 0; y < height; y += 1) {
+    enqueue(y * width);
+    enqueue(y * width + width - 1);
+  }
+  while (start < end) {
+    const position = queue[start++];
+    const x = position % width;
+    const y = Math.floor(position / width);
+    if (x > 0) enqueue(position - 1);
+    if (x + 1 < width) enqueue(position + 1);
+    if (y > 0) enqueue(position - width);
+    if (y + 1 < height) enqueue(position + width);
+  }
+  return mask;
+}
+
+function largestForegroundComponent(
+  foreground: Uint8Array,
+  width: number,
+  height: number
+): Uint8Array {
+  const total = width * height;
+  const labels = new Int32Array(total).fill(-1);
+  const sizes: number[] = [];
+  let label = 0;
+
+  for (let position = 0; position < total; position += 1) {
+    if (!foreground[position] || labels[position] !== -1) continue;
+    const queue = [position];
+    let qi = 0;
+    let size = 0;
+    labels[position] = label;
+    while (qi < queue.length) {
+      const current = queue[qi++];
+      size += 1;
+      const x = current % width;
+      const y = Math.floor(current / width);
+      const neighbors = [
+        x > 0 ? current - 1 : -1,
+        x + 1 < width ? current + 1 : -1,
+        y > 0 ? current - width : -1,
+        y + 1 < height ? current + width : -1,
+      ];
+      for (const next of neighbors) {
+        if (next < 0 || !foreground[next] || labels[next] !== -1) continue;
+        labels[next] = label;
+        queue.push(next);
+      }
+    }
+    sizes.push(size);
+    label += 1;
+  }
+
+  if (!sizes.length) return foreground;
+  const bestLabel = sizes.indexOf(Math.max(...sizes));
+  const keep = new Uint8Array(total);
+  for (let position = 0; position < total; position += 1) {
+    if (labels[position] === bestLabel) keep[position] = 1;
+  }
+  return keep;
+}
+
+function morphCloseMask(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  radius: number
+): Uint8Array {
+  const dilated = new Uint8Array(mask.length);
+  const closed = new Uint8Array(mask.length);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      let on = 0;
+      for (let dy = -radius; dy <= radius; dy += 1) {
+        for (let dx = -radius; dx <= radius; dx += 1) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          if (mask[ny * width + nx]) on = 1;
+        }
+      }
+      dilated[y * width + x] = on;
+    }
+  }
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      let on = 1;
+      for (let dy = -radius; dy <= radius; dy += 1) {
+        for (let dx = -radius; dx <= radius; dx += 1) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          if (!dilated[ny * width + nx]) on = 0;
+        }
+      }
+      closed[y * width + x] = on;
+    }
+  }
+  return closed;
+}
+
+async function featherAlphaWithSharp(
+  pixels: Buffer,
+  info: RawRgbaInfo,
+  sigma: number
+): Promise<Buffer> {
+  const alpha = Buffer.alloc(info.width * info.height);
+  for (let i = 0, p = 0; p < info.width * info.height; p += 1, i += info.channels) {
+    alpha[p] = pixels[i + 3];
+  }
+  const blurred = await sharp(alpha, {
+    raw: { width: info.width, height: info.height, channels: 1 },
+  })
+    .blur(sigma)
+    .raw()
+    .toBuffer();
+  const output = Buffer.from(pixels);
+  for (let p = 0; p < info.width * info.height; p += 1) {
+    output[p * info.channels + 3] = blurred[p];
+  }
+  return output;
+}
+
+export function isAlreadyCutoutSource(source: string): boolean {
+  return /-cutout\.png($|\?)/i.test(source) || /\/normalized\//i.test(source);
+}
+
+function defringePixels(
+  pixels: Buffer,
+  width: number,
+  height: number,
+  channels: number,
+  bg: [number, number, number]
+): void {
+  const total = width * height;
+  for (let position = 0; position < total; position += 1) {
+    const offset = position * channels;
+    const alpha = pixels[offset + 3] / 255;
+    if (alpha < 0.04) {
+      pixels[offset + 3] = 0;
+      continue;
+    }
+    const invAlpha = 1 / Math.max(alpha, 0.05);
+    for (let channel = 0; channel < 3; channel += 1) {
+      const defringed =
+        (pixels[offset + channel] - bg[channel] * (1 - alpha)) * invAlpha;
+      pixels[offset + channel] = Math.max(0, Math.min(255, Math.round(defringed)));
+    }
+  }
+}
+
+export async function normalizePackshotBuffer(input: Buffer): Promise<{
+  buffer: Buffer;
+  width: number;
+  height: number;
+  backgroundRemoved: boolean;
+  provider?: 'remove-bg' | 'local';
+}> {
+  const prepared = await sharp(input)
+    .rotate()
+    .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const { width, height, channels } = prepared.info;
+  if (width < 300 || height < 300) throw new Error('Packshot must be at least 300×300 pixels');
+
+  const pixels = Buffer.from(prepared.data);
+  const total = width * height;
+  let transparentPixels = 0;
+  for (let index = 3; index < pixels.length; index += channels) {
+    if (pixels[index] < 20) transparentPixels += 1;
+  }
+  if (transparentPixels / total > 0.75) {
+    const trimmed = await sharp(pixels, { raw: rgbaRawInfo(prepared.info) })
+      .png({ compressionLevel: 8 })
+      .trim({ threshold: 10 })
+      .png({ compressionLevel: 8 })
+      .toBuffer();
+    const meta = await sharp(trimmed).metadata();
+    return {
+      buffer: trimmed,
+      width: meta.width || width,
+      height: meta.height || height,
+      backgroundRemoved: true,
+      provider: 'local',
+    };
+  }
+
+  if (removeBgConfigured()) {
+    const pngInput = await sharp(pixels, { raw: rgbaRawInfo(prepared.info) }).png({ compressionLevel: 6 }).toBuffer();
+    const removed = await removeBackgroundWithRemoveBg(pngInput);
+    if (removed) {
+      const trimmed = await sharp(removed)
+        .trim({ threshold: 8 })
+        .png({ compressionLevel: 8 })
+        .toBuffer();
+      const meta = await sharp(trimmed).metadata();
+      if (meta.width && meta.height) {
+        return {
+          buffer: trimmed,
+          width: meta.width,
+          height: meta.height,
+          backgroundRemoved: true,
+          provider: 'remove-bg',
+        };
+      }
+    }
+  }
+
+  return normalizePackshotBufferLocal(prepared, pixels, width, height, channels, total);
+}
+
+async function normalizePackshotBufferLocal(
+  prepared: { info: { width: number; height: number; channels: number } },
+  pixels: Buffer,
+  width: number,
+  height: number,
+  channels: number,
+  total: number
+): Promise<{
+  buffer: Buffer;
+  width: number;
+  height: number;
+  backgroundRemoved: boolean;
+  provider: 'local';
+}> {
+  const bg = estimateBackgroundColor(pixels, width, height, channels);
+  let backgroundMask = floodBackgroundMask(pixels, width, height, channels, bg, 72);
+  let removedRatio = backgroundMask.reduce((sum, value) => sum + value, 0) / total;
+
+  if (removedRatio < 0.12 || removedRatio > 0.94) {
+    backgroundMask = floodBackgroundMask(pixels, width, height, channels, bg, 110);
+    removedRatio = backgroundMask.reduce((sum, value) => sum + value, 0) / total;
+  }
+
+  const foreground = new Uint8Array(total);
+  for (let position = 0; position < total; position += 1) {
+    foreground[position] = backgroundMask[position] ? 0 : 1;
+  }
+
+  const rawMask =
+    removedRatio >= 0.12 && removedRatio <= 0.94
+      ? largestForegroundComponent(foreground, width, height)
+      : foreground;
+  const productMask = morphCloseMask(rawMask, width, height, 2);
+
+  for (let position = 0; position < total; position += 1) {
+    const offset = position * channels;
+    if (!productMask[position]) {
+      pixels[offset + 3] = 0;
+      continue;
+    }
+    const d = colorDistance(pixels, offset, bg, channels);
+    if (d < 32) {
+      pixels[offset + 3] = 0;
+    } else if (d < 110) {
+      pixels[offset + 3] = Math.min(255, Math.round(((d - 32) / 78) * 255));
+    } else {
+      pixels[offset + 3] = 255;
+    }
+  }
+
+  const featheredPixels = await featherAlphaWithSharp(pixels, rgbaRawInfo(prepared.info), 2.8);
+  pixels.set(featheredPixels);
+  defringePixels(pixels, width, height, channels, bg);
+
+  const foregroundKept = Array.from({ length: total }, (_, position) => pixels[position * channels + 3]).filter(
+    (value) => value > 30
+  ).length;
+  const backgroundRemoved = foregroundKept / total >= 0.04 && foregroundKept / total <= 0.88;
+
+  const png = await sharp(pixels, { raw: rgbaRawInfo(prepared.info) })
+    .png({ compressionLevel: 8 })
+    .toBuffer();
+  const trimmed = await sharp(png).trim({ threshold: 8 }).png({ compressionLevel: 8 }).toBuffer();
+  const meta = await sharp(trimmed).metadata();
+  return {
+    buffer: trimmed,
+    width: meta.width || width,
+    height: meta.height || height,
+    backgroundRemoved,
+    provider: 'local',
+  };
+}
+
+async function sourceBuffer(source: string): Promise<Buffer> {
+  if (source.startsWith('/uploads/')) {
+    return readFile(path.join(process.cwd(), 'public', source.replace(/^\//, '')));
+  }
+
+  try {
+    const parsed = new URL(source);
+    if (
+      ['localhost', '127.0.0.1'].includes(parsed.hostname) &&
+      parsed.pathname.startsWith('/uploads/')
+    ) {
+      return readFile(path.join(process.cwd(), 'public', parsed.pathname.replace(/^\//, '')));
+    }
+  } catch {
+    /* fetch below */
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try {
+    const response = await fetch(source, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'AdForgeAssetBot/1.0', Accept: 'image/*' },
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new Error(`Image fetch failed: HTTP ${response.status}`);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (!bytes.length || bytes.length > MAX_SOURCE_BYTES) {
+      throw new Error('Image is empty or exceeds 15 MB');
+    }
+    return bytes;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function normalizePackshot(
+  source: string,
+  ownerId: string,
+  persistToStorage = false,
+  options?: { force?: boolean }
+): Promise<{ url: string; width: number; height: number; backgroundRemoved: boolean }> {
+  if (!options?.force && isAlreadyCutoutSource(source)) {
+    const input = await sourceBuffer(source);
+    const meta = await sharp(input).metadata();
+    return {
+      url: source,
+      width: meta.width || 0,
+      height: meta.height || 0,
+      backgroundRemoved: true,
+    };
+  }
+  const input = await sourceBuffer(source);
+  const normalized = await normalizePackshotBuffer(input);
+  const output = normalized.buffer;
+  const dir = path.join(process.cwd(), 'public', 'uploads', ownerId, 'products');
+  await mkdir(dir, { recursive: true });
+  const digest = createHash('sha1').update(output).digest('hex').slice(0, 12);
+  const filename = `${digest}-cutout.png`;
+  if (persistToStorage) {
+    const { createServiceClient } = await import('@/lib/supabase/server');
+    const admin = await createServiceClient();
+    const objectPath = `${ownerId}/normalized/${filename}`;
+    const { error } = await admin.storage
+      .from('product-assets')
+      .upload(objectPath, output, {
+        contentType: 'image/png',
+        cacheControl: '31536000',
+        upsert: true,
+      });
+    if (error) throw new Error(`Packshot storage failed: ${error.message}`);
+    return {
+      url: admin.storage.from('product-assets').getPublicUrl(objectPath).data.publicUrl,
+      width: normalized.width,
+      height: normalized.height,
+      backgroundRemoved: normalized.backgroundRemoved,
+    };
+  }
+  await writeFile(path.join(dir, filename), output);
+  return {
+    url: `/uploads/${ownerId}/products/${filename}`,
+    width: normalized.width,
+    height: normalized.height,
+    backgroundRemoved: normalized.backgroundRemoved,
+  };
+}
+
+export async function bakeCreativeAsset(input: {
+  creativeUrl: string;
+  origin: string;
+  ownerId: string;
+  expectedAspect: '1:1' | '4:5' | '9:16';
+  persistToStorage?: boolean;
+}): Promise<{ url: string; width: number; height: number }> {
+  const source = input.creativeUrl.startsWith('http')
+    ? input.creativeUrl
+    : `${input.origin.replace(/\/$/, '')}${input.creativeUrl}`;
+  const response = await fetch(source, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`Creative render failed: HTTP ${response.status}`);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const metadata = await sharp(bytes).metadata();
+  if (!metadata.width || !metadata.height) throw new Error('Rendered creative has no dimensions');
+  const ratio = metadata.width / metadata.height;
+  const expected =
+    input.expectedAspect === '9:16' ? 9 / 16 : input.expectedAspect === '4:5' ? 4 / 5 : 1;
+  if (Math.abs(ratio - expected) > 0.03) {
+    throw new Error(`Rendered creative has wrong aspect ratio: ${metadata.width}×${metadata.height}`);
+  }
+  const stats = await sharp(bytes).stats();
+  const channelSpread = stats.channels.reduce((sum, channel) => sum + channel.stdev, 0);
+  if (channelSpread < 6) throw new Error('Rendered creative appears blank');
+
+  const output = await sharp(bytes).png({ compressionLevel: 8 }).toBuffer();
+  const filename = `${Date.now()}-${randomUUID().slice(0, 8)}.png`;
+  if (input.persistToStorage) {
+    const { createServiceClient } = await import('@/lib/supabase/server');
+    const admin = await createServiceClient();
+    const objectPath = `${input.ownerId}/${filename}`;
+    const { error } = await admin.storage
+      .from('creative-assets')
+      .upload(objectPath, output, {
+        contentType: 'image/png',
+        cacheControl: '31536000',
+        upsert: false,
+      });
+    if (error) throw new Error(`Creative storage failed: ${error.message}`);
+    const { data } = admin.storage.from('creative-assets').getPublicUrl(objectPath);
+    return {
+      url: data.publicUrl,
+      width: metadata.width,
+      height: metadata.height,
+    };
+  }
+
+  const dir = path.join(process.cwd(), 'public', 'uploads', input.ownerId, 'creatives');
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, filename), output);
+  return {
+    url: `/uploads/${input.ownerId}/creatives/${filename}`,
+    width: metadata.width,
+    height: metadata.height,
+  };
+}
+
+export async function persistCreativeFile(input: {
+  publicPath: string;
+  ownerId: string;
+  contentType: string;
+}): Promise<string> {
+  const { createServiceClient } = await import('@/lib/supabase/server');
+  const admin = await createServiceClient();
+  const filename = path.basename(input.publicPath);
+  const objectPath = `${input.ownerId}/${filename}`;
+  const bytes = await readFile(
+    path.join(process.cwd(), 'public', input.publicPath.replace(/^\//, ''))
+  );
+  const { error } = await admin.storage
+    .from('creative-assets')
+    .upload(objectPath, bytes, {
+      contentType: input.contentType,
+      cacheControl: '31536000',
+      upsert: false,
+    });
+  if (error) throw new Error(`Creative storage failed: ${error.message}`);
+  return admin.storage.from('creative-assets').getPublicUrl(objectPath).data.publicUrl;
+}

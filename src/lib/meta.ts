@@ -3,50 +3,33 @@ import { encrypt, decrypt } from './encryption';
 const META_API_VERSION = 'v21.0';
 const META_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
 
-export function getMetaAuthUrl(state: string): string {
-  const params = new URLSearchParams({
-    client_id: process.env.META_APP_ID!,
-    redirect_uri: process.env.META_REDIRECT_URI!,
-    scope: 'ads_management,ads_read,business_management,pages_read_engagement',
-    response_type: 'code',
-    state,
-  });
-  return `https://www.facebook.com/${META_API_VERSION}/dialog/oauth?${params}`;
-}
-
-export async function exchangeCodeForToken(code: string): Promise<{
-  access_token: string;
-  expires_in?: number;
-}> {
-  const params = new URLSearchParams({
-    client_id: process.env.META_APP_ID!,
-    client_secret: process.env.META_APP_SECRET!,
-    redirect_uri: process.env.META_REDIRECT_URI!,
-    code,
-  });
-
-  const res = await fetch(`${META_BASE}/oauth/access_token?${params}`);
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Meta token exchange failed: ${err}`);
+/** Turn Meta Graph error JSON into a short, actionable message for the UI. */
+export function formatMetaApiError(prefix: string, raw: string): string {
+  try {
+    const parsed = JSON.parse(raw) as {
+      error?: {
+        error_user_msg?: string;
+        error_user_title?: string;
+        message?: string;
+        error_subcode?: number;
+        code?: number;
+      };
+    };
+    const err = parsed?.error;
+    if (err?.error_subcode === 1885183) {
+      return (
+        `${prefix}: Your Meta App is still in Development mode. ` +
+        'Open developers.facebook.com/apps → your app → App Mode → switch to Live. ' +
+        'Facebook blocks creating ad creatives (page posts) until the app is public/Live.'
+      );
+    }
+    const human = err?.error_user_msg || err?.error_user_title || err?.message;
+    if (human) return `${prefix}: ${human}`;
+  } catch {
+    // not JSON
   }
-  return res.json();
-}
-
-export async function getLongLivedToken(shortToken: string): Promise<{
-  access_token: string;
-  expires_in: number;
-}> {
-  const params = new URLSearchParams({
-    grant_type: 'fb_exchange_token',
-    client_id: process.env.META_APP_ID!,
-    client_secret: process.env.META_APP_SECRET!,
-    fb_exchange_token: shortToken,
-  });
-
-  const res = await fetch(`${META_BASE}/oauth/access_token?${params}`);
-  if (!res.ok) throw new Error('Failed to get long-lived token');
-  return res.json();
+  const trimmed = raw.replace(/\s+/g, ' ').trim();
+  return `${prefix}: ${trimmed.slice(0, 240)}`;
 }
 
 export async function getAdAccounts(accessToken: string) {
@@ -56,6 +39,15 @@ export async function getAdAccounts(accessToken: string) {
   if (!res.ok) throw new Error('Failed to fetch ad accounts');
   const data = await res.json();
   return data.data || [];
+}
+
+export async function getFacebookPages(accessToken: string) {
+  const res = await fetch(
+    `${META_BASE}/me/accounts?fields=id,name,access_token&access_token=${accessToken}`
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.data || []) as Array<{ id: string; name?: string }>;
 }
 
 export async function createCampaign(
@@ -72,12 +64,14 @@ export async function createCampaign(
       objective,
       status: 'PAUSED',
       special_ad_categories: [],
+      // Required when budget lives on ad sets (ABO), not campaign CBO
+      is_adset_budget_sharing_enabled: false,
       access_token: accessToken,
     }),
   });
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Campaign creation failed: ${err}`);
+    throw new Error(formatMetaApiError('Campaign creation failed', err));
   }
   return res.json();
 }
@@ -181,7 +175,7 @@ export async function createAdSet(
   });
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Ad set creation failed: ${err}`);
+    throw new Error(formatMetaApiError('Ad set creation failed', err));
   }
   const result = await res.json();
   return {
@@ -189,6 +183,110 @@ export async function createAdSet(
     _targeting_resolved: resolved,
   };
 }
+
+/**
+ * Ad creatives store proxied paths like `/api/ads/product-image?src=https%3A%2F%2F…`
+ * Meta must fetch a public https URL (or an uploaded image_hash) — not localhost proxies.
+ */
+export function resolvePublicCreativeImageUrl(raw: string | null | undefined): string | null {
+  const input = String(raw || '').trim();
+  if (!input) return null;
+
+  try {
+    const base = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const parsed = input.startsWith('http://') || input.startsWith('https://')
+      ? new URL(input)
+      : new URL(input, base.endsWith('/') ? base : `${base}/`);
+
+    if (parsed.pathname.includes('/api/ads/product-image')) {
+      const src = parsed.searchParams.get('src');
+      if (src && /^https?:\/\//i.test(src)) return src;
+    }
+
+    if (
+      parsed.protocol === 'https:' ||
+      (parsed.protocol === 'http:' &&
+        parsed.hostname !== 'localhost' &&
+        parsed.hostname !== '127.0.0.1')
+    ) {
+      return parsed.toString();
+    }
+  } catch {
+    // fall through
+  }
+
+  if (/^https?:\/\//i.test(input) && !/localhost|127\.0\.0\.1/i.test(input)) {
+    return input;
+  }
+  return null;
+}
+
+async function uploadAdImageHash(
+  accessToken: string,
+  adAccountId: string,
+  imageUrl: string
+): Promise<string> {
+  const imgRes = await fetch(imageUrl, {
+    signal: AbortSignal.timeout(15000),
+    headers: { Accept: 'image/*', 'User-Agent': 'AdForge/1.0' },
+  });
+  if (!imgRes.ok) {
+    throw new Error(`Could not download creative image (${imgRes.status})`);
+  }
+  const buf = Buffer.from(await imgRes.arrayBuffer());
+  const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+  const ext = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg';
+  const uploadRes = await fetch(`${META_BASE}/${adAccountId}/adimages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      bytes: buf.toString('base64'),
+      name: `adforge-${Date.now()}.${ext}`,
+      access_token: accessToken,
+    }),
+  });
+  if (!uploadRes.ok) {
+    const err = await uploadRes.text();
+    throw new Error(`Meta image upload failed: ${err}`);
+  }
+  const json = (await uploadRes.json()) as {
+    images?: Record<string, { hash?: string }>;
+    hash?: string;
+  };
+  const hash =
+    json.hash ||
+    Object.values(json.images || {}).find((v) => v?.hash)?.hash ||
+    null;
+  if (!hash) throw new Error('Meta image upload returned no hash');
+  return hash;
+}
+
+async function metaImageRef(
+  accessToken: string,
+  adAccountId: string,
+  rawUrl: string | null | undefined
+): Promise<{ picture?: string; image_hash?: string }> {
+  const publicUrl = resolvePublicCreativeImageUrl(rawUrl);
+  if (!publicUrl) {
+    throw new Error(
+      'Creative image is not a public URL Meta can fetch (localhost/proxy/data URLs). Re-generate the ad with a public product image.'
+    );
+  }
+  try {
+    const hash = await uploadAdImageHash(accessToken, adAccountId, publicUrl);
+    return { image_hash: hash };
+  } catch {
+    // Fallback: let Meta pull the public CDN URL directly
+    return { picture: publicUrl };
+  }
+}
+
+export type MetaCreateAdCard = {
+  image_url: string;
+  headline?: string;
+  description?: string;
+  link?: string;
+};
 
 export async function createAd(
   accessToken: string,
@@ -200,22 +298,49 @@ export async function createAd(
   link?: string,
   headline?: string,
   ctaType?: string,
-  linkDescription?: string
+  linkDescription?: string,
+  cards?: MetaCreateAdCard[]
 ) {
   const destination = link || process.env.DEFAULT_AD_LINK || 'https://example.com';
+  const cta = (ctaType || 'SHOP_NOW').toUpperCase().replace(/\s+/g, '_');
+
   const linkData: Record<string, unknown> = {
     message: copyText.slice(0, 2200),
     link: destination,
-    picture: imageUrl,
+    call_to_action: {
+      type: cta,
+      value: { link: destination },
+    },
   };
   if (headline) linkData.name = headline.slice(0, 40);
   if (linkDescription) linkData.description = linkDescription.slice(0, 30);
-  // Meta call_to_action types: SHOP_NOW, LEARN_MORE, ORDER_NOW, SIGN_UP, etc.
-  const cta = (ctaType || 'SHOP_NOW').toUpperCase().replace(/\s+/g, '_');
-  linkData.call_to_action = {
-    type: cta,
-    value: { link: destination },
-  };
+
+  const cardList = (cards || []).filter((c) => c?.image_url).slice(0, 10);
+  if (cardList.length >= 2) {
+    const child_attachments = [];
+    for (const card of cardList) {
+      const ref = await metaImageRef(accessToken, adAccountId, card.image_url);
+      child_attachments.push({
+        link: card.link || destination,
+        name: String(card.headline || headline || 'Shop now').slice(0, 40),
+        description: String(card.description || linkDescription || '').slice(0, 30),
+        ...ref,
+        call_to_action: {
+          type: cta,
+          value: { link: card.link || destination },
+        },
+      });
+    }
+    linkData.child_attachments = child_attachments;
+    linkData.multi_share_optimized = true;
+  } else {
+    const ref = await metaImageRef(
+      accessToken,
+      adAccountId,
+      cardList[0]?.image_url || imageUrl
+    );
+    Object.assign(linkData, ref);
+  }
 
   const creativeRes = await fetch(`${META_BASE}/${adAccountId}/adcreatives`, {
     method: 'POST',
@@ -231,7 +356,7 @@ export async function createAd(
   });
   if (!creativeRes.ok) {
     const err = await creativeRes.text();
-    throw new Error(`Creative creation failed: ${err}`);
+    throw new Error(formatMetaApiError('Creative creation failed', err));
   }
   const creative = await creativeRes.json();
 
@@ -248,7 +373,7 @@ export async function createAd(
   });
   if (!adRes.ok) {
     const err = await adRes.text();
-    throw new Error(`Ad creation failed: ${err}`);
+    throw new Error(formatMetaApiError('Ad creation failed', err));
   }
   return adRes.json();
 }
@@ -459,7 +584,4 @@ export function retrieveToken(encrypted: string): string {
   return decrypt(encrypted);
 }
 
-export function isTokenExpired(expiresAt: string | null): boolean {
-  if (!expiresAt) return false;
-  return new Date(expiresAt) <= new Date();
-}
+export { isTokenExpired } from '@/lib/meta-token';

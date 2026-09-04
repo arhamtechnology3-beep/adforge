@@ -17,9 +17,9 @@ This platform is built to cover the full Meta ads lifecycle that agencies usuall
 
 | Team role today | What our system does |
 |-----------------|----------------------|
-| Strategist | Onboarding: brand URL + competitor URLs, angle planning |
-| Copywriter | 10 Meta primary-text variants (offer, UGC, urgency, etc.) |
-| Creative designer | Multi-format creatives: Feed 1:1, Carousel, Stories 9:16, Video slideshow |
+| Strategist | Approved brand/product catalog + competitor hook and format signals |
+| Copywriter | Product-grounded, claim-checked Meta copy variants |
+| Creative designer | Packshot-preserving Feed, Carousel, Stories, and rendered MP4 ads |
 | Media buyer | Draft campaign → Ad set → Ads via Marketing API, manual Confirm & Launch |
 | Analyst | Insights sync, spend/CPC/CPA charts, WhatsApp reports |
 | Optimizer | Auto-pause when CPA exceeds target for 3+ days |
@@ -56,9 +56,18 @@ npm install
 ### 2. Set up Supabase
 
 1. Create a project at [supabase.com](https://supabase.com)
-2. Run migrations in `supabase/migrations/` via the SQL Editor (001 → 006)
+2. Run migrations in `supabase/migrations/` via the SQL Editor (001 → 007)
 3. Enable Phone Auth in Supabase Dashboard → Authentication → Providers → Phone
 4. Copy your project URL and keys to `.env.local`
+
+Migration `007_product_catalog.sql` creates the product catalog plus the public
+`product-assets` and `creative-assets` buckets. Existing accounts must revisit
+Onboarding, review product facts and claims, upload a clean packshot, and approve
+the product before Step 2 generation. The exact product-page URL can import
+reviewable catalog suggestions; it never auto-approves scraped claims. Uploaded
+packshots receive edge-aware background removal so the unchanged packaging can
+be composited onto distinct image, carousel-card, Story, and UGC-style motion
+backgrounds.
 
 ### 3. Configure environment
 
@@ -78,6 +87,14 @@ docker run -d -p 6379:6379 redis:alpine
 ```bash
 npm run dev
 ```
+
+Motion ads use the bundled `ffmpeg-static` binary. Set `FFMPEG_PATH` only when
+the deployment provides a separate FFmpeg executable.
+
+Step 2 now uses the **Free-first AI Creative Engine**: plan winning patterns,
+select 3 creative directions, then generate an original product-safe pack
+(images, stories, carousel cards, UGC-style motion video). Async generation
+requires Redis and `npm run worker`.
 
 ### 6. Start background workers (separate terminal)
 

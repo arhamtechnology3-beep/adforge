@@ -1,15 +1,20 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import {
-  retrieveToken,
   createCampaign,
   createAdSet,
   createAd,
-  isTokenExpired,
 } from '@/lib/meta';
 import { genderToMetaGenders } from '@/lib/meta-campaign';
 import { getSessionUser } from '@/lib/auth/session';
 import { checkTrialAccess } from '@/lib/trial-gate';
+import {
+  metaConnectionIsLive,
+  metaAccessToken,
+  resolveMetaConnection,
+} from '@/lib/auth/demo-meta';
+import { readDemoAds } from '@/lib/auth/demo-ads';
+import { buildDemoCampaign, readDemoCampaigns, upsertDemoCampaign } from '@/lib/auth/demo-campaigns';
 
 const OBJECTIVE_LABELS: Record<string, string> = {
   OUTCOME_TRAFFIC: 'Traffic',
@@ -55,11 +60,28 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Minimum daily budget is ₹100' }, { status: 400 });
   }
 
-  const { data: ads } = await supabase
-    .from('generated_ads')
-    .select('*, campaigns_input!inner(website_url, user_id)')
-    .in('id', ad_ids)
-    .eq('status', 'approved');
+  let ads: Array<{
+    id: string;
+    copy_text?: string | null;
+    headline?: string | null;
+    image_url?: string | null;
+    ad_format?: string | null;
+    status?: string;
+    media_payload?: { cards?: Array<{ image_url: string; headline?: string; description?: string; link?: string }> };
+    campaigns_input?: { website_url?: string | null; user_id?: string };
+  }> = [];
+
+  if (user.isDemo) {
+    const demoAds = await readDemoAds();
+    ads = demoAds.filter((ad) => ad_ids.includes(ad.id) && ad.status === 'approved');
+  } else {
+    const { data } = await supabase
+      .from('generated_ads')
+      .select('*, campaigns_input!inner(website_url, user_id)')
+      .in('id', ad_ids)
+      .eq('status', 'approved');
+    ads = data || [];
+  }
 
   if (!ads?.length) {
     return NextResponse.json({ error: 'No approved ads found' }, { status: 400 });
@@ -81,26 +103,18 @@ export async function POST(request: Request) {
     name?.trim() ||
     `${OBJECTIVE_LABELS[objective] || 'Campaign'} · ${new Date().toLocaleDateString('en-IN')}`;
 
-  const { data: adAccount } = await supabase
-    .from('ad_accounts')
-    .select('*')
-    .eq('user_id', user.id)
-    .maybeSingle();
-
-  const metaReady =
-    !!adAccount?.access_token_encrypted &&
-    !!adAccount?.meta_ad_account_id &&
-    !isTokenExpired(adAccount.token_expires_at);
+  const metaConnection = await resolveMetaConnection(user);
+  const metaReady = metaConnectionIsLive(metaConnection);
 
   let metaCampaignId: string | null = null;
   let metaAdSetId: string | null = null;
   let metaSyncError: string | null = null;
   const metaAdIds: string[] = [];
 
-  if (metaReady && adAccount) {
+  if (metaReady && metaConnection) {
     try {
-      const token = retrieveToken(adAccount.access_token_encrypted!);
-      const adAccountId = adAccount.meta_ad_account_id!;
+      const token = metaAccessToken(metaConnection);
+      const adAccountId = metaConnection.meta_ad_account_id!;
 
       const campaign = await createCampaign(token, adAccountId, campaignName, objective);
       metaCampaignId = campaign.id;
@@ -132,13 +146,12 @@ export async function POST(request: Request) {
       );
       metaAdSetId = adSet.id;
 
-      const pageId = process.env.META_PAGE_ID || 'me';
+      const pageId = metaConnection.page_id || process.env.META_PAGE_ID || 'me';
       const link = destination || website_url || 'https://example.com';
       const ctaType = String(cta || audience?.cta || 'SHOP_NOW');
       const linkDescription = audience?.link_description || undefined;
 
       for (const ad of ads) {
-        // Meta Marketing API best practice: primary text ≤125 ideal / 2200 max, headline ≤40, feed image URL
         const message = String(ad.copy_text || '').slice(0, 2200);
         const headline = String(ad.headline || '').slice(0, 40);
         const picture = ad.image_url || '';
@@ -154,14 +167,14 @@ export async function POST(request: Request) {
           link,
           headline || undefined,
           ctaType,
-          linkDescription
+          linkDescription,
+          ad.media_payload?.cards
         );
         if (created?.id) metaAdIds.push(created.id);
       }
     } catch (err) {
       console.error('[Campaign Launch Meta]', err);
       metaSyncError = err instanceof Error ? err.message : 'Meta API sync failed';
-      // Continue — still save local draft so the client can review
     }
   }
 
@@ -177,13 +190,44 @@ export async function POST(request: Request) {
     ad_count: ads.length,
   };
 
+  // Demo session: ads use non-UUID ids (demo-ad-…) and user_id is not in auth.users.
+  // Persist locally — never insert into Postgres UUID columns.
+  if (user.isDemo) {
+    const metaCampaign = await upsertDemoCampaign(
+      buildDemoCampaign({
+        userId: user.id,
+        name: campaignName,
+        website_url: destination,
+        budget: Number(budget),
+        objective,
+        status: 'draft',
+        ad_ids,
+        meta_campaign_id: metaCampaignId,
+        ad_set_id: metaAdSetId,
+        launch_config: launchConfig,
+      })
+    );
+
+    return NextResponse.json({
+      campaign: metaCampaign,
+      meta_connected: metaReady,
+      meta_synced: !!metaCampaignId && !metaSyncError,
+      meta_sync_error: metaSyncError,
+      message: metaCampaignId
+        ? 'Draft created on Meta (PAUSED). Confirm to go live.'
+        : metaReady
+          ? `Local draft saved. Meta sync failed${metaSyncError ? `: ${metaSyncError.slice(0, 180)}` : ''} — try Confirm later or Create again.`
+          : 'Local draft saved. Connect Meta, then Confirm & Launch to go live.',
+    });
+  }
+
   const insertRow: Record<string, unknown> = {
     user_id: user.id,
     meta_campaign_id: metaCampaignId,
     ad_set_id: metaAdSetId,
     budget: Number(budget),
     objective,
-    status: is_draft ? 'draft' : 'active',
+    status: 'draft',
     name: campaignName,
     website_url: destination,
     ad_ids,
@@ -246,25 +290,29 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const metaConnection = await resolveMetaConnection(user);
+  const metaConnected = metaConnectionIsLive(metaConnection);
+
+  if (user.isDemo) {
+    const campaigns = await readDemoCampaigns(user.id);
+    return NextResponse.json({
+      campaigns,
+      meta_connected: metaConnected,
+      meta_account_id: metaConnection?.meta_ad_account_id || null,
+      meta_account_name: metaConnection?.meta_ad_account_name || null,
+    });
+  }
+
   const supabase = await createClient();
-
-  const [{ data: campaigns }, { data: adAccount }] = await Promise.all([
-    supabase
-      .from('meta_campaigns')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false }),
-    supabase.from('ad_accounts').select('*').eq('user_id', user.id).maybeSingle(),
-  ]);
-
-  const metaConnected =
-    !!adAccount?.access_token_encrypted &&
-    !!adAccount?.meta_ad_account_id &&
-    !isTokenExpired(adAccount.token_expires_at);
+  const { data: campaigns } = await supabase
+    .from('meta_campaigns')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false });
 
   return NextResponse.json({
     campaigns: campaigns || [],
     meta_connected: metaConnected,
-    meta_account_id: adAccount?.meta_ad_account_id || null,
+    meta_account_id: metaConnection?.meta_ad_account_id || null,
   });
 }

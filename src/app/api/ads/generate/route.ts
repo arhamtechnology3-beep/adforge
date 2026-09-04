@@ -8,15 +8,12 @@ import {
 } from '@/lib/auth/campaign-input';
 import {
   readDemoAds,
-  withDemoAdsCookie,
+  persistDemoAds,
   normalizeDemoAd,
 } from '@/lib/auth/demo-ads';
 import {
-  scrapeWebsite,
-  scrapeWebsiteImages,
   scrapeAllCompetitors,
   generateAdCopy,
-  extractBrandContext,
   AD_ANGLES,
 } from '@/lib/ai';
 import {
@@ -31,8 +28,25 @@ import {
   type MetaAdFormat,
 } from '@/lib/creatives';
 import { buildReplicatedAds, type SelectedLibraryAdInput } from '@/lib/replicate-ads';
+import { runCreativeEngine } from '@/lib/creative-engine';
+import { bakeCreativeAsset, normalizePackshot } from '@/lib/creative-assets';
+import { resolveAppOrigin } from '@/lib/app-url';
+import { readDemoProducts, type Product } from '@/lib/product-catalog';
+import type { ProductBrief } from '@/lib/creative-quality';
+import {
+  renderMotionTemplateVideo,
+  type MotionVideoImage,
+  type MotionVideoSuccess,
+} from '@/lib/motion-video';
+import { readFile } from 'fs/promises';
+import path from 'path';
 import type { AdMediaPayload } from '@/types/database';
 import type { CompetitorEntry } from '@/types/database';
+import {
+  buildProductUrlCarouselAd,
+  parseCarouselProductUrls,
+  resolveCarouselProductUrls,
+} from '@/lib/carousel-from-urls';
 
 export const maxDuration = 300;
 
@@ -47,6 +61,167 @@ type AdRow = {
   headline: string;
   angle: string;
 };
+
+async function bakeAdRows(
+  rows: AdRow[],
+  request: Request,
+  ownerId: string,
+  persistToStorage: boolean
+): Promise<AdRow[]> {
+  const origin = resolveAppOrigin(request);
+  const bake = async (url: string, aspect: '1:1' | '9:16') =>
+    (
+      await bakeCreativeAsset({
+        creativeUrl: url,
+        origin,
+        ownerId,
+        expectedAspect: aspect,
+        persistToStorage,
+      })
+    ).url;
+
+  const output: AdRow[] = [];
+  for (const row of rows) {
+    try {
+      const payload = { ...row.media_payload };
+      if (payload.cards?.length) {
+        // Product-URL carousels already use real store images — do not re-bake via /api/ads/creative
+        if (payload.carousel_source === 'product_urls') {
+          payload.cards = payload.cards.map((card) => ({ ...card }));
+        } else {
+          payload.cards = await Promise.all(
+            payload.cards.map(async (card) => ({
+              ...card,
+              image_url: await bake(card.image_url, '1:1'),
+            }))
+          );
+        }
+      }
+      if (payload.frames?.length) {
+        payload.frames = await Promise.all(
+          payload.frames.map(async (frame) => ({
+            ...frame,
+            image_url: await bake(frame.image_url, payload.aspect === '9:16' ? '9:16' : '1:1'),
+          }))
+        );
+      }
+      const aspect = row.ad_format === 'stories' ? '9:16' : '1:1';
+      const imageUrl =
+        payload.carousel_source === 'product_urls'
+          ? payload.cards?.[0]?.image_url || row.image_url
+          : payload.cards?.[0]?.image_url ||
+            payload.frames?.[0]?.image_url ||
+            (row.image_url ? await bake(row.image_url, aspect) : '');
+      output.push({ ...row, image_url: imageUrl, media_payload: payload });
+    } catch (error) {
+      output.push({
+        ...row,
+        media_payload: {
+          ...row.media_payload,
+          quality_valid: false,
+          quality_score: Math.min(row.media_payload.quality_score ?? 40, 40),
+          quality_flags: [
+            ...(row.media_payload.quality_flags || []),
+            `Render failed: ${error instanceof Error ? error.message : String(error)}`,
+          ],
+        },
+      });
+    }
+  }
+  return output;
+}
+
+async function renderMotionRows(
+  rows: AdRow[],
+  origin: string,
+  product: ProductBrief,
+  ownerId: string,
+  persistToStorage: boolean
+): Promise<AdRow[]> {
+  const persist = async (result: MotionVideoSuccess) => {
+    if (!persistToStorage) {
+      return { videoUrl: result.videoUrl, posterUrl: result.posterUrl };
+    }
+    const { createServiceClient } = await import('@/lib/supabase/server');
+    const admin = await createServiceClient();
+    const videoName = path.basename(result.videoPath);
+    const posterName = path.basename(result.posterPath);
+    const [video, poster] = await Promise.all([
+      readFile(path.join(process.cwd(), 'public', result.videoPath.replace(/^\//, ''))),
+      readFile(path.join(process.cwd(), 'public', result.posterPath.replace(/^\//, ''))),
+    ]);
+    const videoPath = `${ownerId}/${videoName}`;
+    const posterPath = `${ownerId}/${posterName}`;
+    const [videoUpload, posterUpload] = await Promise.all([
+      admin.storage
+        .from('creative-assets')
+        .upload(videoPath, video, { contentType: 'video/mp4', upsert: false }),
+      admin.storage
+        .from('creative-assets')
+        .upload(posterPath, poster, { contentType: 'image/jpeg', upsert: false }),
+    ]);
+    if (videoUpload.error || posterUpload.error) {
+      throw new Error(
+        `Video storage failed: ${videoUpload.error?.message || posterUpload.error?.message}`
+      );
+    }
+    return {
+      videoUrl: admin.storage.from('creative-assets').getPublicUrl(videoPath).data.publicUrl,
+      posterUrl: admin.storage.from('creative-assets').getPublicUrl(posterPath).data.publicUrl,
+    };
+  };
+
+  const output: AdRow[] = [];
+  for (const row of rows) {
+    if (row.ad_format !== 'video') {
+      output.push(row);
+      continue;
+    }
+    const urls = (row.media_payload.frames || [])
+      .map((frame) => frame.image_url)
+      .filter(Boolean);
+    const images: MotionVideoImage[] = urls.map((url) =>
+      url.startsWith('/uploads/')
+        ? { kind: 'local', path: url }
+        : { kind: 'remote', url }
+    );
+    try {
+      const result = await renderMotionTemplateVideo({
+        images,
+        aspect: row.media_payload.aspect === '9:16' ? '9:16' : '1:1',
+        durationSeconds: 10,
+        publicOrigin: origin,
+        filenamePrefix: `${product.brandName}-${product.productName}`,
+      });
+      if (!result.ok) throw new Error(result.error);
+      const persisted = await persist(result);
+      output.push({
+        ...row,
+        image_url: persisted.posterUrl,
+        media_payload: {
+          ...row.media_payload,
+          video_url: persisted.videoUrl,
+          poster_url: persisted.posterUrl,
+          duration_ms: Math.round(result.durationSeconds * 1000),
+        },
+      });
+    } catch (error) {
+      output.push({
+        ...row,
+        media_payload: {
+          ...row.media_payload,
+          quality_valid: false,
+          quality_score: Math.min(row.media_payload.quality_score ?? 40, 40),
+          quality_flags: [
+            ...(row.media_payload.quality_flags || []),
+            `Video render failed: ${error instanceof Error ? error.message : String(error)}`,
+          ],
+        },
+      });
+    }
+  }
+  return output;
+}
 
 export async function POST(request: Request) {
   const sessionUser = await getSessionUser();
@@ -70,9 +245,20 @@ export async function POST(request: Request) {
   const selectedIds = Array.isArray(body.selected_competitor_ad_ids)
     ? (body.selected_competitor_ad_ids as string[])
     : [];
+  const productId = typeof body.product_id === 'string' ? body.product_id : '';
+  const requestedVariantCount = Math.max(
+    1,
+    Math.min(5, Number(body.generation_brief?.variant_count) || 3)
+  );
 
   if (!campaign_input_id) {
     return NextResponse.json({ error: 'campaign_input_id required' }, { status: 400 });
+  }
+  if (!productId) {
+    return NextResponse.json(
+      { error: 'Select one approved product before generation' },
+      { status: 400 }
+    );
   }
 
   const { data: campaignInput } = await supabase
@@ -100,12 +286,64 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Campaign input not found' }, { status: 404 });
   }
 
-  const websiteContent = await scrapeWebsite(resolvedInput.website_url);
-  const productImages = await scrapeWebsiteImages(resolvedInput.website_url, 10);
-  const { brand, category } = extractBrandContext(
-    websiteContent,
-    resolvedInput.website_url
-  );
+  let product: Product | null = null;
+  if (sessionUser.isDemo) {
+    product = (await readDemoProducts()).find((item) => item.id === productId) || null;
+  } else {
+    const { data } = await supabase
+      .from('products')
+      .select('*')
+      .eq('id', productId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    product = (data as Product | null) || null;
+  }
+  if (!product || !product.is_active || !product.is_approved) {
+    return NextResponse.json({ error: 'Approved product not found' }, { status: 404 });
+  }
+  if (!product.primary_packshot) {
+    return NextResponse.json(
+      { error: 'The selected product needs an approved primary packshot' },
+      { status: 422 }
+    );
+  }
+
+  const origin = resolveAppOrigin(request);
+  const absoluteAsset = (value: string) =>
+    value.startsWith('/') ? `${origin}${value}` : value;
+  let primaryPackshot = product.primary_packshot;
+  try {
+    primaryPackshot = (
+      await normalizePackshot(product.primary_packshot, sessionUser.id, !sessionUser.isDemo)
+    ).url;
+  } catch (error) {
+    console.warn(
+      '[packshot-normalize]',
+      error instanceof Error ? error.message : String(error)
+    );
+  }
+  const productBrief: ProductBrief = {
+    id: product.id,
+    brandName: product.brand_name,
+    productName: product.product_name,
+    category: product.category || 'Products',
+    description: product.description || undefined,
+    benefits: product.benefits,
+    ingredients: product.ingredients,
+    price: product.price || undefined,
+    offer: product.offer || undefined,
+    productUrl: product.product_url || undefined,
+    approvedClaims: product.approved_claims,
+    prohibitedClaims: product.prohibited_claims,
+    primaryPackshot: absoluteAsset(primaryPackshot),
+    packshots: (product.packshots.length ? product.packshots : [product.primary_packshot]).map(
+      absoluteAsset
+    ),
+  };
+  const productImages = productBrief.packshots;
+  const brand = productBrief.brandName;
+  const category = productBrief.category;
+  const websiteContent = '';
 
   const competitors = competitorsFromInput(resolvedInput);
 
@@ -133,20 +371,148 @@ export async function POST(request: Request) {
     }
   }
 
+  const requestedFormats: MetaAdFormat[] = Array.isArray(body.generation_brief?.formats)
+    ? body.generation_brief.formats.filter((format: unknown): format is MetaAdFormat =>
+        ['single_image', 'carousel', 'stories', 'video'].includes(String(format))
+      )
+    : ['single_image', 'carousel', 'stories', 'video'];
+  const carouselProductUrls = parseCarouselProductUrls(body.carousel_product_urls);
+  const wantsProductUrlCarousel =
+    requestedFormats.includes('carousel') && carouselProductUrls.length >= 2;
+  const engineFormats = wantsProductUrlCarousel
+    ? requestedFormats.filter((format) => format !== 'carousel')
+    : requestedFormats;
+  const carouselOnlyFromUrls =
+    wantsProductUrlCarousel && engineFormats.length === 0;
+
+  if (resolvedSelected.length === 0 && !carouselOnlyFromUrls) {
+    return NextResponse.json(
+      { error: 'Select at least one competitor ad in Step 1' },
+      { status: 400 }
+    );
+  }
+
+  const useCreativeEngine = body.use_creative_engine !== false;
+  const selectedDirectionIds = Array.isArray(body.selected_direction_ids)
+    ? (body.selected_direction_ids as string[])
+    : undefined;
+  const selectedDirections = Array.isArray(body.selected_directions)
+    ? body.selected_directions
+    : undefined;
+  const runAsync = body.async === true;
+
+  if (runAsync) {
+    const { creativeGenerationQueue } = await import('@/workers/queues');
+    const job = await creativeGenerationQueue.add('generate-pack', {
+      userId: sessionUser.id,
+      isDemo: sessionUser.isDemo,
+      payload: {
+        campaign_input_id,
+        product_id: productId,
+        selected_ads: resolvedSelected,
+        selected_direction_ids: selectedDirectionIds,
+        generation_brief: body.generation_brief,
+      },
+    });
+    return NextResponse.json({
+      job_id: job.id,
+      status: 'queued',
+      poll_url: `/api/ads/generate/jobs/${job.id}`,
+      note: 'Creative pack generation queued. Poll the job URL for status.',
+    });
+  }
 
   let ads: AdRow[] = [];
+  let usedCreativeEngine = false;
+  let carouselWarnings: string[] = [];
 
-  if (resolvedSelected.length > 0) {
-    ads = await buildReplicatedAds({
+  if (wantsProductUrlCarousel) {
+    const resolved = await resolveCarouselProductUrls(carouselProductUrls);
+    const built = buildProductUrlCarouselAd({
       campaignInputId: resolvedInput.id,
-      selected: resolvedSelected,
+      products: resolved.products,
+      brandName: brand,
+      productId: product.id,
+      variantNumber: 1,
+    });
+    carouselWarnings = built.warnings;
+    if (!built.ad) {
+      return NextResponse.json(
+        {
+          error:
+            built.warnings.join(' ') ||
+            'Could not build a carousel from the product URLs. Check that each page has a product image.',
+          warnings: built.warnings,
+        },
+        { status: 422 }
+      );
+    }
+    ads.push(built.ad as AdRow);
+  }
+
+  if (resolvedSelected.length > 0 && useCreativeEngine && engineFormats.length > 0) {
+    usedCreativeEngine = true;
+    const engine = await runCreativeEngine({
+      campaignInputId: resolvedInput.id,
+      product: productBrief,
+      selectedAds: resolvedSelected.slice(0, requestedVariantCount),
+      competitorNames: competitorIntel.map((c) => c.brand),
+      language:
+        typeof body.generation_brief?.language === 'string'
+          ? body.generation_brief.language
+          : 'English',
+      tone:
+        typeof body.generation_brief?.tone === 'string'
+          ? body.generation_brief.tone
+          : 'Trustworthy',
+      formats: engineFormats,
+      selectedDirectionIds,
+      selectedDirections,
+      origin,
+      ownerId: sessionUser.id,
+      persistToStorage: !sessionUser.isDemo,
+      maxDirections: requestedVariantCount,
+    });
+    const engineAds = engine.ads as AdRow[];
+    // Keep product-URL carousel first; renumber variants
+    ads = [...ads, ...engineAds].map((ad, index) => ({
+      ...ad,
+      variant_number: index + 1,
+    }));
+    if (ads.length === 0) {
+      return NextResponse.json(
+        {
+          error:
+            'No creatives were produced. Re-plan directions and try again, or check that your product packshot loads correctly.',
+        },
+        { status: 422 }
+      );
+    }
+  } else if (resolvedSelected.length > 0 && engineFormats.length > 0) {
+    const replicated = await buildReplicatedAds({
+      campaignInputId: resolvedInput.id,
+      selected: resolvedSelected.slice(0, requestedVariantCount),
       brand,
       category,
       productImages,
+      product: productBrief,
+      language:
+        typeof body.generation_brief?.language === 'string'
+          ? body.generation_brief.language
+          : 'English',
+      tone:
+        typeof body.generation_brief?.tone === 'string'
+          ? body.generation_brief.tone
+          : 'Trustworthy',
+      formats: engineFormats,
       competitorBrand: competitorIntel[0]?.brand || null,
       competitorNames: competitorIntel.map((c) => c.brand),
     });
-  } else {
+    ads = [...ads, ...replicated].map((ad, index) => ({
+      ...ad,
+      variant_number: index + 1,
+    }));
+  } else if (ads.length === 0) {
     const variants = await generateAdCopy(
       websiteContent,
       competitors,
@@ -161,10 +527,7 @@ export async function POST(request: Request) {
       const subline = extractSubline(variant.copy_text, category, brand);
       const cta = metaCtaForAngle(angle);
       const badge = badgeForAngle(angle);
-      const productImage =
-        productImages.length > 0
-          ? productImages[(variant.variant_number - 1) % productImages.length]
-          : null;
+      const productImage = primaryPackshot;
       const sceneImage = productSceneUrl(category, angle, variant.variant_number * 17 + 42);
       return {
         variant,
@@ -246,10 +609,7 @@ export async function POST(request: Request) {
       n += 1;
       const cardCount = Math.min(5, Math.max(3, productImages.length || 3));
       const cards = Array.from({ length: cardCount }, (_, i) => {
-        const img =
-          productImages.length > 0
-            ? productImages[i % productImages.length]
-            : item.productImage;
+        const img = primaryPackshot;
         const cardHeadline =
           i === 0
             ? item.headline
@@ -296,10 +656,7 @@ export async function POST(request: Request) {
       n += 1;
       const frameCount = Math.min(4, Math.max(3, productImages.length || 3));
       const frames = Array.from({ length: frameCount }, (_, i) => {
-        const img =
-          productImages.length > 0
-            ? productImages[(i + item.variant.variant_number) % productImages.length]
-            : item.productImage;
+        const img = primaryPackshot;
         const frameHeadlines = [
           item.headline,
           item.subline.split(' · ')[0] || brand,
@@ -343,6 +700,17 @@ export async function POST(request: Request) {
     }
   }
 
+  if (!usedCreativeEngine) {
+    ads = await bakeAdRows(ads, request, sessionUser.id, !sessionUser.isDemo);
+    ads = await renderMotionRows(
+      ads,
+      origin,
+      productBrief,
+      sessionUser.id,
+      !sessionUser.isDemo
+    );
+  }
+
   if (sessionUser.isDemo) {
     const savedAds = ads.map((ad, i) => normalizeDemoAd(ad as unknown as Record<string, unknown>, i));
     const byFormat = savedAds.reduce<Record<string, number>>((acc, ad) => {
@@ -360,12 +728,22 @@ export async function POST(request: Request) {
       competitor_intel: competitorIntel,
       selected_count: resolvedSelected.length,
       formats: byFormat,
-      note:
-        resolvedSelected.length > 0
-          ? `Replicated ${resolvedSelected.length} selected competitor ads into Meta formats using your product creatives. Review, edit, then approve for launch.`
+      note: wantsProductUrlCarousel
+        ? `Built a product-URL carousel with real store images${
+            carouselWarnings.length ? ` (${carouselWarnings.length} URL(s) skipped)` : ''
+          }.${
+            resolvedSelected.length > 0
+              ? ` Also generated ${
+                  (savedAds?.length || 0) - (wantsProductUrlCarousel ? 1 : 0)
+                } other format creatives.`
+              : ''
+          }`
+        : resolvedSelected.length > 0
+          ? `Generated ${savedAds?.length || 0} original creatives from selected directions using the product-safe creative engine.`
           : 'Review Image, Carousel, Stories & Video options — approve what you want to launch.',
+      warnings: carouselWarnings.length ? carouselWarnings : undefined,
     });
-    return withDemoAdsCookie(response, savedAds);
+    return persistDemoAds(response, savedAds);
   }
 
   const { createServiceClient } = await import('@/lib/supabase/server');
@@ -412,10 +790,14 @@ export async function POST(request: Request) {
     competitor_intel: competitorIntel,
     selected_count: resolvedSelected.length,
     formats: byFormat,
-    note:
-      resolvedSelected.length > 0
-        ? `Replicated ${resolvedSelected.length} selected competitor ads into Meta formats using your product creatives. Review, edit, then approve for launch.`
+    note: wantsProductUrlCarousel
+      ? `Built a product-URL carousel with real store images${
+          carouselWarnings.length ? ` (${carouselWarnings.length} URL(s) skipped)` : ''
+        }.`
+      : resolvedSelected.length > 0
+        ? `Generated ${savedAds?.length || 0} original creatives from selected directions using the product-safe creative engine.`
         : 'Review Image, Carousel, Stories & Video options — approve what you want to launch.',
+    warnings: carouselWarnings.length ? carouselWarnings : undefined,
   });
 }
 

@@ -1,4 +1,8 @@
 import type { MetaAdLibraryAd } from '@/lib/ai';
+import { existsSync, readFileSync } from 'fs';
+import { spawn } from 'child_process';
+import path from 'path';
+import { isBrowserLaunchError, resolveChromiumExecutable } from '@/lib/playwright-browser';
 
 export type AdLibraryFetchInput = {
   pageId?: string | null;
@@ -18,11 +22,74 @@ export type AdLibraryFetchResult = {
   note?: string;
 };
 
+function readCachedLiveAds(
+  root: string,
+  input: AdLibraryFetchInput,
+  libraryUrl: string
+): AdLibraryFetchResult | null {
+  const key = String(input.pageId || input.searchTerms || 'default').replace(
+    /[^a-z0-9_-]/gi,
+    '_'
+  );
+  const candidates = [
+    path.join(root, '.cache', 'ad-library', `${key}.json`),
+    process.env.HOME
+      ? path.join(
+          process.env.HOME,
+          'Library',
+          'Application Support',
+          'AdForge',
+          'ad-library-worker',
+          '.cache',
+          'ad-library',
+          `${key}.json`
+        )
+      : '',
+  ].filter(Boolean);
+  const cacheFile = candidates.find((candidate) => existsSync(candidate));
+  if (!cacheFile) return null;
+
+  try {
+    const cached = JSON.parse(readFileSync(cacheFile, 'utf8')) as {
+      savedAt?: string;
+      result?: AdLibraryFetchResult;
+    };
+    if (!cached.result?.ads?.length) return null;
+    const savedAt = cached.savedAt ? Date.parse(cached.savedAt) : 0;
+    if (!savedAt || Date.now() - savedAt > 7 * 24 * 60 * 60 * 1000) return null;
+    return {
+      ...cached.result,
+      libraryUrl: cached.result.libraryUrl || libraryUrl,
+      note: `Showing cached live Meta ads from ${new Date(savedAt).toLocaleString(
+        'en-IN'
+      )}. Refresh retries the live source.`,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Bootstrap map — extend via competitor.meta_page_id in onboarding */
 export const KNOWN_COMPETITOR_PAGE_IDS: Record<string, string> = {
   'farmdidi.com': '108788791719221',
   farmdidi: '108788791719221',
 };
+
+function resolveProjectRoot(): string {
+  let dir = process.cwd();
+  for (let i = 0; i < 8; i++) {
+    if (
+      existsSync(path.join(dir, 'package.json')) &&
+      existsSync(path.join(dir, 'scripts', 'fetch-ad-library-web.ts'))
+    ) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return process.cwd();
+}
 
 export function resolveMetaPageId(opts: {
   domain?: string | null;
@@ -208,228 +275,203 @@ export async function fetchAdLibraryOfficialApi(
   }
 }
 
-function extractAdsFromGraphqlPayload(json: unknown): MetaAdLibraryAd[] {
-  const ads: MetaAdLibraryAd[] = [];
-  const seen = new Set<string>();
+function fetchAdLibraryViaWebSubprocess(
+  input: AdLibraryFetchInput
+): Promise<AdLibraryFetchResult> {
+  const root = resolveProjectRoot();
+  const libraryUrl = buildAdLibraryUrl(input);
+  const script = path.join(root, 'scripts', 'fetch-ad-library-web.cjs');
 
-  const textFromBody = (body: unknown): string => {
-    if (!body) return '';
-    if (typeof body === 'string') return body;
-    if (typeof body === 'object' && body !== null && 'text' in body) {
-      return String((body as { text?: string }).text || '');
-    }
-    return '';
-  };
+  if (!existsSync(script)) {
+    return Promise.resolve({
+      ads: [],
+      method: 'web_library',
+      libraryUrl,
+      error: `Ad Library script missing: ${script}`,
+      note: 'Run: npm run build:ad-library',
+    });
+  }
 
-  const mediaFromSnapshot = (snap: Record<string, unknown>): {
-    media: string | null;
-    isVideo: boolean;
-    isCarousel: boolean;
-    body: string;
-    headline: string;
-    cta: string;
-  } => {
-    const cards = (snap.cards as Array<Record<string, unknown>>) || [];
-    const images = (snap.images as Array<Record<string, unknown>>) || [];
-    const videos = (snap.videos as Array<Record<string, unknown>>) || [];
+  const chromiumExecutable = resolveChromiumExecutable(root);
+  return runAdLibrarySubprocess(input, { root, libraryUrl, script, chromiumExecutable });
+}
 
-    const card0 = cards[0] || {};
-    const body =
-      textFromBody(card0.body) ||
-      textFromBody(snap.body) ||
-      String(card0.link_description || snap.link_description || '');
-    const headline = String(
-      card0.title || snap.title || snap.link_title || ''
-    ).replace(/\{\{[^}]+\}\}/g, '').trim();
-    const cta = String(
-      card0.cta_text || snap.cta_text || card0.cta_type || snap.cta_type || 'Shop Now'
-    ).replace(/_/g, ' ');
+function runAdLibrarySubprocess(
+  input: AdLibraryFetchInput,
+  ctx: {
+    root: string;
+    libraryUrl: string;
+    script: string;
+    chromiumExecutable?: string;
+  }
+): Promise<AdLibraryFetchResult> {
+  const { root, libraryUrl, script, chromiumExecutable } = ctx;
 
-    const media =
-      (card0.original_image_url as string) ||
-      (card0.resized_image_url as string) ||
-      (card0.video_preview_image_url as string) ||
-      (images[0]?.original_image_url as string) ||
-      (images[0]?.resized_image_url as string) ||
-      (videos[0]?.video_preview_image_url as string) ||
-      null;
+  if (!chromiumExecutable) {
+    return Promise.resolve({
+      ads: [],
+      method: 'web_library',
+      libraryUrl,
+      error: 'Chromium executable not found',
+      note: 'Run: npx playwright install chromium && npm run build:ad-library — then restart the dev server.',
+    });
+  }
 
-    const isVideo = Boolean(
-      card0.video_hd_url ||
-        card0.video_sd_url ||
-        (Array.isArray(videos) && videos.length > 0)
-    );
-    const isCarousel = cards.length > 1;
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [script], {
+      cwd: root,
+      env: {
+        ...process.env,
+        PLAYWRIGHT_CHROMIUM_EXECUTABLE: chromiumExecutable,
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
 
-    return { media, isVideo, isCarousel, body, headline, cta };
-  };
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
 
-  const visit = (node: unknown) => {
-    if (!node || typeof node !== 'object') return;
-    if (Array.isArray(node)) {
-      node.forEach(visit);
-      return;
-    }
-    const n = node as Record<string, unknown>;
+    const timeout = setTimeout(() => {
+      child.kill('SIGTERM');
+      resolve({
+        ads: [],
+        method: 'web_library',
+        libraryUrl,
+        error: 'Ad Library fetch timed out after 90s',
+        note: 'Try Refresh from Ad Library again.',
+      });
+    }, 90000);
 
-    const archiveId = n.ad_archive_id || n.adArchiveId;
-    if (archiveId && n.snapshot) {
-      const id = String(archiveId);
-      if (!seen.has(id)) {
-        seen.add(id);
-        const snap = (n.snapshot || {}) as Record<string, unknown>;
-        const extracted = mediaFromSnapshot(snap);
-        const platforms = (n.publisher_platform || n.publisher_platforms || []) as string[];
-        const startTs = n.start_date || n.ad_delivery_start_time;
-        let started: string | null = null;
-        if (typeof startTs === 'number') {
-          started = new Date(startTs * 1000).toISOString().slice(0, 10);
-        } else if (typeof startTs === 'string') {
-          started = startTs.slice(0, 10);
-        }
-        const activeTime =
-          typeof n.total_active_time === 'number' ? n.total_active_time : null;
-        const collationCount =
-          typeof n.collation_count === 'number' ? n.collation_count : null;
-        ads.push({
-          id: `lib_${id}`,
-          library_id: id,
-          ad_format: extracted.isVideo
-            ? 'video'
-            : extracted.isCarousel
-              ? 'carousel'
-              : 'single_image',
-          primary_text: extracted.body || '',
-          headline: extracted.headline,
-          cta: extracted.cta,
-          active_status: n.is_active === false ? 'UNKNOWN' : 'ACTIVE',
-          started_date: started,
-          publisher_platforms: platforms.map((p) =>
-            String(p)
-              .toLowerCase()
-              .replace(/^\w/, (c) => c.toUpperCase())
-          ),
-          media_url: extracted.media,
-          snapshot_url: `https://www.facebook.com/ads/library/?id=${id}`,
-          source: 'web_library',
-          total_active_time: activeTime,
-          has_multiple_versions: collationCount != null ? collationCount > 1 : undefined,
-        });
+    child.stdin.write(JSON.stringify(input));
+    child.stdin.end();
+
+    const tryParseResult = (): AdLibraryFetchResult | null => {
+      const trimmed = stdout.trim();
+      if (!trimmed) return null;
+      // npm/npx may prefix stdout — find the JSON object
+      const jsonStart = trimmed.indexOf('{');
+      if (jsonStart < 0) return null;
+      try {
+        return JSON.parse(trimmed.slice(jsonStart)) as AdLibraryFetchResult;
+      } catch {
+        return null;
       }
-    }
+    };
 
-    if (n.collated_results) visit(n.collated_results);
-    for (const v of Object.values(n)) {
-      if (v && typeof v === 'object') visit(v);
-    }
-  };
+    child.on('close', (code) => {
+      clearTimeout(timeout);
+      const parsed = tryParseResult();
+      if (parsed && parsed.ads.length > 0) {
+        resolve(parsed);
+        return;
+      }
 
-  visit(json);
-  return ads;
+      const failNote = parsed?.note || parsed?.error;
+      const stderrClean = stderr
+        .split('\n')
+        .filter((line) => !/^npm warn/i.test(line.trim()))
+        .join('\n')
+        .trim();
+      const message =
+        failNote ||
+        stderrClean ||
+        stdout.trim().slice(0, 300) ||
+        `fetch script exited with code ${code ?? 'unknown'}`;
+      if (!existsSync(script)) {
+        resolve({
+          ads: [],
+          method: 'web_library',
+          libraryUrl,
+          error: `Ad Library script missing: ${script}`,
+          note: 'Run: npm run build:ad-library',
+        });
+        return;
+      }
+      console.warn('[meta-ad-library] subprocess failed:', message.slice(0, 400));
+      const needsChromium = isBrowserLaunchError(message);
+      resolve({
+        ads: [],
+        method: 'web_library',
+        libraryUrl,
+        error: message,
+        note: needsChromium
+          ? 'Install Chromium: npx playwright install chromium — then click Refresh from Ad Library.'
+          : `Ad Library web fetch failed: ${message.slice(0, 120)}`,
+      });
+    });
+  });
 }
 
 /**
  * Headless Ad Library fetch — matches public Library UI (works for India commercial ads).
+ * Runs Playwright in a child process (Next.js cannot bundle Playwright reliably).
  * Requires: `npx playwright install chromium`
  */
 export async function fetchAdLibraryViaWeb(
   input: AdLibraryFetchInput
 ): Promise<AdLibraryFetchResult> {
   const libraryUrl = buildAdLibraryUrl(input);
-  const limit = input.limit || 20;
-
-  if (!input.pageId && !input.searchTerms) {
-    return {
-      ads: [],
-      method: 'none',
-      libraryUrl,
-      error: 'Need meta_page_id or search terms',
-    };
-  }
+  const workerUrl =
+    process.env.AD_LIBRARY_WORKER_URL || 'http://127.0.0.1:3021';
 
   try {
-    const { chromium } = await import('playwright');
-    const browser = await chromium.launch({
-      headless: true,
-      args: ['--disable-blink-features=AutomationControlled'],
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 90000);
+    const res = await fetch(`${workerUrl}/fetch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+      signal: controller.signal,
     });
-    const context = await browser.newContext({
-      userAgent:
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-      locale: 'en-US',
-      viewport: { width: 1440, height: 900 },
-    });
-    const page = await context.newPage();
-    const collected: MetaAdLibraryAd[] = [];
-    const seen = new Set<string>();
-    const pending: Promise<void>[] = [];
-
-    page.on('response', (response) => {
-      const task = (async () => {
-        try {
-          const url = response.url();
-          if (!url.includes('graphql')) return;
-          const status = response.status();
-          if (status < 200 || status >= 300) return;
-          const text = await response.text();
-          if (!/ad_archive_id|adArchiveId|collated_results/i.test(text)) return;
-          let json: unknown;
-          try {
-            json = JSON.parse(text);
-          } catch {
-            return;
-          }
-          for (const ad of extractAdsFromGraphqlPayload(json)) {
-            if (seen.has(ad.library_id)) continue;
-            seen.add(ad.library_id);
-            collected.push(ad);
-          }
-        } catch {
-          /* ignore intercept errors */
-        }
-      })();
-      pending.push(task);
-    });
-
-    await page.goto(libraryUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForTimeout(4000);
-    for (let i = 0; i < 8 && collected.length < limit; i++) {
-      await page.mouse.wheel(0, 2400);
-      await page.waitForTimeout(1400);
+    clearTimeout(timer);
+    const json = (await res.json()) as AdLibraryFetchResult;
+    if (json.ads?.length > 0) {
+      return { ...json, libraryUrl: json.libraryUrl || libraryUrl };
     }
-
-    // Critical: wait for async response handlers to finish before closing
-    await Promise.allSettled(pending);
-    await page.waitForTimeout(500);
-
-    await browser.close();
-
-    const { rankLibraryAds } = await import('@/lib/ad-performance');
-    const ranked = rankLibraryAds(
-      collected.map((ad) => ({
-        ...ad,
-        source: 'web_library' as const,
-      }))
-    ).slice(0, limit);
-
-    return {
-      ads: ranked,
-      method: 'web_library',
-      libraryUrl,
-      note:
-        ranked.length === 0
-          ? 'Web Library returned 0 ads (Meta may have blocked the headless session). Open the Library URL manually and confirm page_id.'
-          : `Fetched ${ranked.length} live ads from Meta Ad Library (sorted like Library total impressions). Badges use Library rank + runtime — Meta does not publish commercial spend for these ads.`,
-    };
-  } catch (err) {
-    return {
-      ads: [],
-      method: 'web_library',
-      libraryUrl,
-      error: String(err),
-      note: 'Install Chromium: npx playwright install chromium. Web fetch required for India commercial ads.',
-    };
+    if (res.ok && json.ads?.length === 0 && !json.error) {
+      return { ...json, libraryUrl: json.libraryUrl || libraryUrl };
+    }
+  } catch {
+    /* worker not running — fall through */
   }
+
+  const root = resolveProjectRoot();
+  // Prefer the last real Library response over invented demo ads while the
+  // browser service restarts. Cache entries expire after seven days.
+  const cached = readCachedLiveAds(root, input, libraryUrl);
+  if (cached) return cached;
+
+  const chromium = resolveChromiumExecutable(root);
+
+  if (chromium) {
+    process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE = chromium;
+    try {
+      const { runAdLibraryWebFetchInProcess } = await import('@/lib/meta-ad-library-web-fetch');
+      const inline = await runAdLibraryWebFetchInProcess(input);
+      if (inline.ads.length > 0) return inline;
+    } catch (err) {
+      console.warn(
+        '[meta-ad-library] inline fetch failed:',
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  const subprocess = await fetchAdLibraryViaWebSubprocess(input);
+  if (subprocess.ads.length > 0) return subprocess;
+
+  return {
+    ...subprocess,
+    libraryUrl,
+    note:
+      (subprocess.note ? `${subprocess.note} ` : '') +
+      'Start the Ad Library worker in another terminal: npm run ad-library-worker',
+  };
 }
 
 export async function fetchCompetitorLiveAds(

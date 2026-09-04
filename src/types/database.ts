@@ -13,6 +13,11 @@ export interface CarouselCard {
   image_url: string;
   headline: string;
   description?: string;
+  /** Destination URL for this card's Shop Now / CTA */
+  link?: string;
+  product_url?: string;
+  product_name?: string;
+  price?: string;
 }
 
 export interface VideoFrame {
@@ -27,10 +32,21 @@ export interface AdMediaPayload {
   cards?: CarouselCard[];
   frames?: VideoFrame[];
   product_images?: string[];
+  product_id?: string | null;
+  product_name?: string | null;
+  primary_packshot?: string | null;
+  template?: string | null;
+  /** product_urls = cards built from pasted store/product links (no AI scenes) */
+  carousel_source?: 'product_urls' | 'ai' | string | null;
+  skipped_urls?: string[];
+  quality_score?: number;
+  quality_flags?: string[];
+  quality_valid?: boolean;
   /** Competitor Library ad this creative replicates */
   source_library_id?: string | null;
   source_headline?: string | null;
   source_primary_text?: string | null;
+  source_media_url?: string | null;
   source_brand?: string | null;
   replicate?: boolean;
   manual?: boolean;
@@ -41,7 +57,13 @@ export interface AdMediaPayload {
     scene_provider?: string;
   };
   video_url?: string | null;
+  poster_url?: string | null;
+  duration_ms?: number | null;
+  video_style?: 'ugc-motion' | 'motion-template' | null;
   scene_provider?: string | null;
+  concept_id?: string | null;
+  qa_scores?: Record<string, number> | null;
+  scene_plan?: Record<string, unknown> | null;
 }
 
 export interface User {

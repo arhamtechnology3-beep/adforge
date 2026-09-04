@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import type { AdFormat, AdMediaPayload } from '@/types/database';
 import { getSessionUser } from '@/lib/auth/session';
-import { readDemoAds, withDemoAdsCookie } from '@/lib/auth/demo-ads';
+import { readDemoAds, persistDemoAds } from '@/lib/auth/demo-ads';
 
 export async function PATCH(
   request: Request,
@@ -38,13 +38,56 @@ export async function PATCH(
     if (idx < 0) {
       return NextResponse.json({ error: 'Ad not found' }, { status: 404 });
     }
-    const updated = { ...ads[idx], ...update };
+    if (body.status === 'approved' && ads[idx].media_payload?.quality_valid === false) {
+      return NextResponse.json(
+        {
+          error: 'Fix the flagged product, copy, or media issues before approving this creative.',
+          flags: ads[idx].media_payload.quality_flags || [],
+        },
+        { status: 422 }
+      );
+    }
+    const updated = {
+      ...ads[idx],
+      ...update,
+      media_payload: update.media_payload
+        ? { ...ads[idx].media_payload, ...(update.media_payload as AdMediaPayload) }
+        : ads[idx].media_payload,
+    };
     ads[idx] = updated;
     const response = NextResponse.json(updated);
-    return withDemoAdsCookie(response, ads);
+    return persistDemoAds(response, ads);
   }
 
   const supabase = await createClient();
+  if (update.media_payload || body.status === 'approved') {
+    const { data: existing } = await supabase
+      .from('generated_ads')
+      .select('media_payload')
+      .eq('id', params.id)
+      .single();
+    if (
+      body.status === 'approved' &&
+      (existing?.media_payload as AdMediaPayload | null)?.quality_valid === false
+    ) {
+      return NextResponse.json(
+        {
+          error: 'Fix the flagged product, copy, or media issues before approving this creative.',
+          flags:
+            (existing?.media_payload as AdMediaPayload | null)?.quality_flags || [],
+        },
+        { status: 422 }
+      );
+    }
+    if (!update.media_payload) {
+      // Approval check only; do not rewrite the payload.
+    } else {
+    update.media_payload = {
+      ...((existing?.media_payload as AdMediaPayload | null) || {}),
+      ...(update.media_payload as AdMediaPayload),
+    };
+    }
+  }
   const { data, error } = await supabase
     .from('generated_ads')
     .update(update)
@@ -75,7 +118,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Ad not found' }, { status: 404 });
     }
     const response = NextResponse.json({ success: true });
-    return withDemoAdsCookie(response, next);
+    return persistDemoAds(response, next);
   }
 
   const supabase = await createClient();

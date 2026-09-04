@@ -38,13 +38,8 @@ export function scrubCompetitorBrands(
     out = out.replace(new RegExp(escaped, 'gi'), clientBrand);
   }
 
-  // Scrub leftover "Brand ka / Brand's" patterns already replaced partially
+  // Scrub leftover whitespace
   out = out.replace(/\s{2,}/g, ' ').trim();
-
-  // Ensure client brand leads if still missing
-  if (clientBrand && !out.toLowerCase().includes(clientBrand.toLowerCase().slice(0, Math.min(8, clientBrand.length)))) {
-    out = `${clientBrand}: ${out}`;
-  }
 
   return out;
 }

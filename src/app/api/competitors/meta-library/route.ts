@@ -7,6 +7,7 @@ import {
 } from '@/lib/auth/campaign-input';
 import { withDemoLibraryFallback } from '@/lib/demo-competitor-ads';
 
+export const runtime = 'nodejs';
 export const maxDuration = 120;
 
 /**

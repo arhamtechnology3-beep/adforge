@@ -6,6 +6,657 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+## 2026-09-04
+
+### Legal pages for Meta App Live mode (Privacy / Terms / Data deletion)
+Meta requires public URLs before switching the app to **Live** (needed to create ad creatives).
+
+**Added (public, no login)**
+- `/privacy` — Privacy Policy
+- `/terms` — Terms of Service
+- `/data-deletion` — User data deletion instructions (Facebook Login requirement)
+- Shared layout: `src/components/legal/LegalPage.tsx`
+- Landing footer links + middleware allowlist
+
+**Manual — paste into Meta Developer → Settings → Basic**
+| Field | Local (dev) | Production |
+|---|---|---|
+| Privacy Policy URL | `http://localhost:3000/privacy` | `https://YOUR_DOMAIN/privacy` |
+| Terms of Service URL | `http://localhost:3000/terms` | `https://YOUR_DOMAIN/terms` |
+| User data deletion | `http://localhost:3000/data-deletion` | `https://YOUR_DOMAIN/data-deletion` |
+| App Domains / Site URL | `localhost` / `http://localhost:3000` | your domain |
+
+Note: Meta often rejects `localhost` for Live mode — use a public HTTPS URL (tunnel or deployed host) if Live toggle still blocks. Then retry Confirm & Launch.
+
+### Meta: App must be Live to create ad creatives (1885183)
+Facebook blocks `object_story_spec` creatives while the Meta App is in **Development** mode (`error_subcode` 1885183). Campaign/ad set can succeed; creative create fails.
+
+**Not a code bug.** Platform owner must flip the app to **Live**.
+
+**Manual (Meta Developer Console)**
+1. [developers.facebook.com/apps](https://developers.facebook.com/apps) → app `927571939897794`
+2. Top bar **App Mode** → **Live** (may require Privacy Policy URL + contact email under Settings → Basic)
+3. Ensure the Facebook Page used for ads is available to the logged-in admin
+4. Retry **Confirm & Launch**
+
+Also: UI errors from Meta now prefer `error_user_msg` via `formatMetaApiError` in `src/lib/meta.ts`.
+
+### Fix: Meta creative “picture should represent a valid URL”
+Creatives used proxied paths (`/api/ads/product-image?src=…`). Meta cannot fetch localhost proxies, so adcreative create failed (#100).
+
+**What changed** (`src/lib/meta.ts`)
+- Unwrap product-image proxy → public CDN URL.
+- Upload image to Meta `adimages` (`image_hash`) when possible; else use public `picture` URL.
+- Carousel: send `child_attachments` from `media_payload.cards`.
+
+**Manual:** Confirm & Launch again (or re-create from Review).
+
+### Fix: Meta ad set “locations conflict” (country + cities)
+Confirm/Launch failed with Meta subcode **1487756** — `countries: ["IN"]` was sent together with city keys. Meta treats that as overlapping geo levels.
+
+**What changed** (`src/lib/meta-targeting.ts`)
+- If cities resolve, send **cities only** (omit country).
+- With a live token, prefer Targeting Search over hardcoded city keys; dedupe keys.
+- Offline map kept as fallback only.
+
+**Manual:** Open Audience (or re-apply template), then Review → Create/Confirm again. Or click **Confirm & Launch** on the existing draft.
+
+### Fix: Meta campaign create + Confirm “Only draft campaigns…”
+Two stacked bugs on Launch:
+1. Meta API rejected create without `is_adset_budget_sharing_enabled` (ABO / ad-set budget) → “Meta sync failed”.
+2. Non-draft launch saved status `active`, so Confirm returned “Only draft campaigns can be confirmed”.
+
+**What changed**
+- `createCampaign` sends `is_adset_budget_sharing_enabled: false`.
+- Launch always saves status `draft` until Confirm.
+- Launch step copy reflects real `meta_synced` / sync error.
+
+**Manual:** From Review, click Create/Launch again (or Confirm on the repaired draft). Existing failed demo draft was reset to `draft`.
+
+### Fix: Demo launch UUID error (`demo-ad-…` into `ad_ids UUID[]`)
+Launch failed with `invalid input syntax for type uuid: "demo-ad-0-…"`. Demo creatives use string ids, but `/api/campaigns/launch` still inserted into Postgres `meta_campaigns.ad_ids` (`UUID[]`).
+
+**What changed**
+- Demo campaigns persist to `.data/demo-campaigns-*.json` (`src/lib/auth/demo-campaigns.ts`).
+- Launch + Confirm use file storage for demo sessions; Meta sync still runs when connected.
+- Confirm route uses `getSessionUser()` so demo OAuth sessions work (not only Supabase auth).
+
+**Manual:** Retry **Create Draft on Meta** / launch from Review. No SQL migration needed.
+
+### Fix: Facebook OAuth “Invalid Scopes: pages_manage_ads”
+Connect failed with Facebook’s developer-only error **Invalid Scopes: pages_manage_ads**. That permission isn’t available on this Meta app yet, so Facebook rejects the whole login dialog.
+
+**What changed:** Dropped `pages_manage_ads` from OAuth scopes in `src/lib/meta-oauth.ts`. Kept `ads_management`, `ads_read`, `business_management`, `pages_show_list`, `pages_read_engagement` (enough for ad accounts + pages).
+
+**Manual (Meta Developer Console — required for the 2nd error “domain isn't included”):**
+1. [developers.facebook.com/apps](https://developers.facebook.com/apps) → app `927571939897794`
+2. Add product **Facebook Login** (if missing) → Settings
+3. **Valid OAuth Redirect URIs:** `http://localhost:3000/api/oauth/meta/callback`
+4. **App Domains:** leave empty for localhost, or set `localhost` only if Meta requires it; also set **Site URL** to `http://localhost:3000` under Facebook Login / Settings
+5. App mode can stay **Development**; you must be an Admin/Developer/Tester of the app
+6. Restart is not required for the scope code change if Next hot-reloads API routes; hard-refresh and Connect again
+
+### Fix: Meta OAuth redirect URI port mismatch (3010 → 3000)
+Connect was failing / confusing because `.env.local` had `META_REDIRECT_URI` on port **3010** while the app runs on **3000**. Aligned redirect URI to `http://localhost:3000/api/oauth/meta/callback`.
+
+**Why the red “platform Meta App” error showed:** `/api/oauth/meta/connect` redirects to `?error=meta_platform_setup` when `getMetaAppConfig()` is null (missing `META_APP_ID`/`META_APP_SECRET` in the **running** process). The banner stays until that query param is cleared — open `/campaigns` without `?error=…` after restart.
+
+**Manual:** Restart `npm run dev`. In Meta Developer → Valid OAuth Redirect URIs, add exactly `http://localhost:3000/api/oauth/meta/callback`.
+
+## 2026-09-03
+
+### Config: Platform Meta App ID/Secret set in `.env.local`
+Filled `META_APP_ID` and `META_APP_SECRET` for AdForge’s Meta Developer App (server-only; not committed).
+
+**Manual:** Restart the Next.js dev server so OAuth picks up the new env. Confirm Valid OAuth Redirect URIs in Meta Developer match `META_REDIRECT_URI` (currently port `3010` in `.env.local`).
+
+### UX: Connect with Facebook only — no App ID/Secret form for customers
+Removed the yellow platform setup box from Campaigns. Customers only see **Connect with Facebook** → Facebook OAuth → we pull their ad accounts/pages.
+
+**Important (Meta security model)**  
+Facebook never returns an App Secret from user login. AdForge’s Meta App ID/Secret stay on the **server** (`.env.local` / hosting env) once — not in the customer UI.
+
+**Manual (platform owner, once)**  
+Set in `.env.local` then restart:
+```
+META_APP_ID=your_numeric_app_id
+META_APP_SECRET=your_app_secret
+META_REDIRECT_URI=http://localhost:3000/api/oauth/meta/callback
+```
+Add the same redirect URI in Meta Developer → App → Valid OAuth Redirect URIs.  
+Then customers only click **Connect with Facebook**.
+
+### Fix: Build error `Can't resolve 'fs'` from meta-app-config
+Client bundle pulled in `meta-app-config` (Node `fs`) via `meta.ts` → `MetaReconnectBanner`.
+
+**What changed**
+- Moved OAuth credential helpers to server-only `src/lib/meta-oauth.ts`.
+- Client banner imports `isTokenExpired` from `src/lib/meta-token.ts` (no `fs`).
+
+### Fix: Customers never enter Meta App Secret — platform one-time setup + Facebook login
+You were right: App ID/Secret must not be per-customer. Facebook does not give App Secrets from a user login. AdForge owns **one** Meta Developer App; each customer only Facebook-logins and we pull **their** ad accounts/pages automatically.
+
+**What changed**
+- Platform Meta App config: env **or** one-time save to `.data/platform-meta-app.json` (`/api/settings/meta-app`).
+- Campaigns shows a one-time **platform setup** form only when AdForge’s app isn’t configured yet.
+- After that, **Connect with Facebook** is pure OAuth — pulls ad account + page from the customer’s Facebook.
+- Customer-facing errors no longer tell users to edit `.env.local`.
+
+**Manual (you, once as AdForge owner)**
+1. Create/open Meta App at developers.facebook.com → copy App ID + App Secret.
+2. Add redirect URI: `http://localhost:3000/api/oauth/meta/callback`.
+3. On Campaigns, fill the yellow **platform setup** box → **Save & Connect Facebook**.
+4. Every later customer only clicks **Connect with Facebook** (no secrets).
+
+### Add: One-click Meta connection (works in Demo Mode)
+Click **Connect Meta — one click** → Facebook OAuth → token saved. No separate Supabase sign-up required for demo sessions.
+
+**What changed**
+- Demo Meta tokens persist in `.data/demo-meta-*.json` via `src/lib/auth/demo-meta.ts`.
+- `/api/oauth/meta/connect` starts Facebook OAuth for demo + real users (no more demo block).
+- Callback stores demo tokens locally; real users still upsert `ad_accounts`.
+- Campaigns launch/validate/onboarding read connection through `resolveMetaConnection()`.
+- UI button: “Connect Meta — one click”.
+
+**Manual**
+1. Ensure `META_APP_ID`, `META_APP_SECRET`, `META_REDIRECT_URI=http://localhost:3000/api/oauth/meta/callback` in `.env.local`.
+2. In Meta Developer app → Valid OAuth Redirect URIs must include that callback URL.
+3. Campaigns → **Connect Meta — one click** → approve Facebook permissions → return with “Meta connected”.
+
+### Fix: Connect Meta showed raw `{"error":"Unauthorized"}` in Demo Mode
+`/api/oauth/meta/connect` used Supabase `getUser()` only, so Demo Mode (no Supabase session) returned bare JSON when opening the link in the browser.
+
+**What changed**
+- Connect route uses `getSessionUser()`; demo users redirect to `/campaigns?error=meta_demo_blocked` with a clear banner.
+- Unauthenticated users redirect to `/login`.
+- Campaigns wizard shows the error message + “Sign in for live Meta” link.
+
+**Manual:** In Demo Mode you can still draft campaigns. For live Connect Meta: create/sign in with a real Supabase account (not Demo), ensure `META_APP_*` env vars are set, then Connect Meta again.
+
+### Fix: Approve failed with “Ad not found” on product-URL carousel (demo)
+Demo creatives were saved in an HTTP cookie. A 7-card carousel payload exceeds the ~4KB cookie limit, so Generate showed ads in the UI but Approve could not find them server-side.
+
+**What changed**
+- Demo ads now persist to `.data/demo-ads-*.json` (cookie is only a marker).
+- Generate / approve / delete / bulk / regenerate use `persistDemoAds()`.
+
+**Manual:** Click **Regenerate pack** once, then **Approve** again.
+
+### Fix: Product-URL carousel found 0 images on Shopify short handles
+Preview showed “0 ready with images” for Divyaprabha URLs like `/products/gor-keri-pickle` because those short handles 404; real handles are longer (e.g. `gor-keri-pickle-jaggery-mango-achar-gujarati`). HTML scrape also failed on DNS lookup.
+
+**What changed**
+- `suggestFromShopifyStore()` uses `/products/{handle}.json`, then fuzzy-matches against `/products.json` when the short handle 404s.
+- Carousel resolve prefers Shopify JSON before HTML scrape.
+- HTML fetch fallback via plain `fetch` when custom DNS lookup fails.
+
+**Manual:** Ads → Step 2 → **Preview URLs** again on the same list — expect ready count > 0, then Generate.
+
+### Add: Product-URL carousel (v1) — real store images, no AI
+Carousel can now be built from pasted product page URLs. Each card uses that product’s default store image (no AI scene/edit) and stores a per-card Shop Now destination link.
+
+**What changed**
+- `src/lib/carousel-from-urls.ts` — scrape/resolve 2–10 URLs → cards with `image_url` + `link`.
+- `POST /api/ads/carousel-products` — preview resolve for the studio UI.
+- `POST /api/ads/generate` accepts `carousel_product_urls`; when Carousel is selected with ≥2 URLs, builds a product-URL carousel and skips AI carousel generation.
+- Step 2 studio: textarea for product URLs when Carousel format is on; Preview URLs button.
+- `CarouselCard` type now includes `link` / `product_url` / `product_name` / `price`.
+- Preview shows per-card headline + Shop Now link.
+
+**Not in v1**
+- Meta launch still uses a single campaign website destination (native `child_attachments` publish comes later).
+- URLs without a scrapable image are skipped with a warning (no manual upload picker yet).
+
+**Manual**
+1. Ads → Step 2 → enable **Carousel**.
+2. Paste 2–10 product page URLs (one per line) → optional **Preview URLs**.
+3. Generate — carousel cards should show real product images; other formats still use the creative engine if selected.
+
+### Switch: sole image provider → Arham Cloudflare Worker API
+Ignore FreeLLM / Cloudflare Workers AI / Pollinations / OpenRouter / Puter for scene images. All ad backgrounds now go through the Arham worker only.
+
+**What changed**
+- Added `src/lib/arham-image-api.ts` — POST prompt + Bearer token, saves JPEG under `/uploads/scenes/`.
+- Added `ArhamImageProvider` and made it the only entry in the image provider list.
+- Simplified `src/lib/creative-providers.ts` to call Arham only (local SVG last resort).
+- Env: `ARHAM_IMAGE_API_URL`, `ARHAM_IMAGE_API_TOKEN`.
+
+**Manual**
+1. Set `ARHAM_IMAGE_API_TOKEN` in `.env.local` (and optional `ARHAM_IMAGE_API_URL`).
+2. Restart `npm run dev`.
+3. Regenerate ads; logs should show `[scene-gen] ... provider=arham`.
+4. If you see `[arham-image] 401`, the bearer token on the worker is rejected — rotate/confirm the token.
+
+---
+
+## 2026-09-02
+
+### Fix: MD prompts ignored — local SVG fallback was winning over AI providers
+Backgrounds looked identical (dark brown gradient) because `LocalImageProvider` ran **before** Pollinations and ignored MD prompts entirely. Cloudflare daily quota was also exhausted.
+
+**What changed**
+- Removed `LocalImageProvider` from the AI provider loop — now only last-resort after FreeLLM, Cloudflare, Puter, Pollinations, OpenRouter.
+- Pollinations now receives the full MD prompt when Cloudflare quota is exhausted.
+- Local SVG fallback uses **preset-specific palettes** (`?preset=fresh-clean` etc.) matching MD preset moods.
+- Scene generation logs `preset=` and `provider=` for debugging.
+- `media_payload` already includes `scene_preset`, `prompt_source`, `scene_provider`.
+
+**Manual:** Restart dev server, ensure FreeLLMAPI running (`npm run start:freellmapi`), regenerate ads. Check server logs for `[scene-gen] preset=fresh-clean provider=pollinations`.
+
+### Add: Runtime loading of Meta ad prompts from markdown file
+Image generation now reads prompts live from `docs/facebook_meta_product_ad_prompts.md` — edit the MD file and regenerate ads without touching TypeScript.
+
+**What changed**
+- `src/lib/creative-engine/meta-ad-prompt-md-parser.ts` — parses MD presets, best-for lines, creative matrix purposes, and master negative prompt.
+- `getMetaAdPromptLibrary()` loads MD at runtime with mtime cache (auto-reloads when file changes).
+- Embedded fallback presets if MD is missing (build safety).
+- Generated ads include `prompt_source: "markdown"` in media payload.
+
+**Manual:** Edit `docs/facebook_meta_product_ad_prompts.md`, save, regenerate ads — changes apply immediately.
+
+### Add: Meta ad prompt library (11 ChatGPT presets) wired into image generation
+Imported `facebook_meta_product_ad_prompts.md` and integrated all 11 creative presets into the image generation pipeline. The engine auto-selects the best preset per product category, creative angle, and Ad Library pattern.
+
+**What changed**
+- `docs/facebook_meta_product_ad_prompts.md` — full prompt library (source of truth).
+- `src/lib/creative-engine/meta-ad-prompt-library.ts` — 11 presets + master product-protection negative prompt + smart preset selector.
+- `src/lib/creative-engine/prompt-builder.ts` — now builds prompts from the library instead of generic templates.
+- Generated ads store `scene_preset` and `scene_preset_name` in media payload for debugging.
+
+**Presets:** Premium Luxury Studio, Natural Lifestyle, Bold Scroll Stopper, Sunlight + Premium Home, Minimal Clean, Dark Cinematic, Soft Beauty, Fresh/Clean, Modern Urban, Problem→Solution, Premium UGC.
+
+**Manual:** Regenerate ads — each variant picks a different preset. Food products rotate through fresh/lifestyle/home presets; offer angles use Bold Scroll Stopper.
+
+### Improve: Ad Library–informed directions + distinct backgrounds per ad
+Wired Meta Ad Library competitor analysis into creative generation so each ad gets library-inspired copy, scene type, and a visibly different background — not the same dark studio for every format.
+
+**What changed**
+- **Directions from library ads:** One creative direction per selected Ad Library ad (not recycled templates). Maps `marketingAngle`, `compositionPattern`, `hook`, and `visualStrategy` into angle, headline, and primary text.
+- **Grounded copy:** `/api/ads/directions` and `runCreativeEngine` now use `generateGroundedConcepts()` — competitor structure, your product facts.
+- **Distinct scenes:** `environmentFromPattern()` + 12 `SCENE_VARIANT_PRESETS` in prompt builder; each format/card gets a different `sceneVariant` seed.
+- **Creative brief integration:** `buildCreativeBrief()` drives `colorDirection`, `layoutStyle`, and scene prompts from competitor headline/body.
+
+**Key paths**
+- `src/lib/creative-engine/competitor-patterns.ts`
+- `src/lib/creative-engine/creative-directions.ts`
+- `src/lib/creative-engine/prompt-builder.ts`
+- `src/lib/creative-engine/creative-pack.ts`
+- `src/lib/creative-engine/index.ts`
+- `src/app/api/ads/directions/route.ts`
+
+**Manual:** Re-select competitor ads in Step 1, review new direction names in Step 2, then regenerate. Each ad should show different backgrounds and library-informed headlines.
+
+### Fix: Cloudflare Workers AI wired — image generation working
+Added `CLOUDFLARE_ACCOUNT_ID` and Workers AI token; FreeLLMAPI now generates images via Cloudflare FLUX Schnell.
+
+**Verified**
+- Direct Cloudflare FLUX: HTTP 200 (~658KB PNG)
+- FreeLLMAPI `/v1/images/generations`: `cloudflare` / `@cf/black-forest-labs/flux-1-schnell` (~685KB)
+
+**Also fixed:** removed unsupported `openai` platform from FreeLLMAPI config (was blocking server startup).
+
+**Manual:** Restart AdForge dev server if running, then regenerate ads in Step 2.
+
+### Add: FreeLLMAPI local install + provider wiring (automated)
+Ran FreeLLMAPI install from source (Docker not available on this machine; equivalent to `curl -fsSL https://freellmapi.co/install.sh | bash`). Wired AdForge provider keys into FreeLLMAPI and synced the unified API key back to `.env.local`.
+
+**What changed**
+- `scripts/install-freellmapi.sh` — clone/build FreeLLMAPI, push keys from `.env.local`, bootstrap dashboard account, write `FREELLM_API_KEY`, register custom image providers.
+- `scripts/start-freellmapi.sh` — start daemon on `:3001` if not running; re-registers custom media on boot.
+- `scripts/configure-freellmapi-env.mjs` — writes `~/freellmapi/.env` with OpenRouter, OpenAI, Cloudflare (`account_id:token`).
+- `scripts/register-freellm-media.mjs` — registers OpenAI GPT Image, OpenRouter FLUX, Pollinations as FreeLLMAPI custom endpoints.
+- `scripts/resolve-cloudflare-account.mjs` — auto-fetches `CLOUDFLARE_ACCOUNT_ID` when token allows.
+- `scripts/dev.sh` — auto-starts FreeLLMAPI alongside Ad Library worker.
+- `npm run install:freellmapi` / `npm run start:freellmapi`.
+
+**Runtime state**
+- FreeLLMAPI: `http://localhost:3001` (dashboard `adforge@local.dev` / `adforge-local-dev`)
+- `FREELLM_API_KEY` synced in `.env.local`
+
+**Blockers for image gen (need one working provider)**
+- **Cloudflare FLUX (free):** token is IP-restricted — paste `CLOUDFLARE_ACCOUNT_ID` from [Cloudflare dashboard](https://dash.cloudflare.com) → Workers & Pages → Overview, then `npm run start:freellmapi`.
+- **OpenRouter / OpenAI:** accounts have no credits on this key.
+- **Pollinations:** now requires `POLLINATIONS_API_KEY` from https://enter.pollinations.ai/keys
+
+**Manual:** Add `CLOUDFLARE_ACCOUNT_ID` (or `POLLINATIONS_API_KEY`), run `npm run start:freellmapi`, restart AdForge dev server, re-upload packshot, regenerate ads.
+
+### Add: FreeLLMAPI for free image & video generation
+Integrated [FreeLLMAPI](https://github.com/arhamtechnology3-beep/freellmapi) as the primary scene image and motion video provider when configured. Uses OpenAI-compatible `/v1/images/generations` and `/v1/videos/generations` endpoints.
+
+**What changed**
+- New `src/lib/freellmapi.ts` — image (b64_json) and video (MP4 binary) client with guarded background prompts.
+- New providers: `FreeLLMImageProvider` (first in cascade) and `FreeLLMVideoProvider` (before ffmpeg fallback).
+- Env: `FREELLM_API_KEY`, `FREELLM_API_BASE_URL` (default `http://localhost:3001/v1`), `FREELLM_IMAGE_MODEL`, `FREELLM_VIDEO_MODEL`.
+
+**Key paths**
+- `src/lib/freellmapi.ts`
+- `src/lib/creative-engine/providers/freellm-image.ts`
+- `src/lib/creative-engine/providers/freellm-video.ts`
+- `src/lib/creative-engine/providers/index.ts`
+- `scripts/tests/freellmapi.test.ts`
+
+**Manual:** Install FreeLLMAPI (`curl -fsSL https://freellmapi.co/install.sh | bash`), add provider keys in its dashboard, copy the unified API key to `FREELLM_API_KEY` in `.env.local`, restart dev server, regenerate ads.
+
+### Fix: creative-engine providers syntax error (500 on /ads generate)
+Invalid `continue` outside a loop in `providers/index.ts` broke the Next.js compile and caused 500s on `/api/ads/generate` and `/ads`.
+
+**What changed**
+- Replaced illegal `continue` in OpenRouter branch with if/else fallthrough.
+- Null-guard provider assets before scene purity check.
+- Fixed `Buffer` → `Blob` typing in `remove-bg.ts` and RGBA raw info casts in `creative-assets.ts`.
+
+**Key paths:** `src/lib/creative-engine/providers/index.ts`, `src/lib/remove-bg.ts`, `src/lib/creative-assets.ts`
+
+**Manual:** Restart dev server if it was already running.
+
+### Add: remove.bg API for professional packshot cutouts
+When `REMOVE_BG_API_KEY` is set, packshot uploads and generation use remove.bg (`type=product`) for background removal instead of the local flood-fill algorithm. Falls back to local cutout if the API is unavailable or credits are exhausted.
+
+**What changed**
+- New `src/lib/remove-bg.ts` — remove.bg HTTP client (`size=auto`, `type=product`, `format=png`, `crop=true`).
+- `normalizePackshotBuffer()` tries remove.bg first when configured; returns `provider: 'remove-bg' | 'local'`.
+- Upload API response includes `cutout_provider` so the UI can confirm which engine ran.
+
+**Key paths**
+- `src/lib/remove-bg.ts`
+- `src/lib/creative-assets.ts`
+- `src/app/api/products/upload/route.ts`
+- `.env.example`
+- `scripts/tests/remove-bg.test.ts`
+
+**Manual:** Add `REMOVE_BG_API_KEY` to `.env.local` and restart the dev server. Re-upload your packshot to get a fresh remove.bg cutout. Upload response includes `cutout_provider: "remove-bg"` when the API succeeds.
+
+---
+
+### Fix: cutout quality, ghost-product backgrounds, and packshot pinning
+Generated ads still showed jagged cutout edges, AI-invented jars in backgrounds, and wrong product images cycling across carousel/video frames.
+
+**What changed**
+- **Cutout engine v2:** Morphological mask close, Gaussian alpha feather (sharp blur), skip re-processing when source is already `*-cutout.png` or `/normalized/`.
+- **Scene purity gate:** New `evaluateScenePurity()` rejects AI backgrounds with objects in the compositing zone; impure scenes fall through to the next provider.
+- **Provider order:** Local abstract SVG (safe) now runs before Pollinations; Pollinations demoted to last resort.
+- **Background prompts:** Removed product/brand names from scene prompts so FLUX doesn't invent jars; Cloudflare steps raised to 8 for background mode.
+- **Compositor:** Radial darkening behind packshot zone + contact shadow to hide ghost products bleeding through.
+- **Packshot pinning:** Legacy generate + replicate paths always use `primaryPackshot` — no more modulo over `packshots[]`.
+
+**Key paths**
+- `src/lib/creative-assets.ts`
+- `src/lib/scene-purity.ts`
+- `src/lib/creative-engine/providers/index.ts`
+- `src/lib/creative-engine/prompt-builder.ts`
+- `src/lib/cloudflare-creative.ts`
+- `src/app/api/ads/creative/route.tsx`
+- `src/app/api/ads/generate/route.ts`
+- `scripts/tests/scene-purity.test.ts`
+- `scripts/tests/packshot-cutout.test.ts`
+
+**Manual:** Re-upload packshot on a plain background for best cutout. Regenerate ads in Step 2. Optional env for best scenes: `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`, or `OPENROUTER_API_KEY`.
+
+---
+
+## 2026-09-01
+
+### Improve: Gemini-style commercial prompts + stronger product cutouts
+Background removal still left white halos on lifestyle packshots, and scene prompts were too generic — producing painterly SVG fallbacks instead of photorealistic ad environments like manual Gemini generation.
+
+**What changed**
+- **Cutout engine rewrite:** Edge flood-fill → largest foreground blob → alpha feather → RGB defringe (removes white halos). Output saved as `{hash}-cutout.png`.
+- **Gemini-style prompts:** Each direction now gets a detailed commercial photography prompt with PRODUCT LOCK, environment requirements, per-angle scene settings (marble kitchen, heritage sketch, food styling, etc.), and format-specific composition hints (1:1, 4:5, 9:16).
+- **Richer direction stories:** `creative-directions.ts` now generates specific visual stories per angle (e.g. premium marble kitchen, heritage nostalgia).
+- **AI scene priority:** Pollinations free tier enabled without API key; tried before local SVG fallback so backgrounds are photorealistic when possible.
+- **Scene dedup:** `scene_url` tracked per ad/card/frame for duplicate detection.
+
+**Key paths**
+- `src/lib/creative-assets.ts`
+- `src/lib/creative-engine/prompt-builder.ts`
+- `src/lib/creative-engine/creative-directions.ts`
+- `src/lib/creative-engine/creative-pack.ts`
+- `src/lib/creative-engine/providers/pollinations-image.ts`
+- `scripts/tests/packshot-cutout.test.ts`
+
+**Manual:** Regenerate creative pack in Step 2. For best cutouts, upload a packshot on a plain/light background. Optional env for higher quality: `CLOUDFLARE_API_TOKEN`, `OPENROUTER_API_KEY`, `POLLINATIONS_API_KEY`.
+
+### Fix: duplicate ads, product cutouts, and unique backgrounds per creative
+Generated packs were producing visually identical ads across formats (same lifestyle photo on repeated gradients) because every direction rendered all four formats with similar seeds and the packshot background was not removed.
+
+**What changed**
+- **No more duplicate ads:** Each selected direction now owns distinct formats (dir 1 → single image, dir 2 → carousel, dir 3 → stories + video). Final pack is deduplicated by image fingerprint before save.
+- **Product cutout:** Packshot background removal now runs for all users (including demo) before generation, with chroma-key fallback + trim for lifestyle photos. Cutout PNG is composited onto each scene.
+- **Unique backgrounds:** Global scene seed counter per pack; angle + category hash drives `/api/ads/background` palette/style (6 layout variants).
+- **QA tuning:** Integrity check compares center product crop (not full scene) to reduce false "palette diverges" warnings.
+- **Compositor:** Scene backgrounds no longer blurred — distinct colors remain visible behind cutout product.
+
+**Key paths**
+- `src/lib/creative-engine/creative-pack.ts`
+- `src/lib/creative-assets.ts`
+- `src/lib/creative-engine/providers/local-image.ts`
+- `src/app/api/ads/background/route.ts`
+- `src/app/api/ads/generate/route.ts`
+- `src/app/api/ads/creative/route.tsx`
+- `src/lib/creative-engine/qa-engine.ts`
+
+**Manual:** Regenerate your creative pack in Step 2 (Plan directions → select 3 → Generate). For best cutouts, re-upload a packshot with a plain/light background if the product photo is a full lifestyle scene.
+
+### Fix: creative pack generated 0 ads after direction selection
+Direction cards were planned with random UUIDs, but generation re-planned directions server-side and filtered by ID — so selected IDs never matched and zero ads were produced.
+
+**What changed**
+- Creative direction IDs are now stable per product + concept name (e.g. `prod-id-premium-product-hero`)
+- Generate API accepts full `selected_directions` from the client as the source of truth
+- Falls back to first 3 planned directions when nothing is selected
+- Returns a clear 422 error if generation still produces zero creatives
+
+**Key paths**
+- `src/lib/creative-engine/creative-directions.ts`
+- `src/lib/creative-engine/index.ts`
+- `src/app/api/ads/generate/route.ts`
+- `src/app/(dashboard)/ads/page.tsx`
+
+### Free-first AI Creative Engine (all phases)
+Implemented the full creative-engine architecture from the Cursor spec: competitor intelligence → original creative directions → product-safe visual generation → QA → async jobs → performance memory.
+
+**What changed**
+- **Phase 1:** Provider abstraction (`ImageGenerationProvider` / `VideoGenerationProvider`), Cloudflare-first routing with Pollinations and local fallbacks, quota manager, usage ledger, 4:5 feed support, global + product-specific negative prompts
+- **Phase 2:** Competitor pattern extractor, creative direction engine (3–10 concepts), direction planning API, creative pack generator, direction-selection UI before generation
+- **Phase 3:** Expanded QA scoring (integrity, hook, CTA, uniqueness, policy risk), visual packshot comparison, auto-regenerate on failed scores
+- **Phase 4:** `generation_jobs` + `creative_usage` tables, BullMQ `creative-generation` worker, async job API (`POST /api/ads/generate/jobs`)
+- **Phase 5:** Pollinations live-model adapter, Puter BYOP stubs, `creative_memory` table for future performance learning
+
+**Key paths**
+- `src/lib/creative-engine/` (types, product-truth, competitor-patterns, creative-directions, creative-pack, qa-engine, providers, quota-manager, usage-ledger, creative-memory)
+- `supabase/migrations/008_creative_engine.sql`
+- `src/app/api/ads/directions/route.ts`, `src/app/api/ads/generate/jobs/`
+- `src/components/ads/CreativeDirections.tsx`, `src/app/(dashboard)/ads/page.tsx`
+- `src/workers/jobs/creative-generation.ts`, `scripts/tests/creative-engine.test.ts`
+
+**Manual**
+1. Apply `supabase/migrations/008_creative_engine.sql`.
+2. Optional env: `POLLINATIONS_API_KEY`, `PUTER_BYOP_ENABLED=true` for optional providers.
+3. Start Redis + `npm run worker` for async generation (`POST /api/ads/generate` with `"async": true`).
+4. In Step 2: click **Plan directions** → select up to 3 concepts → **Generate creative pack**.
+
+### Product-page import and genuinely varied Step 2 creatives
+Onboarding can now import reviewable product facts from an exact product URL, while newly generated ads use distinct visual treatments instead of repeating one uploaded rectangular photo.
+
+**What changed**
+- Added an exact product-page URL field and **Import suggestions** action for brand, product name, category, price, benefits, ingredients when available, and product-image references
+- Added SSRF-safe URL validation plus a browser-worker fallback, so importing still works on machines where Node DNS cannot resolve a store that Chrome can open
+- Added deterministic local 1:1 and 9:16 scene generation as a reliable fallback; AI providers still generate background-only scenes when available
+- Every ad now receives a distinct seeded scene and a rotating layout; every carousel card receives its own background
+- Video creatives now use UGC-style hooks, multiple creator/review scene directions, varied frame templates, and a rendered MP4 instead of repeating one still
+- Expanded negative prompts for rewritten labels, misspelled logos, duplicate products, cropped logos, and hands covering the product label
+- New uploads and existing packshots used during generation receive edge-aware background removal while preserving the original product RGB pixels; normalized assets are persisted
+- Updated video labels from “slideshow” to “UGC-style motion video”
+
+**Key paths**
+- `src/app/(dashboard)/onboarding/OnboardingClient.tsx`
+- `src/app/api/products/suggest/route.ts`, `src/lib/product-page-suggestions.ts`
+- `src/app/api/ads/background/route.ts`, `src/lib/creative-providers.ts`, `src/lib/replicate-ads.ts`
+- `src/lib/creative-assets.ts`, `src/lib/creative-product-guardrails.ts`
+- `scripts/ad-library-worker.mjs`, `scripts/install-ad-library-worker.sh`
+
+**Manual**
+- Re-upload the current product image once from Onboarding → Product to immediately save the cleaned transparent packshot. Generation also normalizes the existing approved image automatically.
+- Generate a new batch; already-rendered ads are intentionally not overwritten.
+- Human-presenter footage is not fabricated: the current video output is a UGC-style motion template using the exact approved product. Real creator clips can be added later as approved product assets.
+
+### Step 2 product-grounded creative studio
+Step 2 now generates copy, images, carousels, stories, and real MP4 motion ads from one explicitly approved catalog product. Competitor ads contribute only hook, layout, and format signals.
+
+**What changed**
+- Added owned `brand_profiles`, `products`, and `product_assets` records with RLS and the `product-assets` / `creative-assets` Storage buckets
+- Added a required onboarding review for exact product facts, claims, and a primary clean packshot
+- Added structured product-only copy, competitor-leak/prohibited-claim checks, Meta length limits, deterministic repair, and approval blocking for failed quality gates
+- AI providers now create backgrounds only; the exact normalized packshot is composited into reusable templates and final PNGs are persisted
+- Added bundled local Noto fonts so Hindi, `₹`, and Unicode punctuation render without an external font CDN
+- Added server-rendered 8–12 second MP4 motion templates using bundled FFmpeg, plus posters and playback metadata
+- Extracted the Step 2 studio controls and added product/language/tone/format/count controls, per-card copy or visual regeneration, template switching, duplication, bulk actions, filters, and quality flags
+- Deep-merged creative metadata on edits and limited campaign handoff to approved, valid, fully rendered assets
+- Kept Step 1 markup and live Meta flow unchanged; added URL/Page-ID, ranking, source-provenance, cached-live, and selection-persistence regression protection
+- Demo advertiser is now **Aarohi Pantry** while FarmDidi remains competitor intelligence
+
+**Key paths**
+- `supabase/migrations/007_product_catalog.sql`
+- `src/lib/product-catalog.ts`, `src/lib/grounded-copy.ts`, `src/lib/creative-quality.ts`
+- `src/lib/creative-assets.ts`, `src/lib/motion-video/`, `src/components/ads/Step2Studio.tsx`
+- `src/app/api/products/`, `src/app/api/brand-profile/`, `src/app/api/ads/[id]/regenerate/`
+- `src/app/(dashboard)/onboarding/OnboardingClient.tsx`, `src/app/(dashboard)/ads/page.tsx`
+- `scripts/tests/step1-*.test.ts`, `scripts/tests/step2-grounding.test.ts`, `scripts/tests/motion-video.test.ts`
+
+**Manual**
+1. Apply `supabase/migrations/007_product_catalog.sql`.
+2. Run `npm install`, then restart `npm run dev`.
+3. Existing accounts must open Onboarding → **Approve Product**, verify facts/claims, upload a packshot, and approve it.
+4. `FFMPEG_PATH` is optional; the bundled binary is used automatically.
+
+### Permanent fix: self-contained Ad Library background service
+The live browser worker no longer runs under Cursor/npm and no longer needs a separate Terminal window. It is installed as a macOS LaunchAgent under `~/Library/Application Support/AdForge`, avoiding macOS privacy restrictions on background access to `~/Documents`.
+
+**What changed**
+- `npm run dev` installs/refreshes and starts `com.adforge.ad-library-worker`
+- Worker runtime, Playwright package, and Chromium are self-contained in Application Support
+- LaunchAgent starts at login, stays alive, and restarts automatically
+- Successful real Meta responses are cached for seven days
+- If the worker briefly restarts, the API serves cached **real ads**, not fabricated samples
+
+**Files**
+- `scripts/install-ad-library-worker.sh`, `scripts/run-ad-library-worker.sh`, `scripts/dev.sh`
+- `scripts/ad-library-worker.mjs`, `src/lib/meta-ad-library.ts`, `package.json`, `.gitignore`
+
+**Manual:** None. Logs are in `~/Library/Logs/AdForge/`.
+
+### Fix: Ad Library showing 3 sample ads again (worker browser crash)
+Yesterday's "use system Chrome" fix regressed: **Google Chrome SIGABRT-crashes** from the worker subprocess while **Playwright bundled Chromium** works. Worker `/health` stayed green but every fetch failed → demo fallback.
+
+**What changed**
+- Browser priority reverted: **Playwright bundled Chromium first**, system Chrome as fallback
+- Worker runs fetch in-process (no child spawn)
+- Exported `runAdLibraryWebFetchInProcess` from `fetch-ad-library-web.cjs`
+
+**Files:** `scripts/ad-library-worker.mjs`, `scripts/playwright-browser.mjs`, `src/lib/playwright-browser.ts`, `scripts/fetch-ad-library-web.ts`, `package.json`
+
+### Fix: Chrome for Testing crash on macOS (Ad Library live fetch) — superseded
+Earlier fix preferred system Google Chrome; later worker runs use bundled Chromium again (see entry above).
+
+**What changed**
+- Shared browser resolver + safer headless launch args in `playwright-browser.ts` / `playwright-browser.mjs`
+- Worker `/health` reports which browser executable is in use
+
+**Files**
+- `src/lib/playwright-browser.ts`, `scripts/playwright-browser.mjs`
+- `src/lib/meta-ad-library-web-fetch.ts`, `src/lib/meta-ad-library.ts`
+- `scripts/ad-library-worker.mjs`, `package.json`
+
+**Manual:** Restart `npm run dev`, hard-refresh `/ads`, click **Refresh from Ad Library** (~10s).
+
+### Fix: competitor ad thumbnails showing grey placeholder
+Meta CDN images were routed through `/api/competitor-media/proxy`, but the Next.js dev server could not resolve `*.fbcdn.net` DNS (`ENOTFOUND`), so every image fell back to the grey SVG.
+
+**What changed**
+- Competitor ad cards now load `https://` media URLs **directly in the browser** (img tags don't need CORS)
+- Proxy kept for non-http URLs; rewritten with Node `https` module for production
+- Proxy route uses `AbortController` timeout instead of `AbortSignal.timeout`
+
+**Files:** `src/app/(dashboard)/ads/page.tsx`, `src/app/api/competitor-media/proxy/route.ts`
+
+### Fix: Step 2 creatives failing ("Creative failed — click Regenerate")
+Satori/`ImageResponse` tried to download Noto fonts from `cdn.jsdelivr.net`, which fails DNS inside the Next.js dev server — every `/api/ads/creative` request crashed with an empty response.
+
+**What changed**
+- Strip emoji/non-ASCII from OG text (`og-text.ts`) so Satori never fetches external fonts
+- Load `/uploads/*` scenes and product images from disk (no network in render path)
+- Persist AI scene URLs to `public/uploads/scenes/` during generation (short, reliable URLs)
+- Demo fallback product packshots for `farmdidi.com` when website scrape returns empty
+- Brand extraction prefers domain name (`FarmDidi`) over noisy page titles
+- Removed auto `Brand: ` prefix in brand-scrub that caused duplicated copy
+
+**Files**
+- `src/app/api/ads/creative/route.tsx`, `src/lib/og-text.ts`, `src/lib/persist-scene.ts`
+- `src/lib/creative-providers.ts`, `src/lib/demo-product-images.ts`
+- `src/lib/ai.ts`, `src/lib/brand-scrub.ts`, `src/app/api/ads/generate/route.ts`
+
+**Manual:** Restart `npm run dev`, go to Step 2, click **Regenerate from selection**.
+
+---
+
+## 2026-08-31
+
+### Product-preserving ad creatives (real packshot + orange accents)
+AI scenes no longer redraw the product jar — your actual website packshot is composited on top of AI backgrounds.
+
+**What changed**
+- `creative-product-guardrails.ts` — negative prompts block logo/shape/color changes
+- Scene prompts generate **background only** when a product image exists
+- Warm **orange/saffron accents** in backgrounds and props (not on packaging)
+- OpenRouter sends `negative_prompt`; Cloudflare appends avoid-list to prompt
+- `isFinalCreative: false` when product image present → Satori overlays real jar
+
+**Files**
+- `src/lib/creative-product-guardrails.ts`, `creative-brief.ts`, `creative-providers.ts`
+- `src/lib/openrouter-creative.ts`, `src/lib/cloudflare-creative.ts`
+
+**To apply:** Regenerate ads on `/ads` — new creatives will use your real product photos.
+
+---
+
+## 2026-08-31
+
+### Ad Library worker (fixes Playwright inside Next.js)
+Playwright cannot launch from Next.js API routes. A sidecar worker on port 3021 now handles live Meta Ad Library fetches.
+
+**What changed**
+- `scripts/ad-library-worker.mjs` — local HTTP worker (port 3021)
+- `scripts/chromium-path.txt` — cached Chromium path (written on `npm run build:ad-library`)
+- `npm run dev` auto-starts the worker via `scripts/dev.sh`
+
+**Manual (if live ads still fail)**
+```bash
+npx playwright install chromium
+npm run build:ad-library
+npm run ad-library-worker   # separate terminal, OR just npm run dev
+```
+Then `/ads` → **Refresh from Ad Library** (~10s).
+
+---
+Live competitor ads were falling back to sample placeholders because Playwright failed when bundled inside API routes.
+
+**What changed**
+- Ad Library web fetch runs via `scripts/fetch-ad-library-web.ts` child process
+- `next.config.mjs` — externalize `playwright` packages
+- Demo fallback ads get Pollinations preview images when website `og:image` is missing
+- UI distinguishes “live” vs “sample” ad counts
+
+**Manual**
+- `npx playwright install chromium` (once)
+- On `/ads` → Meta tab → **Refresh from Ad Library** (takes ~10s)
+
+**Files**
+- `src/lib/meta-ad-library.ts`, `meta-ad-library-web-fetch.ts`, `meta-ad-library-parse.ts`
+- `scripts/fetch-ad-library-web.ts`
+- `src/lib/demo-competitor-ads.ts`, `src/app/(dashboard)/ads/page.tsx`
+
+---
+
 ## 2026-08-31
 
 ### Switch creative engine: OpenRouter + Cloudflare (remove Gemini)

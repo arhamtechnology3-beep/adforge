@@ -46,12 +46,15 @@ function detectMood(headline: string, body: string): string {
 }
 
 function detectColorDirection(mood: string, layout: CreativeBrief['layoutStyle']): string {
-  if (layout === 'offer-banner') return 'bold saffron and deep maroon accents on warm cream';
-  if (layout === 'recipe-story') return 'soft morning light, white marble, fresh herbs';
-  if (layout === 'lifestyle-table') return 'rustic terracotta, sun-drenched wood, brass thali';
-  if (layout === 'variety-grid') return 'clean white studio with colorful product pops';
-  if (/festive/.test(mood)) return 'marigold gold, deep red, warm amber glow';
-  return 'muted earth tones with premium studio spotlight';
+  if (layout === 'offer-banner')
+    return 'bold saffron-orange and deep maroon accents on warm cream background';
+  if (layout === 'recipe-story') return 'soft morning light, white marble, fresh herbs, orange zest accents';
+  if (layout === 'lifestyle-table')
+    return 'rustic terracotta, sun-drenched wood, brass thali, warm orange marigold tones';
+  if (layout === 'variety-grid')
+    return 'clean white studio with warm orange accent lighting and colorful prop pops';
+  if (/festive/.test(mood)) return 'marigold gold, saffron orange, deep red, warm amber glow';
+  return 'muted earth tones with warm orange accent spotlight and premium studio lighting';
 }
 
 function buildCounterHook(
@@ -92,30 +95,40 @@ export function buildCreativeBrief(input: BriefInput): CreativeBrief {
   const mood = detectMood(headline, body);
   const colorDirection = detectColorDirection(mood, layoutStyle);
   const counterHook = buildCounterHook(headline, body, input.competitorAd.performance_rating);
+  const isFood = /food|pickle|snack|spice|grocery|beverage|drink/i.test(category);
 
   const layoutScene: Record<CreativeBrief['layoutStyle'], string> = {
-    'hero-product': `single ${product} jar hero shot centered on pedestal, shallow depth of field`,
-    'lifestyle-table': `rustic Indian kitchen table with thali, brass bowls, sun through window`,
-    'offer-banner': `dynamic commercial layout with negative space for bold offer text overlay zone`,
-    'recipe-story': `modern kitchen counter with fresh ingredients pairing with ${product}`,
-    'variety-grid': `elegant flat lay of multiple ${category} jars, organized grid, premium catalog style`,
+    'hero-product':
+      'warm orange-accent studio backdrop with wooden pedestal, empty center for product placement, soft spotlight',
+    'lifestyle-table':
+      isFood
+        ? 'rustic Indian kitchen table with tasteful serving props and warm daylight — no product or packaging in scene'
+        : 'premium Indian home lifestyle setting with relevant neutral props and warm daylight — no product or packaging in scene',
+    'offer-banner':
+      'dynamic commercial background with saffron-orange gradient accents and negative space for offer text overlay',
+    'recipe-story':
+      isFood
+        ? 'modern kitchen counter with category-relevant ingredients and warm accent props — empty space for product compositing'
+        : 'clean lifestyle environment with category-relevant props and negative space for product compositing',
+    'variety-grid':
+      'clean white studio with warm accent lighting — empty pedestals for product placement, no products or packaging drawn',
   };
 
   const scenePrompt = [
-    `Professional Meta ad photography for ${input.brand}, ${category}.`,
+    `Professional Meta ad background for ${input.brand}, ${category}.`,
     layoutScene[layoutStyle] + '.',
     `${mood}, ${colorDirection}.`,
-    'Photorealistic, appetizing, Indian D2C ecommerce quality.',
-    'Soft studio lighting, subtle shadows, no text, no watermark, no logos.',
-    '8k commercial food advertising, square composition.',
+    'Photorealistic Indian D2C ecommerce quality background only.',
+    'Soft studio lighting, subtle shadows. No product, no jar, no packaging, no text, no watermark.',
+    '8k commercial advertising backdrop, square composition.',
   ].join(' ');
 
   const storyPrompt = [
-    `Vertical 9:16 Meta Stories ad for ${input.brand} ${product}.`,
+    `Vertical 9:16 Meta Stories background for ${input.brand} ${product}.`,
     layoutScene[layoutStyle] + '.',
     `${mood}, ${colorDirection}.`,
-    'Full-bleed lifestyle food photography, thumb-stopping, cinematic depth.',
-    'Leave lower third clear for text overlay. No text in image.',
+    'Full-bleed lifestyle advertising backdrop, thumb-stopping, cinematic depth.',
+    'Leave lower third clear for text overlay. No product jar, no packaging, no text in image.',
   ].join(' ');
 
   return {

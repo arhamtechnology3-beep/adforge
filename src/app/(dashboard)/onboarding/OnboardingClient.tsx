@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Globe, Users, Link2, CheckCircle2, Loader2, Plus, Trash2, Sparkles, ArrowRight, Shield } from 'lucide-react';
+import { Globe, Users, Link2, CheckCircle2, Loader2, Plus, Trash2, Sparkles, ArrowRight, Shield, PackageCheck, Upload } from 'lucide-react';
 import { detectCompetitorType } from '@/lib/utils';
 import { WizardStepper } from '@/components/campaign-wizard/WizardStepper';
 
 const STEPS = [
   { id: 'website', label: 'Your Website', shortLabel: 'Website' },
+  { id: 'product', label: 'Approve Product', shortLabel: 'Product' },
   { id: 'competitors', label: 'Competitors', shortLabel: 'Competitors' },
   { id: 'meta', label: 'Connect Meta', shortLabel: 'Meta' },
 ];
@@ -31,6 +32,22 @@ export default function OnboardingClient() {
   const [hydrating, setHydrating] = useState(true);
   const [errorMsg, setErrorMsg] = useState(error ? 'Meta connection failed. Please try again.' : '');
   const [isDemo, setIsDemo] = useState(false);
+  const [productId, setProductId] = useState('');
+  const [productUrl, setProductUrl] = useState('');
+  const [brandName, setBrandName] = useState('');
+  const [productName, setProductName] = useState('');
+  const [category, setCategory] = useState('');
+  const [benefits, setBenefits] = useState('');
+  const [ingredients, setIngredients] = useState('');
+  const [approvedClaims, setApprovedClaims] = useState('');
+  const [prohibitedClaims, setProhibitedClaims] = useState('');
+  const [price, setPrice] = useState('');
+  const [offer, setOffer] = useState('');
+  const [primaryPackshot, setPrimaryPackshot] = useState('');
+  const [uploadingProduct, setUploadingProduct] = useState(false);
+  const [importingProduct, setImportingProduct] = useState(false);
+  const [suggestedImages, setSuggestedImages] = useState<string[]>([]);
+  const [packshotNotice, setPackshotNotice] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -64,15 +81,38 @@ export default function OnboardingClient() {
         const hasMeta = connectedQuery || !!data.meta_connected;
         setMetaConnected(hasMeta);
 
+        const productResponse = await fetch('/api/products');
+        const productPayload = productResponse.ok ? await productResponse.json() : [];
+        const products = Array.isArray(productPayload)
+          ? productPayload
+          : productPayload.products || [];
+        const product = products[0];
+        if (product) {
+          setProductId(product.id);
+          setProductUrl(product.product_url || '');
+          setBrandName(product.brand_name || '');
+          setProductName(product.product_name || '');
+          setCategory(product.category || '');
+          setBenefits((product.benefits || []).join('\n'));
+          setIngredients((product.ingredients || []).join('\n'));
+          setApprovedClaims((product.approved_claims || []).join('\n'));
+          setProhibitedClaims((product.prohibited_claims || []).join('\n'));
+          setPrice(product.price || '');
+          setOffer(product.offer || '');
+          setPrimaryPackshot(product.primary_packshot || '');
+        }
+
         const done = new Set<number>();
         if (data.website_url) done.add(0);
-        if (fromCompetitors.length > 0 || data.competitor_url) done.add(1);
-        if (hasMeta) done.add(2);
+        if (product?.is_approved && product?.primary_packshot) done.add(1);
+        if (fromCompetitors.length > 0 || data.competitor_url) done.add(2);
+        if (hasMeta) done.add(3);
         setCompletedSteps(done);
 
         if (queryStep === null) {
-          if (hasMeta) setStep(2);
-          else if (data.website_url && (fromCompetitors.length > 0 || data.competitor_url)) setStep(2);
+          if (hasMeta) setStep(3);
+          else if (data.website_url && (fromCompetitors.length > 0 || data.competitor_url)) setStep(3);
+          else if (product?.is_approved && product?.primary_packshot) setStep(2);
           else if (data.website_url) setStep(1);
           else setStep(0);
         }
@@ -131,7 +171,125 @@ export default function OnboardingClient() {
     }
 
     setCompletedSteps((prev) => new Set([...prev, step]));
+    if (step === 0 && !brandName) {
+      try {
+        const host = new URL(websiteUrl).hostname.replace(/^www\./, '').split('.')[0];
+        setBrandName(host.replace(/[-_]/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()));
+      } catch {
+        // The API validates the website URL.
+      }
+    }
     setStep(nextStep);
+    setLoading(false);
+  }
+
+  async function uploadPackshot(file: File) {
+    setUploadingProduct(true);
+    setErrorMsg('');
+    try {
+      const form = new FormData();
+      form.append('image', file);
+      const response = await fetch('/api/products/upload', { method: 'POST', body: form });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Upload failed');
+      setPrimaryPackshot(data.url);
+      setPackshotNotice(
+        data.background_removed
+          ? 'Background removed automatically. Confirm that the product label and packaging still look exact.'
+          : 'Image normalized. Transparent PNGs give the cleanest background variations.'
+      );
+    } catch (uploadError) {
+      setErrorMsg(uploadError instanceof Error ? uploadError.message : 'Upload failed');
+    } finally {
+      setUploadingProduct(false);
+    }
+  }
+
+  async function importProductPage() {
+    if (!productUrl.trim()) {
+      setErrorMsg('Paste the exact product page URL first.');
+      return;
+    }
+    setImportingProduct(true);
+    setErrorMsg('');
+    try {
+      const response = await fetch('/api/products/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_url: productUrl }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not import product page');
+      if (data.brand_name) setBrandName(data.brand_name);
+      if (data.product_name) setProductName(data.product_name);
+      if (data.category) setCategory(data.category);
+      if (data.price) setPrice(data.price);
+      if (data.offer) setOffer(data.offer);
+      if (data.benefits?.length) setBenefits(data.benefits.join('\n'));
+      if (data.ingredients?.length) setIngredients(data.ingredients.join('\n'));
+      setSuggestedImages(Array.isArray(data.image_urls) ? data.image_urls : []);
+    } catch (importError) {
+      setErrorMsg(importError instanceof Error ? importError.message : 'Could not import product page');
+    } finally {
+      setImportingProduct(false);
+    }
+  }
+
+  async function saveProduct() {
+    if (!brandName.trim() || !productName.trim() || !primaryPackshot) {
+      setErrorMsg('Brand name, product name, and one clean packshot are required.');
+      return;
+    }
+    setLoading(true);
+    setErrorMsg('');
+    const lines = (value: string) =>
+      value.split(/\r?\n|,/).map((item) => item.trim()).filter(Boolean);
+    const payload = {
+      brand_name: brandName,
+      product_name: productName,
+      category,
+      benefits: lines(benefits),
+      ingredients: lines(ingredients),
+      price,
+      offer,
+      product_url: productUrl || websiteUrl,
+      approved_claims: lines(approvedClaims),
+      prohibited_claims: lines(prohibitedClaims),
+      packshots: [primaryPackshot],
+      primary_packshot: primaryPackshot,
+      is_active: true,
+      is_approved: true,
+    };
+    const brandResponse = await fetch('/api/brand-profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        brand_name: brandName,
+        website_url: websiteUrl,
+        approved_claims: lines(approvedClaims),
+        prohibited_claims: lines(prohibitedClaims),
+      }),
+    });
+    const brand = await brandResponse.json();
+    if (!brandResponse.ok) {
+      setErrorMsg(brand.error || 'Could not save brand profile');
+      setLoading(false);
+      return;
+    }
+    const response = await fetch(productId ? `/api/products/${productId}` : '/api/products', {
+      method: productId ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, brand_profile_id: brand.id }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      setErrorMsg(data.error || 'Could not save product');
+      setLoading(false);
+      return;
+    }
+    setProductId(data.id);
+    setCompletedSteps((previous) => new Set([...previous, 1]));
+    setStep(2);
     setLoading(false);
   }
 
@@ -152,7 +310,7 @@ export default function OnboardingClient() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-[var(--foreground)]">Set up your brand</h1>
         <p className="text-[var(--muted)] mt-1 text-sm">
-          3 quick steps — we&apos;ll scrape your store and find competitor ads automatically
+          4 quick steps — approve your real product before generating any creative
         </p>
       </div>
 
@@ -195,6 +353,122 @@ export default function OnboardingClient() {
         )}
 
         {step === 1 && (
+          <div className="space-y-5">
+            <div className="flex items-center gap-2">
+              <PackageCheck className="w-5 h-5 text-[var(--meta-blue)]" />
+              <h2 className="font-semibold text-lg">Review and approve your product</h2>
+            </div>
+            <p className="text-sm text-[var(--muted)]">
+              Imported details are suggestions only. Correct every fact and approve one exact packshot; generation uses this catalog instead of re-scraping your website.
+            </p>
+            <div>
+              <label className="label">Exact product page URL</label>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="url"
+                  className="input flex-1"
+                  placeholder="https://yourstore.com/products/product-name"
+                  value={productUrl}
+                  onChange={(event) => setProductUrl(event.target.value)}
+                />
+                <button
+                  type="button"
+                  className="btn-secondary inline-flex items-center justify-center gap-2 shrink-0"
+                  disabled={importingProduct || !productUrl.trim()}
+                  onClick={importProductPage}
+                >
+                  {importingProduct ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4" />
+                  )}
+                  Import suggestions
+                </button>
+              </div>
+              <p className="text-xs text-[var(--muted)] mt-1.5">
+                We import product name, brand, category, price, ingredients, benefits, and image references. You review everything before approval.
+              </p>
+              {suggestedImages.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-xs font-medium mb-2">Images found on the product page</p>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {suggestedImages.map((image) => (
+                      <div key={image} className="w-20 h-20 rounded-lg border bg-white p-1 shrink-0">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={image} alt="" className="w-full h-full object-contain" />
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-amber-800 mt-1">
+                    Use these as reference and upload the cleanest product-only image below.
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className="label">Exact brand name</label>
+                <input className="input" value={brandName} onChange={(event) => setBrandName(event.target.value)} />
+              </div>
+              <div>
+                <label className="label">Exact product name</label>
+                <input className="input" value={productName} onChange={(event) => setProductName(event.target.value)} />
+              </div>
+              <div>
+                <label className="label">Category</label>
+                <input className="input" value={category} onChange={(event) => setCategory(event.target.value)} />
+              </div>
+              <div>
+                <label className="label">Price / offer</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <input className="input" placeholder="₹499" value={price} onChange={(event) => setPrice(event.target.value)} />
+                  <input className="input" placeholder="10% off" value={offer} onChange={(event) => setOffer(event.target.value)} />
+                </div>
+              </div>
+            </div>
+            <div>
+              <label className="label">Primary clean packshot</label>
+              <label className="btn-secondary inline-flex items-center gap-2 cursor-pointer">
+                {uploadingProduct ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                Upload PNG, JPEG, WebP, GIF or AVIF
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
+                  className="hidden"
+                  disabled={uploadingProduct}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = '';
+                    if (file) void uploadPackshot(file);
+                  }}
+                />
+              </label>
+              {primaryPackshot && (
+                <div className="mt-3 w-40 h-40 rounded-xl border bg-white flex items-center justify-center p-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={primaryPackshot} alt="Approved packshot" className="max-w-full max-h-full object-contain" />
+                </div>
+              )}
+              {packshotNotice && (
+                <p className="text-xs text-emerald-800 mt-2">{packshotNotice}</p>
+              )}
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <textarea className="input min-h-24" placeholder="Benefits — one per line" value={benefits} onChange={(event) => setBenefits(event.target.value)} />
+              <textarea className="input min-h-24" placeholder="Ingredients / materials — one per line" value={ingredients} onChange={(event) => setIngredients(event.target.value)} />
+              <textarea className="input min-h-24" placeholder="Approved claims — one per line" value={approvedClaims} onChange={(event) => setApprovedClaims(event.target.value)} />
+              <textarea className="input min-h-24" placeholder="Prohibited claims — one per line" value={prohibitedClaims} onChange={(event) => setProhibitedClaims(event.target.value)} />
+            </div>
+            <div className="flex gap-3">
+              <button className="btn-secondary" onClick={() => setStep(0)}>Back</button>
+              <button className="btn-primary flex items-center gap-2" disabled={loading || uploadingProduct} onClick={saveProduct}>
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><CheckCircle2 className="w-4 h-4" /> Approve product &amp; Continue</>}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 2 && (
           <div className="space-y-5">
             <div className="flex items-center gap-2">
               <Users className="w-5 h-5 text-[var(--meta-blue)]" />
@@ -256,15 +530,15 @@ export default function OnboardingClient() {
             )}
 
             <div className="flex gap-3 pt-2">
-              <button className="btn-secondary" onClick={() => setStep(0)}>Back</button>
-              <button className="btn-primary flex items-center gap-2" disabled={loading} onClick={() => saveProgress(2)}>
+              <button className="btn-secondary" onClick={() => setStep(1)}>Back</button>
+              <button className="btn-primary flex items-center gap-2" disabled={loading} onClick={() => saveProgress(3)}>
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Save &amp; Continue <ArrowRight className="w-4 h-4" /></>}
               </button>
             </div>
           </div>
         )}
 
-        {step === 2 && (
+        {step === 3 && (
           <div className="space-y-5">
             <div className="flex items-center gap-2">
               <Link2 className="w-5 h-5 text-[var(--meta-blue)]" />
@@ -292,14 +566,14 @@ export default function OnboardingClient() {
                   <span>Campaigns are created <strong>PAUSED</strong> — you confirm before anything goes live.</span>
                 </div>
                 <button className="btn-primary w-full py-3" onClick={handleConnectMeta}>
-                  Connect Meta Ad Account
+                  Connect Meta — one click
                 </button>
                 {isDemo && (
                   <a href="/ads" className="btn-secondary w-full text-center block">
                     Continue without Meta (demo preview)
                   </a>
                 )}
-                <button className="btn-secondary w-full" onClick={() => setStep(1)}>Back</button>
+                <button className="btn-secondary w-full" onClick={() => setStep(2)}>Back</button>
               </>
             )}
           </div>

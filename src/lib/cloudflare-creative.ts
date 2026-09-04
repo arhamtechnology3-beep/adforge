@@ -1,14 +1,16 @@
 import { mkdir, writeFile } from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import { buildGuardedScenePrompt } from '@/lib/creative-product-guardrails';
 
 const DEFAULT_MODEL = '@cf/black-forest-labs/flux-1-schnell';
 
 export type CloudflareImageInput = {
   prompt: string;
-  aspect: '1:1' | '9:16';
+  aspect: '1:1' | '4:5' | '9:16';
   brand?: string;
   headline?: string;
+  hasProductRef?: boolean;
 };
 
 function cloudflareConfig(): { token: string; accountId: string } | null {
@@ -44,19 +46,34 @@ export async function generateCloudflareImage(
   const aspectHint =
     input.aspect === '9:16'
       ? 'Vertical 9:16 portrait composition for Instagram Stories/Reels.'
-      : 'Square 1:1 composition for Meta Feed.';
+      : input.aspect === '4:5'
+        ? 'Vertical 4:5 portrait composition for Meta Feed.'
+        : 'Square 1:1 composition for Meta Feed.';
 
-  const prompt = [
-    input.prompt,
-    aspectHint,
-    input.brand ? `Brand: ${input.brand}.` : '',
-    input.headline ? `Ad theme: ${input.headline}.` : '',
-    'Photorealistic Indian D2C food product advertising photography.',
-    'Professional studio lighting, appetizing, no watermark, no text overlay.',
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .slice(0, 2048);
+  const guarded = buildGuardedScenePrompt(
+    [
+      input.prompt,
+      aspectHint,
+      input.hasProductRef
+        ? 'Empty tabletop or studio surface only — absolutely no products, jars, bottles, or packaging.'
+        : input.brand
+          ? `Brand mood: ${input.brand}.`
+          : '',
+      input.headline && !input.hasProductRef ? `Ad theme: ${input.headline}.` : '',
+      input.hasProductRef
+        ? 'Photorealistic commercial studio environment photography with empty product placement zone.'
+        : 'Photorealistic commercial advertising photography.',
+    ]
+      .filter(Boolean)
+      .join(' '),
+    {
+      mode: input.hasProductRef ? 'background' : 'full',
+      brand: input.hasProductRef ? undefined : input.brand,
+      hasProductRef: input.hasProductRef,
+    }
+  );
+
+  const prompt = `${guarded.prompt} Avoid: ${guarded.negativePrompt}`.slice(0, 2048);
 
   const model = modelId();
   const url = `https://api.cloudflare.com/client/v4/accounts/${cfg.accountId}/ai/run/${model}`;
@@ -70,7 +87,7 @@ export async function generateCloudflareImage(
       },
       body: JSON.stringify({
         prompt,
-        steps: 4,
+        steps: input.hasProductRef ? 8 : 4,
       }),
       signal: AbortSignal.timeout(120000),
     });

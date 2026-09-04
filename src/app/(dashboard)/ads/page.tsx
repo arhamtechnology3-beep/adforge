@@ -27,12 +27,21 @@ import {
   Info,
   Plus,
   Trash2,
+  RotateCcw,
+  Copy,
+  AlertTriangle,
 } from 'lucide-react';
 import type { CompetitorIntel, MetaAdLibraryAd } from '@/lib/ai';
 import { performanceBadgeClass } from '@/lib/ad-performance';
 import { normalizeCreativeUrl } from '@/lib/app-url';
 import { META_AD_FORMATS, type MetaAdFormat } from '@/lib/creatives';
 import type { AdFormat, GeneratedAd } from '@/types/database';
+import { Step2Studio } from '@/components/ads/Step2Studio';
+import {
+  CreativeDirections,
+  type CreativeDirectionCard,
+  type CompetitorPatternCard,
+} from '@/components/ads/CreativeDirections';
 
 const FORMAT_FILTERS: { id: 'all' | MetaAdFormat; label: string; icon: typeof ImageIcon }[] = [
   { id: 'all', label: 'All formats', icon: LayoutGrid },
@@ -41,6 +50,15 @@ const FORMAT_FILTERS: { id: 'all' | MetaAdFormat; label: string; icon: typeof Im
   { id: 'stories', label: 'Stories', icon: Smartphone },
   { id: 'video', label: 'Video', icon: Clapperboard },
 ];
+
+type StudioProduct = {
+  id: string;
+  brand_name: string;
+  product_name: string;
+  primary_packshot: string | null;
+  is_approved: boolean;
+  is_active: boolean;
+};
 
 function normalizeLoadedAd(ad: GeneratedAd): GeneratedAd {
   const payload = ad.media_payload;
@@ -75,6 +93,13 @@ function normalizeFormat(ad: GeneratedAd): MetaAdFormat {
     /* ignore */
   }
   return 'single_image';
+}
+
+/** Load competitor creatives directly when possible — dev proxy often lacks DNS for fbcdn. */
+function competitorMediaSrc(url: string): string {
+  if (!url) return '';
+  if (url.startsWith('https://') || url.startsWith('http://')) return url;
+  return `/api/competitor-media/proxy?url=${encodeURIComponent(url)}`;
 }
 
 function CreativePreview({
@@ -130,6 +155,7 @@ function CarouselPreview({ ad }: { ad: GeneratedAd }) {
   }
 
   const card = cards[idx];
+  const cardLink = card?.link || card?.product_url;
   return (
     <div className="relative">
       {card && (
@@ -167,13 +193,32 @@ function CarouselPreview({ ad }: { ad: GeneratedAd }) {
       <p className="absolute top-2 left-2 z-10 text-[10px] font-semibold uppercase tracking-wide bg-black/55 text-white px-2 py-1 rounded">
         Card {idx + 1}/{cards.length}
       </p>
+      {(card?.headline || cardLink) && (
+        <div className="absolute top-2 right-2 z-10 max-w-[60%] rounded bg-black/55 px-2 py-1 text-right text-[10px] text-white">
+          {card?.headline && <p className="font-semibold leading-tight">{card.headline}</p>}
+          {cardLink && (
+            <a
+              href={cardLink}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-0.5 inline-flex items-center gap-1 underline opacity-90"
+            >
+              Shop Now <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function VeoVideoPreview({ url }: { url: string }) {
+function VeoVideoPreview({ url, aspect }: { url: string; aspect?: string }) {
   return (
-    <div className="relative aspect-square bg-black">
+    <div
+      className={`relative bg-black ${
+        aspect === '9:16' ? 'aspect-[9/16] max-h-[520px] mx-auto' : 'aspect-square'
+      }`}
+    >
       <video
         src={url}
         className="w-full h-full object-cover"
@@ -193,7 +238,7 @@ function VeoVideoPreview({ url }: { url: string }) {
 function VideoPreview({ ad }: { ad: GeneratedAd }) {
   const videoUrl = ad.media_payload?.video_url;
   if (videoUrl && /\.mp4(\?|$)/i.test(videoUrl)) {
-    return <VeoVideoPreview url={videoUrl} />;
+    return <VeoVideoPreview url={videoUrl} aspect={ad.media_payload?.aspect} />;
   }
   return <SlideshowVideoPreview ad={ad} />;
 }
@@ -202,15 +247,15 @@ function SlideshowVideoPreview({ ad }: { ad: GeneratedAd }) {
   const frames = ad.media_payload?.frames || [];
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(true);
+  const frameDuration = frames[idx]?.duration_ms || 2200;
 
   useEffect(() => {
     if (!playing || frames.length === 0) return;
-    const ms = frames[idx]?.duration_ms || 2200;
     const t = window.setTimeout(() => {
       setIdx((i) => (i + 1) % frames.length);
-    }, ms);
+    }, frameDuration);
     return () => window.clearTimeout(t);
-  }, [playing, idx, frames.length]);
+  }, [playing, idx, frames.length, frameDuration]);
 
   if (frames.length === 0 && ad.image_url) {
     return <CreativePreview url={ad.image_url} variant={ad.variant_number} />;
@@ -298,6 +343,28 @@ export default function AdsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [formatFilter, setFormatFilter] = useState<'all' | MetaAdFormat>('all');
   const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [products, setProducts] = useState<StudioProduct[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState('');
+  const [language, setLanguage] = useState('English');
+  const [tone, setTone] = useState('Trustworthy');
+  const [variantCount, setVariantCount] = useState(3);
+  const [desiredFormats, setDesiredFormats] = useState<MetaAdFormat[]>([
+    'single_image',
+    'carousel',
+    'stories',
+    'video',
+  ]);
+  const [carouselProductUrls, setCarouselProductUrls] = useState('');
+  const [resolvingCarousel, setResolvingCarousel] = useState(false);
+  const [carouselPreviewNote, setCarouselPreviewNote] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [qualityFilter, setQualityFilter] = useState<'all' | 'valid' | 'flagged'>('all');
+  const [productFilter, setProductFilter] = useState('all');
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const [creativeDirections, setCreativeDirections] = useState<CreativeDirectionCard[]>([]);
+  const [competitorPatterns, setCompetitorPatterns] = useState<CompetitorPatternCard[]>([]);
+  const [selectedDirectionIds, setSelectedDirectionIds] = useState<string[]>([]);
+  const [planningDirections, setPlanningDirections] = useState(false);
 
   function goToCampaignLaunch(adsList: MetaAdLibraryAd[] = selectedLibraryAds) {
     const platforms = new Set(
@@ -310,6 +377,17 @@ export default function AdsPage() {
       .filter(Boolean)
       .slice(0, 3);
     const hasWinner = adsList.some((a) => a.performance_rating === 'WINNER');
+    const launchAssets = ads.filter(
+      (ad) =>
+        ad.status === 'approved' &&
+        ad.media_payload?.quality_valid !== false &&
+        (!!ad.media_payload?.video_url ||
+          (!!ad.image_url && !ad.image_url.includes('/api/ads/creative')))
+    );
+    if (!launchAssets.length) {
+      alert('Approve at least one fully rendered, valid creative before launching.');
+      return;
+    }
 
     saveCampaignPrefill({
       fromAds: true,
@@ -325,6 +403,13 @@ export default function AdsPage() {
         fb_feed: platforms.has('facebook') || platforms.size === 0,
         stories: platforms.has('instagram') || platforms.has('facebook') || platforms.size === 0,
       },
+      approvedCreativeIds: launchAssets.map((ad) => ad.id),
+      creativeAssets: launchAssets.map((ad) => ({
+        id: ad.id,
+        format: normalizeFormat(ad),
+        imageUrl: ad.image_url,
+        videoUrl: ad.media_payload?.video_url,
+      })),
     });
     router.push('/campaigns?from=ads');
   }
@@ -361,6 +446,43 @@ export default function AdsPage() {
         setLoading(false);
       });
   }, []);
+
+  useEffect(() => {
+    fetch('/api/products')
+      .then((response) => (response.ok ? response.json() : { products: [] }))
+      .then((data) => {
+        const list = (Array.isArray(data) ? data : data.products || []) as StudioProduct[];
+        const approved = list.filter((product) => product.is_active && product.is_approved);
+        setProducts(approved);
+        setSelectedProductId((current) => current || approved[0]?.id || '');
+      })
+      .catch(() => setProducts([]));
+  }, []);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(
+        window.localStorage.getItem('adforge.step1.selection') || '[]'
+      );
+      if (Array.isArray(saved)) setSelectedCompetitorAdIds(saved.map(String));
+    } catch {
+      // Ignore malformed local state.
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      'adforge.step1.selection',
+      JSON.stringify(selectedCompetitorAdIds)
+    );
+  }, [selectedCompetitorAdIds]);
+
+  useEffect(() => {
+    if (!selectedCompetitorAdIds.length || selectedLibraryAds.length) return;
+    const available = competitorIntel.flatMap((item) => item.live_meta_ads || []);
+    const restored = available.filter((ad) => selectedCompetitorAdIds.includes(ad.id));
+    if (restored.length) setSelectedLibraryAds(restored);
+  }, [competitorIntel, selectedCompetitorAdIds, selectedLibraryAds.length]);
 
   // Auto-fetch live Ad Library ads once we have competitors
   useEffect(() => {
@@ -451,10 +573,99 @@ export default function AdsPage() {
     });
   }
 
+  async function handlePlanDirections() {
+    if (!campaignInputId || !selectedProductId) return;
+    if (selectedLibraryAds.length === 0 && selectedCompetitorAdIds.length === 0) {
+      alert('Select at least one competitor ad in Step 1 first.');
+      return;
+    }
+    setPlanningDirections(true);
+    const selected_ads = selectedLibraryAds.map((ad) => {
+      const hostBrand =
+        competitorIntel.find((c) => (c.live_meta_ads || []).some((x) => x.id === ad.id))?.brand ||
+        null;
+      return {
+        id: ad.id,
+        library_id: ad.library_id,
+        primary_text: ad.primary_text,
+        headline: ad.headline,
+        cta: ad.cta,
+        ad_format: ad.ad_format,
+        media_url: ad.media_url,
+        performance_rating: ad.performance_rating,
+        performance_label: ad.performance_label,
+        brand: hostBrand,
+      };
+    });
+    const res = await fetch('/api/ads/directions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        campaign_input_id: campaignInputId,
+        product_id: selectedProductId,
+        selected_ads,
+        generation_brief: { language, tone },
+        max_directions: Math.max(3, variantCount),
+      }),
+    });
+    const data = await res.json();
+    setPlanningDirections(false);
+    if (!res.ok) {
+      alert(data.error || 'Could not plan creative directions');
+      return;
+    }
+    setCreativeDirections(data.directions || []);
+    setCompetitorPatterns(data.patterns || []);
+    setSelectedDirectionIds((data.directions || []).slice(0, 3).map((d: CreativeDirectionCard) => d.conceptId));
+    setActiveStep('step2_our_counter_ads');
+  }
+
+  function toggleDirection(conceptId: string) {
+    setSelectedDirectionIds((prev) => {
+      if (prev.includes(conceptId)) return prev.filter((id) => id !== conceptId);
+      if (prev.length >= 3) return prev;
+      return [...prev, conceptId];
+    });
+  }
+
   async function handleGenerate() {
     if (!campaignInputId) return;
-    if (selectedLibraryAds.length === 0 && selectedCompetitorAdIds.length === 0) {
+    if (!selectedProductId) {
+      alert('Select an approved product first. Add and approve a packshot in Brand Setup.');
+      return;
+    }
+    const carouselOnly =
+      desiredFormats.length === 1 &&
+      desiredFormats[0] === 'carousel' &&
+      carouselProductUrls
+        .split(/[\n,]+/)
+        .map((u) => u.trim())
+        .filter(Boolean).length >= 2;
+    if (
+      !carouselOnly &&
+      selectedLibraryAds.length === 0 &&
+      selectedCompetitorAdIds.length === 0
+    ) {
       alert('Select at least one competitor ad in Step 1 (prefer ads with Best performer / Strong runner badges).');
+      return;
+    }
+    if (
+      !carouselOnly &&
+      selectedDirectionIds.length === 0 &&
+      creativeDirections.length > 0
+    ) {
+      alert('Select at least one creative direction before generating.');
+      return;
+    }
+    if (
+      desiredFormats.includes('carousel') &&
+      carouselProductUrls.trim() &&
+      carouselProductUrls
+        .split(/[\n,]+/)
+        .map((u) => u.trim())
+        .filter(Boolean).length < 2
+    ) {
+      alert('For a product-URL carousel, paste at least 2 product page URLs (one per line).');
       return;
     }
     setGenerating(true);
@@ -482,8 +693,21 @@ export default function AdsPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         campaign_input_id: campaignInputId,
+        product_id: selectedProductId,
+        generation_brief: {
+          language,
+          tone,
+          variant_count: variantCount,
+          formats: desiredFormats,
+        },
         selected_ads,
         selected_competitor_ad_ids: selectedCompetitorAdIds,
+        selected_direction_ids: selectedDirectionIds,
+        selected_directions: creativeDirections.filter((direction) =>
+          selectedDirectionIds.includes(direction.conceptId)
+        ),
+        carousel_product_urls: carouselProductUrls,
+        use_creative_engine: true,
       }),
     });
 
@@ -501,9 +725,36 @@ export default function AdsPage() {
     setActiveStep('step2_our_counter_ads');
     setGenerating(false);
     setToastMessage(
-      data.note || `Created ${data.count || 0} creatives from your selected ads`
+      data.note || `Created ${data.count || 0} original creatives from your selected directions`
     );
     setTimeout(() => setToastMessage(null), 4000);
+  }
+
+  async function handlePreviewCarouselUrls() {
+    if (!carouselProductUrls.trim()) return;
+    setResolvingCarousel(true);
+    setCarouselPreviewNote(null);
+    try {
+      const res = await fetch('/api/ads/carousel-products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_urls: carouselProductUrls }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCarouselPreviewNote(data.error || 'Could not read those product URLs');
+        return;
+      }
+      setCarouselPreviewNote(
+        `${data.ready_count} ready with images` +
+          (data.failed_count ? ` · ${data.failed_count} skipped (no image)` : '') +
+          (data.note ? ` — ${data.note}` : '')
+      );
+    } catch {
+      setCarouselPreviewNote('Could not preview product URLs');
+    } finally {
+      setResolvingCarousel(false);
+    }
   }
 
   async function handleManualAdd() {
@@ -571,14 +822,87 @@ export default function AdsPage() {
     });
 
     const updated = await res.json();
+    if (!res.ok) {
+      alert(updated.error || 'Failed to update creative');
+      return;
+    }
     setAds((prev) => prev.map((a) => (a.id === id ? { ...a, ...updated } : a)));
     setEditingId(null);
   }
 
+  async function bulkStatus(ids: string[], status: 'approved' | 'rejected' | 'pending') {
+    if (!ids.length) return;
+    const res = await fetch('/api/ads/bulk', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, status }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || 'Bulk update failed');
+      return;
+    }
+    const updated = new Map(
+      ((data.updated || []) as GeneratedAd[]).map((ad) => [ad.id, normalizeLoadedAd(ad)])
+    );
+    setAds((current) => current.map((ad) => updated.get(ad.id) || ad));
+    if (data.skipped?.length) {
+      setToastMessage(`${data.skipped.length} flagged creative(s) were not approved.`);
+    }
+  }
+
+  async function regenerateAd(
+    ad: GeneratedAd,
+    mode: 'copy' | 'visual' | 'all' | 'duplicate',
+    template?: string
+  ) {
+    if (!selectedProductId) return;
+    setRegeneratingId(ad.id);
+    try {
+      const res = await fetch(`/api/ads/${ad.id}/regenerate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode,
+          product_id: selectedProductId,
+          language,
+          tone,
+          template: template || ad.media_payload?.template,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Regeneration failed');
+        return;
+      }
+      const replacement = normalizeLoadedAd(data.ad || data);
+      setAds((current) =>
+        mode === 'duplicate'
+          ? [...current, replacement]
+          : current.map((item) => (item.id === ad.id ? replacement : item))
+      );
+    } finally {
+      setRegeneratingId(null);
+    }
+  }
+
+  async function fixAllFlagged() {
+    const flagged = ads.filter((ad) => ad.media_payload?.quality_valid === false);
+    for (const ad of flagged) {
+      await regenerateAd(ad, 'all');
+    }
+  }
+
   const approved = ads.filter((a) => a.status === 'approved');
   const approvedCount = approved.length;
-  const filtered =
-    formatFilter === 'all' ? ads : ads.filter((a) => normalizeFormat(a) === formatFilter);
+  const filtered = ads.filter((ad) => {
+    if (formatFilter !== 'all' && normalizeFormat(ad) !== formatFilter) return false;
+    if (statusFilter !== 'all' && ad.status !== statusFilter) return false;
+    if (productFilter !== 'all' && ad.media_payload?.product_id !== productFilter) return false;
+    if (qualityFilter === 'valid' && ad.media_payload?.quality_valid !== true) return false;
+    if (qualityFilter === 'flagged' && ad.media_payload?.quality_valid !== false) return false;
+    return true;
+  });
 
   const counts = ads.reduce<Record<string, number>>((acc, ad) => {
     const f = normalizeFormat(ad);
@@ -805,7 +1129,18 @@ export default function AdsPage() {
                     <span className="text-red-700">{liveMetaError}</span>
                   ) : (
                     <span>
-                      {competitorIntel.reduce((n, c) => n + (c.live_meta_ads?.length || 0), 0)} live Library ads loaded
+                      {(() => {
+                        const ads = competitorIntel.flatMap((c) => c.live_meta_ads || []);
+                        const liveCount = ads.filter((a) => a.source !== 'manual').length;
+                        const sampleCount = ads.filter((a) => a.source === 'manual').length;
+                        if (liveCount > 0) {
+                          return `${liveCount} live Library ads loaded`;
+                        }
+                        if (sampleCount > 0) {
+                          return `${sampleCount} sample ads shown (live fetch pending)`;
+                        }
+                        return 'No Library ads loaded yet';
+                      })()}
                       {competitorIntel[0]?.library_fetch_note
                         ? ` · ${competitorIntel[0].library_fetch_note}`
                         : ''}
@@ -897,7 +1232,7 @@ export default function AdsPage() {
                                 {ad.media_url ? (
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img
-                                    src={`/api/competitor-media/proxy?url=${encodeURIComponent(ad.media_url)}`}
+                                    src={competitorMediaSrc(ad.media_url)}
                                     alt={ad.headline || comp.brand}
                                     className="w-full h-full object-cover"
                                     onError={(e) => {
@@ -1009,21 +1344,82 @@ export default function AdsPage() {
             </p>
           </div>
 
+          {products.length > 0 ? (
+            <select
+              className="text-xs rounded-lg border border-purple-300 bg-white text-slate-900 px-2.5 py-2 max-w-[220px]"
+              value={selectedProductId}
+              onChange={(event) => setSelectedProductId(event.target.value)}
+              aria-label="Product to advertise"
+            >
+              {products.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.brand_name} · {product.product_name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <a href="/onboarding?step=2" className="text-xs underline font-semibold">
+              Add an approved product
+            </a>
+          )}
+
+          <button
+            type="button"
+            className="btn-secondary text-xs py-2.5 px-4 font-semibold"
+            onClick={handlePlanDirections}
+            disabled={planningDirections || !selectedProductId}
+          >
+            {planningDirections ? <Loader2 className="w-4 h-4 animate-spin inline" /> : null}
+            Plan directions
+          </button>
+
           <button
             type="button"
             className="btn-primary text-xs py-2.5 px-5 bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 font-bold text-white shadow-lg flex items-center gap-1.5"
             onClick={handleGenerate}
-            disabled={generating}
+            disabled={generating || !selectedProductId}
           >
             {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            Generate &amp; Replicate →
+            Generate creative pack →
           </button>
         </div>
       )}
 
       {/* Step 2 Content: Rendered strictly when activeStep === 'step2_our_counter_ads' */}
       {activeStep === 'step2_our_counter_ads' && (
-        <div className="space-y-6">
+        <Step2Studio
+          products={products}
+          selectedProductId={selectedProductId}
+          language={language}
+          tone={tone}
+          variantCount={variantCount}
+          formats={desiredFormats}
+          carouselProductUrls={carouselProductUrls}
+          generating={generating}
+          resolvingCarousel={resolvingCarousel}
+          carouselPreviewNote={carouselPreviewNote}
+          onProductChange={setSelectedProductId}
+          onLanguageChange={setLanguage}
+          onToneChange={setTone}
+          onVariantCountChange={setVariantCount}
+          onFormatsChange={setDesiredFormats}
+          onCarouselProductUrlsChange={setCarouselProductUrls}
+          onPreviewCarouselUrls={handlePreviewCarouselUrls}
+          onGenerate={handleGenerate}
+        >
+
+          {creativeDirections.length > 0 && (
+            <CreativeDirections
+              patterns={competitorPatterns}
+              directions={creativeDirections}
+              selectedIds={selectedDirectionIds}
+              loading={planningDirections}
+              generating={generating}
+              onToggle={toggleDirection}
+              onGenerate={handleGenerate}
+            />
+          )}
+
           {selectedLibraryAds.length > 0 && (
             <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 space-y-3">
               <div className="flex items-center justify-between gap-2">
@@ -1047,7 +1443,7 @@ export default function AdsPage() {
                     {ad.media_url && (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={`/api/competitor-media/proxy?url=${encodeURIComponent(ad.media_url)}`}
+                        src={competitorMediaSrc(ad.media_url)}
                         alt=""
                         className="h-24 w-full object-cover"
                       />
@@ -1095,13 +1491,48 @@ export default function AdsPage() {
                 })}
               </div>
             )}
-            <button
-              type="button"
-              className="text-xs font-bold px-3 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-900 inline-flex items-center gap-1.5"
-              onClick={() => setShowManualAdd((v) => !v)}
-            >
-              <Plus className="w-3.5 h-3.5" /> Add my ad manually
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <select className="input !w-auto min-w-[130px] text-xs py-1.5" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
+                <option value="all">All statuses</option>
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+              </select>
+              <select className="input !w-auto min-w-[150px] text-xs py-1.5" value={productFilter} onChange={(event) => setProductFilter(event.target.value)}>
+                <option value="all">All products</option>
+                {products.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.product_name}
+                  </option>
+                ))}
+              </select>
+              <select className="input !w-auto min-w-[130px] text-xs py-1.5" value={qualityFilter} onChange={(event) => setQualityFilter(event.target.value as typeof qualityFilter)}>
+                <option value="all">All quality</option>
+                <option value="valid">Valid only</option>
+                <option value="flagged">Flagged only</option>
+              </select>
+              <button type="button" className="btn-secondary text-xs py-2" onClick={() => bulkStatus(ads.filter((ad) => ad.media_payload?.quality_valid !== false).map((ad) => ad.id), 'approved')}>
+                Approve all valid
+              </button>
+              <button
+                type="button"
+                className="btn-secondary text-xs py-2"
+                onClick={fixAllFlagged}
+                disabled={!ads.some((ad) => ad.media_payload?.quality_valid === false)}
+              >
+                Fix all flagged
+              </button>
+              <button type="button" className="btn-secondary text-xs py-2" onClick={() => bulkStatus(filtered.map((ad) => ad.id), 'rejected')}>
+                Reject filtered
+              </button>
+              <button
+                type="button"
+                className="text-xs font-bold px-3 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-900 inline-flex items-center gap-1.5"
+                onClick={() => setShowManualAdd((v) => !v)}
+              >
+                <Plus className="w-3.5 h-3.5" /> Add my ad manually
+              </button>
+            </div>
           </div>
 
           {showManualAdd && (
@@ -1287,6 +1718,43 @@ export default function AdsPage() {
                   </p>
                 )}
 
+                {ad.media_payload?.product_name && (
+                  <div className="flex items-center gap-2 rounded-lg border border-slate-200 p-2">
+                    {ad.media_payload.primary_packshot && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={ad.media_payload.primary_packshot}
+                        alt=""
+                        className="w-9 h-9 object-contain rounded bg-white"
+                      />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] uppercase tracking-wide text-muted">Product used</p>
+                      <p className="text-xs font-semibold truncate">{ad.media_payload.product_name}</p>
+                    </div>
+                    {typeof ad.media_payload.quality_score === 'number' && (
+                      <span
+                        className={`text-[10px] font-bold px-2 py-1 rounded-full ${
+                          ad.media_payload.quality_valid
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-amber-100 text-amber-900'
+                        }`}
+                      >
+                        {ad.media_payload.quality_score}/100
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {ad.media_payload?.quality_flags?.length ? (
+                  <div className="rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-2 text-[11px] text-amber-950">
+                    <p className="font-bold flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" /> Needs attention
+                    </p>
+                    <p>{ad.media_payload.quality_flags.join(' · ')}</p>
+                  </div>
+                ) : null}
+
                 {editForm?.id === ad.id ? (
                   <div className="space-y-2 border border-purple-100 rounded-xl p-3 bg-purple-50/40">
                     <p className="text-[10px] font-bold uppercase text-purple-900">Full edit</p>
@@ -1399,10 +1867,50 @@ export default function AdsPage() {
 
                 {editForm?.id !== ad.id && (
                   <div className="flex flex-wrap gap-2 pt-1">
+                    <select
+                      className="input text-xs py-1.5 w-full"
+                      value={ad.media_payload?.template || 'hero-product'}
+                      onChange={(event) => regenerateAd(ad, 'visual', event.target.value)}
+                      disabled={regeneratingId === ad.id}
+                      aria-label="Creative template"
+                    >
+                      <option value="hero-product">Hero packshot</option>
+                      <option value="offer-card">Offer card</option>
+                      <option value="benefit-proof">Benefit proof</option>
+                      <option value="recipe-lifestyle">Recipe / lifestyle</option>
+                      <option value="variety-grid">Variety grid</option>
+                    </select>
+                    <button
+                      className="flex items-center justify-center gap-1 text-xs py-2 px-2 rounded-lg bg-indigo-50 text-indigo-800 hover:bg-indigo-100"
+                      onClick={() => regenerateAd(ad, 'copy')}
+                      disabled={regeneratingId === ad.id}
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" /> Copy
+                    </button>
+                    <button
+                      className="flex items-center justify-center gap-1 text-xs py-2 px-2 rounded-lg bg-purple-50 text-purple-800 hover:bg-purple-100"
+                      onClick={() => regenerateAd(ad, 'visual')}
+                      disabled={regeneratingId === ad.id}
+                    >
+                      <ImageIcon className="w-3.5 h-3.5" /> Visual
+                    </button>
+                    <button
+                      className="flex items-center justify-center gap-1 text-xs py-2 px-2 rounded-lg bg-slate-50 text-slate-700 hover:bg-slate-100"
+                      onClick={() => regenerateAd(ad, 'duplicate')}
+                      disabled={regeneratingId === ad.id}
+                    >
+                      <Copy className="w-3.5 h-3.5" /> Duplicate
+                    </button>
                     {ad.status !== 'approved' && (
                       <button
                         className="flex-1 flex items-center justify-center gap-1 text-xs py-2 rounded-lg bg-green-50 text-green-700 hover:bg-green-100"
                         onClick={() => updateAd(ad.id, 'approved')}
+                        disabled={ad.media_payload?.quality_valid === false}
+                        title={
+                          ad.media_payload?.quality_valid === false
+                            ? 'Fix flagged issues before approval'
+                            : undefined
+                        }
                       >
                         <Check className="w-3.5 h-3.5" /> Approve
                       </button>
@@ -1472,7 +1980,7 @@ export default function AdsPage() {
           </button>
         </div>
       )}
-        </div>
+        </Step2Studio>
       )}
 
       {/* Floating launch CTA */}

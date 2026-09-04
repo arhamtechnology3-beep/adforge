@@ -58,7 +58,7 @@ function Reveal({
 const TEAM = [
   { role: 'Strategist', does: 'Brand + competitor onboarding, angle planning' },
   { role: 'Copywriter', does: '10 Meta primary-text angles — offer, UGC, urgency…' },
-  { role: 'Creative', does: 'Image, Carousel, Stories 9:16, Video slideshow' },
+  { role: 'Creative', does: 'Image, Carousel, Stories 9:16, UGC-style motion video' },
   { role: 'Media buyer', does: 'Draft → Confirm & Launch on the client ad account' },
   { role: 'Analyst', does: 'CPC, CPA, CTR, spend — WhatsApp reports' },
   { role: 'Optimizer', does: 'Auto-pause when CPA exceeds your target' },
@@ -333,6 +333,9 @@ export default function LandingPage() {
           <span className="af-logo-text">AdForge</span>
           <span className="af-footer-tag">Meta ads automation · PWA · SSR</span>
           <div className="af-footer-links">
+            <Link href="/privacy">Privacy</Link>
+            <Link href="/terms">Terms</Link>
+            <Link href="/data-deletion">Data deletion</Link>
             <Link href="/login">Sign in</Link>
             <Link href="/signup">Sign up</Link>
           </div>

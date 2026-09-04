@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   Target,
   Users,
@@ -55,6 +56,19 @@ const DEFAULT_PLACEMENTS: PlacementToggles = {
   stories: true,
 };
 
+const META_CONNECT_ERRORS: Record<string, string> = {
+  meta_demo_blocked: 'Meta connect needs a session. Refresh and try Connect with Facebook again.',
+  meta_not_configured:
+    'Facebook connect is not enabled on this AdForge install yet. The platform Meta App must be configured on the server (not by each customer).',
+  meta_platform_setup:
+    'Facebook connect is not enabled on this AdForge install yet. The platform Meta App must be configured on the server (not by each customer).',
+  meta_login_required: 'Sign in first, then connect with Facebook.',
+  meta_denied: 'Facebook login was cancelled. Click Connect with Facebook to try again.',
+  meta_invalid: 'Meta connect failed (invalid callback). Try Connect with Facebook again.',
+  meta_failed:
+    'Meta connect failed while talking to Facebook. Try Connect with Facebook again.',
+};
+
 export function CampaignWizard({
   campaigns: initialCampaigns,
   approvedAds: initialAds,
@@ -70,6 +84,7 @@ export function CampaignWizard({
   initialTemplateId?: string;
   fromAds?: boolean;
 }) {
+  const searchParams = useSearchParams();
   const [step, setStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
   const [campaigns, setCampaigns] = useState(initialCampaigns);
@@ -106,11 +121,23 @@ export function CampaignWizard({
     initialTemplateId || null
   );
   const [lastLaunchedId, setLastLaunchedId] = useState<string | null>(null);
+  const [lastLaunchMetaSynced, setLastLaunchMetaSynced] = useState(false);
+  const [lastLaunchMetaError, setLastLaunchMetaError] = useState<string | null>(null);
   const [prefillBanner, setPrefillBanner] = useState<string | null>(
     fromAds ? 'Strategy imported from competitor ads — review and launch' : null
   );
 
   const approvedAds = initialAds;
+
+  useEffect(() => {
+    const code = searchParams.get('error');
+    if (code && META_CONNECT_ERRORS[code]) {
+      setError(META_CONNECT_ERRORS[code]);
+    }
+    if (searchParams.get('connected') === 'true') {
+      setToast('Meta connected — we pulled your Facebook ad account automatically.');
+    }
+  }, [searchParams]);
 
   function applyTemplate(templateId: string) {
     const t = getCampaignTemplate(templateId);
@@ -270,6 +297,10 @@ export function CampaignWizard({
       if (data.campaign) {
         setCampaigns((prev) => [data.campaign, ...prev]);
         setLastLaunchedId(data.campaign.id);
+        setLastLaunchMetaSynced(Boolean(data.meta_synced));
+        setLastLaunchMetaError(
+          typeof data.meta_sync_error === 'string' ? data.meta_sync_error : null
+        );
         setToast(data.message || 'Campaign created');
         markStepDone(5);
         setStep(5);
@@ -338,11 +369,14 @@ export function CampaignWizard({
         <p className="text-sm flex-1">
           {metaConnected
             ? 'Meta connected — campaigns sync as PAUSED until you confirm launch.'
-            : 'Meta not connected — you can save drafts locally. Connect to publish live.'}
+            : 'Meta not connected — you can save drafts locally. Connect with Facebook to publish live (we pull your ad account automatically).'}
         </p>
         {!metaConnected && (
-          <a href="/api/oauth/meta/connect" className="btn-primary text-sm inline-flex items-center gap-2 shrink-0">
-            <Link2 className="w-4 h-4" /> Connect Meta
+          <a
+            href="/api/oauth/meta/connect"
+            className="btn-primary text-sm inline-flex items-center gap-2 shrink-0"
+          >
+            <Link2 className="w-4 h-4" /> Connect with Facebook
           </a>
         )}
       </div>
@@ -638,9 +672,23 @@ export function CampaignWizard({
           {step === 5 && (
             <div className="meta-card p-6 space-y-5 text-center">
               <Rocket className="w-12 h-12 text-[var(--meta-blue)] mx-auto" />
-              <h2 className="font-semibold text-xl">Ready to launch</h2>
+              <h2 className="font-semibold text-xl">
+                {lastLaunchMetaSynced ? 'Ready to launch' : 'Draft saved'}
+              </h2>
               <p className="text-sm text-[var(--muted)] max-w-sm mx-auto">
-                Your campaign is created as <strong>PAUSED</strong> on Meta. Confirm below to go live on Facebook &amp; Instagram.
+                {lastLaunchMetaSynced ? (
+                  <>
+                    Your campaign is created as <strong>PAUSED</strong> on Meta. Confirm below to go
+                    live on Facebook &amp; Instagram.
+                  </>
+                ) : (
+                  <>
+                    Local draft is saved
+                    {lastLaunchMetaError
+                      ? ', but Meta sync failed. Confirm will retry publishing to Meta.'
+                      : '. Connect Meta or Confirm to publish when ready.'}
+                  </>
+                )}
               </p>
               {lastLaunchedId && (
                 <button

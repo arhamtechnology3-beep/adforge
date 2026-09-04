@@ -6,20 +6,24 @@
 const META_API_VERSION = 'v21.0';
 const META_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
 
-/** Bootstrap Indian metros → Meta geo keys (extend via Targeting Search API when token available) */
+/**
+ * Offline fallback only (no token). Prefer Targeting Search when a token exists —
+ * fabricated/stale keys cause Meta geo conflicts.
+ */
 export const KNOWN_INDIAN_CITIES: Record<string, { key: string; name: string }> = {
-  mumbai: { key: '1035921', name: 'Mumbai' },
-  'delhi ncr': { key: '1035922', name: 'Delhi NCR' },
-  delhi: { key: '1035922', name: 'Delhi' },
-  bengaluru: { key: '1035923', name: 'Bengaluru' },
-  bangalore: { key: '1035923', name: 'Bengaluru' },
-  hyderabad: { key: '1035924', name: 'Hyderabad' },
-  pune: { key: '1035925', name: 'Pune' },
-  ahmedabad: { key: '1035926', name: 'Ahmedabad' },
-  kolkata: { key: '1035927', name: 'Kolkata' },
-  chennai: { key: '1035928', name: 'Chennai' },
-  jaipur: { key: '1035929', name: 'Jaipur' },
-  surat: { key: '1035930', name: 'Surat' },
+  mumbai: { key: '2490299', name: 'Mumbai' },
+  'delhi ncr': { key: '1028789', name: 'Delhi, India' },
+  delhi: { key: '1028789', name: 'Delhi' },
+  'new delhi': { key: '1028789', name: 'New Delhi' },
+  bengaluru: { key: '2673300', name: 'Bengaluru' },
+  bangalore: { key: '2673300', name: 'Bengaluru' },
+  hyderabad: { key: '2425035', name: 'Hyderabad' },
+  pune: { key: '2673538', name: 'Pune' },
+  ahmedabad: { key: '1028806', name: 'Ahmedabad' },
+  kolkata: { key: '2673651', name: 'Kolkata' },
+  chennai: { key: '2673498', name: 'Chennai' },
+  jaipur: { key: '1028831', name: 'Jaipur' },
+  surat: { key: '1028853', name: 'Surat' },
 };
 
 export const KNOWN_INTERESTS: Record<string, { id: string; name: string }> = {
@@ -84,6 +88,21 @@ export async function searchMetaInterest(
   }
 }
 
+function dedupeByKey<T extends { key?: string; id?: string }>(
+  items: T[],
+  field: 'key' | 'id'
+): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const item of items) {
+    const v = String(item[field] || '');
+    if (!v || seen.has(v)) continue;
+    seen.add(v);
+    out.push(item);
+  }
+  return out;
+}
+
 export async function resolveTargeting(
   locations: string[] = [],
   interests: string[] = [],
@@ -98,11 +117,7 @@ export async function resolveTargeting(
     const key = loc.trim().toLowerCase();
     if (!key) continue;
 
-    if (KNOWN_INDIAN_CITIES[key]) {
-      cities.push(KNOWN_INDIAN_CITIES[key]);
-      continue;
-    }
-
+    // Prefer live Targeting Search when token exists (correct Meta keys).
     if (accessToken) {
       const found = await searchMetaCity(accessToken, loc.trim());
       if (found) {
@@ -110,17 +125,18 @@ export async function resolveTargeting(
         continue;
       }
     }
+
+    if (KNOWN_INDIAN_CITIES[key]) {
+      cities.push(KNOWN_INDIAN_CITIES[key]);
+      continue;
+    }
+
     unresolved_cities.push(loc.trim());
   }
 
   for (const interest of interests) {
     const key = interest.trim().toLowerCase();
     if (!key) continue;
-
-    if (KNOWN_INTERESTS[key]) {
-      resolvedInterests.push(KNOWN_INTERESTS[key]);
-      continue;
-    }
 
     if (accessToken) {
       const found = await searchMetaInterest(accessToken, interest.trim());
@@ -129,17 +145,27 @@ export async function resolveTargeting(
         continue;
       }
     }
+
+    if (KNOWN_INTERESTS[key]) {
+      resolvedInterests.push(KNOWN_INTERESTS[key]);
+      continue;
+    }
+
     unresolved_interests.push(interest.trim());
   }
 
   return {
-    cities,
-    interests: resolvedInterests,
+    cities: dedupeByKey(cities, 'key'),
+    interests: dedupeByKey(resolvedInterests, 'id'),
     unresolved_cities,
     unresolved_interests,
   };
 }
 
+/**
+ * Meta rejects overlapping geo levels (e.g. country IN + cities inside IN).
+ * When cities are present, send cities only; otherwise countries.
+ */
 export function buildTargetingSpec(opts: {
   countries?: string[];
   age_min?: number;
@@ -154,10 +180,11 @@ export function buildTargetingSpec(opts: {
   const countries =
     opts.countries && opts.countries.length > 0 ? opts.countries : ['IN'];
 
-  const geo_locations: Record<string, unknown> = { countries };
-  if (opts.cities?.length) {
-    geo_locations.cities = opts.cities.map((c) => ({ key: c.key }));
-  }
+  const uniqueCities = dedupeByKey(opts.cities || [], 'key');
+  const geo_locations: Record<string, unknown> =
+    uniqueCities.length > 0
+      ? { cities: uniqueCities.map((c) => ({ key: c.key })) }
+      : { countries };
 
   const targeting: Record<string, unknown> = {
     geo_locations,
