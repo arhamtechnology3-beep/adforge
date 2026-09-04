@@ -2,7 +2,7 @@ import { Queue } from 'bullmq';
 import IORedis from 'ioredis';
 
 let connection: IORedis | null = null;
-let creativeGenerationQueue: Queue | null = null;
+let queueInstance: Queue | null = null;
 
 function getRedis(): IORedis {
   if (!connection) {
@@ -17,13 +17,13 @@ function getRedis(): IORedis {
 
 /** Lazy queue — do not connect Redis at import/build time. */
 export function getCreativeGenerationQueue(): Queue {
-  if (!creativeGenerationQueue) {
-    creativeGenerationQueue = new Queue('creative-generation', { connection: getRedis() });
+  if (!queueInstance) {
+    queueInstance = new Queue('creative-generation', { connection: getRedis() });
   }
-  return creativeGenerationQueue;
+  return queueInstance;
 }
 
-/** @deprecated Prefer getCreativeGenerationQueue() so module import is side-effect free. */
+/** Proxy so existing `creativeGenerationQueue.add(...)` call sites stay side-effect free on import. */
 export const creativeGenerationQueue = {
   add: (...args: Parameters<Queue['add']>) => getCreativeGenerationQueue().add(...args),
   getJob: (...args: Parameters<Queue['getJob']>) => getCreativeGenerationQueue().getJob(...args),

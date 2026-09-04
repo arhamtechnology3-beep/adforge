@@ -8,6 +8,9 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-04
 
+### Fix: Hostinger build failed on `fab0069` (queues name clash)
+`fab0069` failed compile: `creativeGenerationQueue` declared both as `let` and `export const`. Renamed internal instance so lazy Redis queue builds cleanly. Redeploy this commit; also add remaining env vars (Supabase, etc.) and attach the custom domain to the Node app.
+
 ### Fix: Hostinger Next.js 500 + Redis-at-build + headers error
 Runtime logs show AdForge **does** start (`Next.js 14.2.35 Ready`), but:
 1. Preview `*.hostingersite.com` returned **500** (`ERR_HTTP_HEADERS_SENT` in middleware + Redis connect to `localhost:6379` during import/build).
