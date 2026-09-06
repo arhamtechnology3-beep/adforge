@@ -8,6 +8,14 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-07
 
+### Fix: Hostinger build failed on unused vars in CampaignWizard
+**What / why**  
+Deploy `a0b033c` failed ESLint: unused `setMetaPageName` / `setMetaPixelName` / `setMetaPixelId`.
+
+**Fix:** Use page/pixel props as constants (no unused setters). Pushed `865844a`.
+
+**Manual:** Hostinger should auto-deploy `865844a` — wait for Completed, then Reconnect Facebook.
+
 ### UX: Always show Reconnect Facebook on Campaigns
 **What / why**  
 When Meta was already connected, the Connect button was hidden — users could not refresh Page + Pixel after migration.
