@@ -109,6 +109,16 @@ function sameOriginPreviewUrl(raw: string): string {
   return raw;
 }
 
+function unwrapForPreview(url: string): string {
+  if (!url.includes('/api/ads/product-image')) return url;
+  try {
+    const parsed = url.startsWith('http') ? new URL(url) : new URL(url, 'http://localhost');
+    return parsed.searchParams.get('src') || url;
+  } catch {
+    return url;
+  }
+}
+
 function CreativePreview({
   url,
   variant,
@@ -226,64 +236,47 @@ function CreativePreview({
                 setStatus('ready');
                 return;
               }
-              // Dark probe bg so transparent images don't look "loaded".
+              // Dark probe so fully-transparent cutouts read as empty.
               probeCtx.fillStyle = '#111111';
               probeCtx.fillRect(0, 0, 32, 32);
               probeCtx.drawImage(img, 0, 0, 32, 32);
               const sample = probeCtx.getImageData(0, 0, 32, 32).data;
-              let opaque = 0;
-              let lumaSum = 0;
-              let lumaSq = 0;
+              let visible = 0;
               for (let i = 0; i < sample.length; i += 4) {
-                const a = sample[i + 3];
-                // Against dark fill, transparent pixels stay near black — count vivid pixels.
                 const luma = (sample[i] + sample[i + 1] + sample[i + 2]) / 3;
-                if (a > 24 && luma > 18) {
-                  opaque += 1;
-                  lumaSum += luma;
-                  lumaSq += luma * luma;
-                }
+                if (sample[i + 3] > 24 && luma > 22) visible += 1;
               }
-              const meanLuma = opaque ? lumaSum / opaque : 0;
-              const variance = opaque
-                ? Math.max(0, lumaSq / opaque - meanLuma * meanLuma)
-                : 0;
-              const stdev = Math.sqrt(variance);
-              // Only treat as blank when nearly invisible OR uniform near-white (no product texture).
-              const invisible = opaque < 10;
-              const flatWhite = opaque >= 10 && meanLuma > 252 && stdev < 4;
-              if (invisible || flatWhite) {
-                if (invisible) {
-                  const full = document.createElement('canvas');
-                  full.width = img.naturalWidth || 512;
-                  full.height = img.naturalHeight || 512;
-                  const fullCtx = full.getContext('2d');
-                  if (fullCtx) {
-                    fullCtx.drawImage(img, 0, 0);
-                    const pixels = fullCtx.getImageData(0, 0, full.width, full.height);
-                    let colorful = 0;
-                    for (let i = 0; i < pixels.data.length; i += 4) {
-                      const luma =
-                        (pixels.data[i] + pixels.data[i + 1] + pixels.data[i + 2]) / 3;
-                      if (luma > 8 && luma < 252) colorful += 1;
-                      pixels.data[i + 3] = 255;
-                    }
-                    if (colorful > full.width * full.height * 0.02) {
-                      fullCtx.putImageData(pixels, 0, 0);
-                      setActiveUrl(full.toDataURL('image/png'));
-                      setStatus('ready');
-                      return;
-                    }
+              if (visible < 8) {
+                // Try restoring wiped alpha (RGB present, alpha 0).
+                const full = document.createElement('canvas');
+                full.width = img.naturalWidth || 512;
+                full.height = img.naturalHeight || 512;
+                const fullCtx = full.getContext('2d');
+                if (fullCtx) {
+                  fullCtx.drawImage(img, 0, 0);
+                  const pixels = fullCtx.getImageData(0, 0, full.width, full.height);
+                  let colorful = 0;
+                  for (let i = 0; i < pixels.data.length; i += 4) {
+                    const luma =
+                      (pixels.data[i] + pixels.data[i + 1] + pixels.data[i + 2]) / 3;
+                    if (luma > 8 && luma < 252) colorful += 1;
+                    pixels.data[i + 3] = 255;
+                  }
+                  if (colorful > full.width * full.height * 0.02) {
+                    fullCtx.putImageData(pixels, 0, 0);
+                    setActiveUrl(full.toDataURL('image/png'));
+                    setStatus('ready');
+                    return;
                   }
                 }
                 if (tryNextCandidate()) return;
                 onHardFail?.();
-                // Prefer showing something over a hard fail when bytes did load.
-                setStatus(flatWhite ? 'ready' : 'error');
+                // Soft-fail: keep checkerboard underlay rather than a hard error when possible.
+                setStatus(candidates.length > 1 ? 'ready' : 'error');
                 return;
               }
             } catch {
-              /* proxy already repairs most cases */
+              /* same-origin proxy handles most cases */
             }
             setStatus('ready');
           }}
@@ -301,11 +294,23 @@ function CreativePreview({
 function CarouselPreview({ ad }: { ad: GeneratedAd }) {
   const cards = ad.media_payload?.cards || [];
   const packshot = ad.media_payload?.primary_packshot || null;
-  const [idx, setIdx] = useState(0);
+  const firstGoodIdx = Math.max(
+    0,
+    cards.findIndex((card) => {
+      const url = card.image_url || '';
+      return (
+        Boolean(url) &&
+        !/\/normalized\//i.test(url) &&
+        !/-cutout\.png/i.test(url) &&
+        !/product-assets\//i.test(unwrapForPreview(url))
+      );
+    })
+  );
+  const [idx, setIdx] = useState(firstGoodIdx >= 0 ? firstGoodIdx : 0);
 
   useEffect(() => {
-    setIdx(0);
-  }, [ad.id]);
+    setIdx(firstGoodIdx >= 0 ? firstGoodIdx : 0);
+  }, [ad.id, firstGoodIdx]);
 
   if (cards.length === 0 && (ad.image_url || packshot)) {
     return (
@@ -327,11 +332,10 @@ function CarouselPreview({ ad }: { ad: GeneratedAd }) {
           key={`${ad.id}-${idx}-${card.image_url || 'none'}`}
           url={card.image_url || packshot || ad.image_url || ''}
           fallbackUrl={
-            packshot && packshot !== card.image_url
-              ? packshot
-              : cards.find((item, index) => index !== idx && item.image_url)?.image_url ||
-                ad.image_url ||
-                null
+            cards.find((item, index) => index !== idx && item.image_url)?.image_url ||
+            packshot ||
+            ad.image_url ||
+            null
           }
           variant={ad.variant_number}
           onHardFail={() => {
@@ -499,6 +503,9 @@ function SlideshowVideoPreview({ ad }: { ad: GeneratedAd }) {
   }
 
   const frame = frames[idx];
+  const frameFallbacks = frames
+    .map((item) => item.image_url || '')
+    .filter((url, index) => Boolean(url) && index !== idx);
   return (
     <div className="relative">
       {frame && (
@@ -506,7 +513,15 @@ function SlideshowVideoPreview({ ad }: { ad: GeneratedAd }) {
           key={`${ad.id}-${idx}`}
           url={frame.image_url || ad.media_payload?.primary_packshot || ''}
           fallbackUrl={ad.media_payload?.primary_packshot}
+          fallbackUrls={frameFallbacks}
           variant={ad.variant_number}
+          aspect="story"
+          onHardFail={() => {
+            const next = frames.findIndex(
+              (item, index) => index !== idx && Boolean(item.image_url)
+            );
+            if (next >= 0) setIdx(next);
+          }}
         />
       )}
       <button

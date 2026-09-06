@@ -8,6 +8,19 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-06
 
+### Fix: Carousel card 1 + multi-photo video from storefront URLs
+**What / why**  
+Card 1 / Image / Stories / Video used the broken transparent packshot cutout. Carousel cards 2–4 looked fine because they used other Shopify PDP photos. Video repeated one empty frame instead of multiple product photos.
+
+**Fix**
+- Resolve carousel product URLs early and prefer those storefront images for all formats
+- Video / engine carousel cycle the product photo gallery (one product per frame/card)
+- Softer preview blank detection; carousel skips a broken first slide
+
+**Paths:** `product-image-preference.ts`, `api/ads/generate/route.ts`, `creative-pack.ts`, `ads/page.tsx`
+
+**Manual:** Redeploy Hostinger → Ads → **Regenerate pack** (needed so video gets multiple product photos).
+
 ### Fix: Carousel card 1 “Creative failed”
 **What / why**  
 First carousel slide showed the fail state while cards 2–4 worked. Light product photos were mis-flagged as blank, and a broken card 1 had no fallback to sibling slides.

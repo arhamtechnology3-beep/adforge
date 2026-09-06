@@ -47,6 +47,7 @@ import {
   parseCarouselProductUrls,
   resolveCarouselProductUrls,
 } from '@/lib/carousel-from-urls';
+import { rankProductImageUrls, unwrapProxiedProductImage } from '@/lib/product-image-preference';
 
 export const maxDuration = 300;
 
@@ -365,6 +366,38 @@ export async function POST(request: Request) {
       absoluteAsset
     ),
   };
+
+  // Pull live PDP images from carousel URLs early so Image / Stories / Video
+  // use real storefront photos instead of a broken transparent cutout.
+  const carouselProductUrlsEarly = parseCarouselProductUrls(body.carousel_product_urls);
+  let resolvedCarouselProducts: Awaited<
+    ReturnType<typeof resolveCarouselProductUrls>
+  >['products'] = [];
+  if (carouselProductUrlsEarly.length >= 1) {
+    try {
+      const resolved = await resolveCarouselProductUrls(carouselProductUrlsEarly);
+      resolvedCarouselProducts = resolved.products;
+      const storefront = rankProductImageUrls(
+        resolved.products.map((item) => unwrapProxiedProductImage(item.image_url || ''))
+      );
+      if (storefront.length) {
+        const ranked = rankProductImageUrls([
+          ...storefront,
+          productBrief.primaryPackshot,
+          ...productBrief.packshots,
+        ]);
+        productBrief.packshots = ranked.map(absoluteAsset);
+        productBrief.primaryPackshot = absoluteAsset(ranked[0]!);
+        primaryPackshot = ranked[0]!;
+      }
+    } catch (error) {
+      console.warn(
+        '[carousel-storefront]',
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+  }
+
   const productImages = productBrief.packshots;
   const brand = productBrief.brandName;
   const category = productBrief.category;
@@ -401,7 +434,7 @@ export async function POST(request: Request) {
         ['single_image', 'carousel', 'stories', 'video'].includes(String(format))
       )
     : ['single_image', 'carousel', 'stories', 'video'];
-  const carouselProductUrls = parseCarouselProductUrls(body.carousel_product_urls);
+  const carouselProductUrls = carouselProductUrlsEarly;
   const wantsProductUrlCarousel =
     requestedFormats.includes('carousel') && carouselProductUrls.length >= 2;
   const engineFormats = wantsProductUrlCarousel
@@ -471,10 +504,13 @@ export async function POST(request: Request) {
   let carouselWarnings: string[] = [];
 
   if (wantsProductUrlCarousel) {
-    const resolved = await resolveCarouselProductUrls(carouselProductUrls);
+    const productsForCarousel =
+      resolvedCarouselProducts.length >= 1
+        ? resolvedCarouselProducts
+        : (await resolveCarouselProductUrls(carouselProductUrls)).products;
     const built = buildProductUrlCarouselAd({
       campaignInputId: resolvedInput.id,
-      products: resolved.products,
+      products: productsForCarousel,
       brandName: brand,
       productId: product.id,
       variantNumber: 1,

@@ -5,6 +5,7 @@ import {
   type MetaAdFormat,
 } from '@/lib/creatives';
 import { bakeCreativeOrPackshot, normalizePackshot } from '@/lib/creative-assets';
+import { rankProductImageUrls } from '@/lib/product-image-preference';
 import type {
   CreativeAspect,
   CreativeDirection,
@@ -209,6 +210,20 @@ export async function buildCreativePack(
     );
   }
 
+  // Prefer live PDP / Shopify photos over a broken transparent cutout.
+  const gallery = rankProductImageUrls([
+    ...request.truth.packshots,
+    request.truth.primaryPackshot,
+  ]);
+  const productImage = gallery[0] || request.truth.primaryPackshot;
+  if (productImage !== request.truth.primaryPackshot) {
+    request.truth = {
+      ...request.truth,
+      primaryPackshot: productImage,
+      packshots: gallery,
+    };
+  }
+
   for (const [directionIndex, direction] of packDirections.entries()) {
     const matchedPattern = request.patterns.find(
       (pattern) => pattern.sourceId === direction.sourcePatternId
@@ -231,7 +246,6 @@ export async function buildCreativePack(
       request.truth.benefits[0] ||
       request.truth.description?.slice(0, 70) ||
       `${request.truth.brandName} ${request.truth.category}`;
-    const productImage = request.truth.primaryPackshot;
     const directionFormats = formatsForDirection(directionIndex, packDirections.length, formats);
 
     const staticAspects: CreativeAspect[] = direction.recommendedFormats.filter(
@@ -423,50 +437,58 @@ export async function buildCreativePack(
 
     if (directionFormats.includes('carousel')) {
       variant += 1;
-      const cardCount = 3;
+      const cardCount = Math.min(4, Math.max(3, gallery.length));
       const cards = [];
-      const packshots = request.truth.packshots?.length
-        ? request.truth.packshots
-        : [productImage];
+      const packshots = gallery.length ? gallery : [productImage];
       for (let cardIndex = 0; cardIndex < cardCount; cardIndex += 1) {
         globalSceneIndex += 1;
         const cardPackshot = packshots[cardIndex % packshots.length] || productImage;
-        const scene = await renderScene({
-          truth: request.truth,
-          direction,
-          aspect: '1:1',
-          seed: sceneSeed(direction.conceptId, globalSceneIndex, cardIndex + 5),
-          sceneVariant: globalSceneIndex + cardIndex * 2 + directionIndex,
-          userId: request.ownerId,
-          pattern: matchedPattern,
-        });
+        // Use real storefront photos for carousel cards — skip fragile AI bake when we have PDP images.
+        const useRawStorefront = packshots.length > 1;
+        let imageUrl = cardPackshot;
+        let sceneUrl: string | null = null;
+        if (!useRawStorefront) {
+          const scene = await renderScene({
+            truth: request.truth,
+            direction,
+            aspect: '1:1',
+            seed: sceneSeed(direction.conceptId, globalSceneIndex, cardIndex + 5),
+            sceneVariant: globalSceneIndex + cardIndex * 2 + directionIndex,
+            userId: request.ownerId,
+            pattern: matchedPattern,
+          });
+          sceneUrl = scene.url || null;
+          imageUrl = await bakeVisual({
+            brand: request.truth.brandName,
+            headline:
+              cardIndex === 0
+                ? direction.headline
+                : `${request.truth.brandName} · ${request.truth.category}`.slice(0, 40),
+            subline,
+            angle: direction.angle,
+            cta: direction.cta,
+            badge: cardIndex === 0 ? badge : `CARD ${cardIndex + 1}`,
+            productImage: cardPackshot,
+            sceneUrl: scene.url,
+            format: 'feed_1x1',
+            adFormat: 'carousel',
+            variant: variant * 10 + cardIndex,
+            template: direction.name,
+            origin: request.origin,
+            ownerId: request.ownerId,
+            expectedAspect: '1:1',
+            persistToStorage: request.persistToStorage,
+          });
+        }
         const cardHeadline =
           cardIndex === 0
             ? direction.headline
             : `${request.truth.brandName} · ${request.truth.category}`.slice(0, 40);
-        const imageUrl = await bakeVisual({
-          brand: request.truth.brandName,
-          headline: cardHeadline,
-          subline,
-          angle: direction.angle,
-          cta: direction.cta,
-          badge: cardIndex === 0 ? badge : `CARD ${cardIndex + 1}`,
-          productImage: cardPackshot,
-          sceneUrl: scene.url,
-          format: 'feed_1x1',
-          adFormat: 'carousel',
-          variant: variant * 10 + cardIndex,
-          template: direction.name,
-          origin: request.origin,
-          ownerId: request.ownerId,
-          expectedAspect: '1:1',
-          persistToStorage: request.persistToStorage,
-        });
         cards.push({
           image_url: imageUrl,
           headline: cardHeadline,
           description: subline,
-          scene_url: scene.url || null,
+          scene_url: sceneUrl,
         });
       }
       ads.push({
@@ -496,40 +518,48 @@ export async function buildCreativePack(
       variant += 1;
       const scenePlan = buildVideoScenePlan(direction);
       const frames = [];
+      const videoGallery = gallery.length ? gallery : [productImage];
       for (const [sceneIndex, sceneDef] of scenePlan.scenes.entries()) {
         globalSceneIndex += 1;
-        const scene = await renderScene({
-          truth: request.truth,
-          direction: { ...direction, angle: sceneDef.angle || direction.angle },
-          aspect: '9:16',
-          seed: sceneSeed(direction.conceptId, globalSceneIndex, sceneIndex + 11),
-          sceneVariant: globalSceneIndex + sceneIndex * 2 + directionIndex,
-          userId: request.ownerId,
-          pattern: matchedPattern,
-        });
-        const imageUrl = await bakeVisual({
-          brand: request.truth.brandName,
-          headline: sceneDef.headline || direction.headline,
-          subline,
-          angle: sceneDef.angle || direction.angle,
-          cta: direction.cta,
-          badge: sceneDef.purpose.toUpperCase(),
-          productImage,
-          sceneUrl: scene.url,
-          format: 'story_9x16',
-          adFormat: 'video',
-          variant: variant * 10 + sceneIndex,
-          template: direction.name,
-          origin: request.origin,
-          ownerId: request.ownerId,
-          expectedAspect: '9:16',
-          persistToStorage: request.persistToStorage,
-        });
+        const framePackshot = videoGallery[sceneIndex % videoGallery.length] || productImage;
+        // Multi-product slideshow: each frame is a real product photo when gallery has variety.
+        let imageUrl = framePackshot;
+        let sceneUrl: string | null = null;
+        if (videoGallery.length <= 1) {
+          const scene = await renderScene({
+            truth: request.truth,
+            direction: { ...direction, angle: sceneDef.angle || direction.angle },
+            aspect: '9:16',
+            seed: sceneSeed(direction.conceptId, globalSceneIndex, sceneIndex + 11),
+            sceneVariant: globalSceneIndex + sceneIndex * 2 + directionIndex,
+            userId: request.ownerId,
+            pattern: matchedPattern,
+          });
+          sceneUrl = scene.url || null;
+          imageUrl = await bakeVisual({
+            brand: request.truth.brandName,
+            headline: sceneDef.headline || direction.headline,
+            subline,
+            angle: sceneDef.angle || direction.angle,
+            cta: direction.cta,
+            badge: sceneDef.purpose.toUpperCase(),
+            productImage: framePackshot,
+            sceneUrl: scene.url,
+            format: 'story_9x16',
+            adFormat: 'video',
+            variant: variant * 10 + sceneIndex,
+            template: direction.name,
+            origin: request.origin,
+            ownerId: request.ownerId,
+            expectedAspect: '9:16',
+            persistToStorage: request.persistToStorage,
+          });
+        }
         frames.push({
           image_url: imageUrl,
           headline: sceneDef.headline || direction.headline,
           duration_ms: Math.round((sceneDef.end - sceneDef.start) * 1000),
-          scene_url: scene.url || null,
+          scene_url: sceneUrl,
         });
       }
 
