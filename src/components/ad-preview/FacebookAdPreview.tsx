@@ -181,7 +181,7 @@ export function FacebookAdPreview({
           <div className="relative h-full min-h-[520px] bg-black">
             {imageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+              <img src={imageUrl} alt="" className="absolute inset-0 w-full h-full object-contain" />
             ) : (
               <div className="absolute inset-0 bg-gradient-to-b from-[#1c2b4a] to-black" />
             )}

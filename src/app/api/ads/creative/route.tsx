@@ -204,12 +204,14 @@ export async function GET(request: Request) {
     const productTop =
       template === 'recipe-lifestyle'
         ? isStory
-          ? '22%'
+          ? '18%'
           : '18%'
         : isStory
-          ? '16%'
+          ? '12%'
           : '12%';
-    const productHeight = template === 'offer-card' ? '44%' : '50%';
+    // Stories need a taller product window so packshots aren't squeezed/cropped by overlays
+    const productHeight =
+      template === 'offer-card' ? (isStory ? '52%' : '44%') : isStory ? '58%' : '50%';
 
     return new ImageResponse(
       (

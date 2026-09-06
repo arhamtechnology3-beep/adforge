@@ -8,6 +8,21 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-07
 
+### Fix: Stories / Reels & UGC video cutting top & bottom
+**What / why**  
+#3 Stories and #4 UGC video showed square packshots in a 9:16 frame (checker letterbox) and motion video used FFmpeg **cover+crop**, chopping product top/bottom.
+
+**Fix**
+- Video frames generate as `story_9x16` (not 1:1); payload aspect `9:16`
+- Bake / packshot fallback **pads** to 9:16 (contain, never crop)
+- Motion video scale uses **decrease + pad** (milder zoom)
+- Stories preview: true 9:16 phone frame, dark letterbox; proxy `pad=9:16` for existing square assets
+- Story creative product window taller so packshot isn’t squeezed
+
+**Paths:** `creative-assets.ts`, `generate/route.ts`, `motion-video/service.ts`, `ads/page.tsx`, `product-image/route.ts`, `creative/route.tsx`, `FacebookAdPreview.tsx`, regenerate route
+
+**Manual:** Redeploy → hard refresh `/ads`. Existing #3/#4 should look correct via pad proxy; click **Regenerate** on those cards for permanently baked 9:16 assets + video.
+
 ### Fix: MetaAssetPicker import in CampaignWizard
 **What / why**  
 Picker was rendered but not imported — build/lint would fail and UI would break.

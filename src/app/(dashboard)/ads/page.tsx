@@ -99,12 +99,24 @@ function competitorMediaSrc(url: string): string {
   return `/api/competitor-media/proxy?url=${encodeURIComponent(url)}`;
 }
 
-function sameOriginPreviewUrl(raw: string): string {
+function sameOriginPreviewUrl(raw: string, padAspect?: '9:16' | '4:5' | '1:1'): string {
   if (!raw) return '';
   if (raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
-  if (raw.startsWith('/api/ads/product-image')) return raw;
+  if (raw.startsWith('/api/ads/product-image')) {
+    if (!padAspect || raw.includes('pad=')) return raw;
+    return `${raw}&pad=${encodeURIComponent(padAspect)}`;
+  }
   if (/^https?:\/\//i.test(raw)) {
-    return `/api/ads/product-image?src=${encodeURIComponent(raw)}`;
+    const pad = padAspect ? `&pad=${encodeURIComponent(padAspect)}` : '';
+    return `/api/ads/product-image?src=${encodeURIComponent(raw)}${pad}`;
+  }
+  // Local /uploads creatives that are square still need 9:16 pad in Stories preview
+  if (padAspect && raw.startsWith('/uploads/')) {
+    // Absolute URL required by product-image proxy
+    if (typeof window !== 'undefined') {
+      const absolute = `${window.location.origin}${raw}`;
+      return `/api/ads/product-image?src=${encodeURIComponent(absolute)}&pad=${encodeURIComponent(padAspect)}`;
+    }
   }
   return raw;
 }
@@ -139,7 +151,7 @@ function CreativePreview({
     fallbackUrl || '',
     ...(fallbackUrls || []),
   ]
-    .map((value) => sameOriginPreviewUrl(value))
+    .map((value) => sameOriginPreviewUrl(value, aspect === 'story' ? '9:16' : undefined))
     .filter(Boolean)
     .filter((value, index, all) => all.indexOf(value) === index);
 
@@ -172,16 +184,21 @@ function CreativePreview({
 
   return (
     <div
-      className={`relative w-full overflow-hidden ${
-        aspect === 'story' ? 'aspect-[9/16] max-h-[420px] mx-auto' : 'aspect-square'
+      className={`relative overflow-hidden ${
+        aspect === 'story'
+          ? 'mx-auto aspect-[9/16] w-full max-w-[236px] bg-[#111827]'
+          : 'aspect-square w-full bg-[#f3f4f6]'
       }`}
-      style={{
-        backgroundColor: aspect === 'story' ? '#111827' : '#f3f4f6',
-        backgroundImage:
-          'linear-gradient(45deg, #e5e7eb 25%, transparent 25%), linear-gradient(-45deg, #e5e7eb 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e5e7eb 75%), linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)',
-        backgroundSize: '16px 16px',
-        backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0',
-      }}
+      style={
+        aspect === 'story'
+          ? undefined
+          : {
+              backgroundImage:
+                'linear-gradient(45deg, #e5e7eb 25%, transparent 25%), linear-gradient(-45deg, #e5e7eb 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e5e7eb 75%), linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)',
+              backgroundSize: '16px 16px',
+              backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0',
+            }
+      }
     >
       {candidates[1] && candidates[1] !== activeUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
@@ -431,8 +448,10 @@ function VeoVideoPreview({
   }
   return (
     <div
-      className={`relative bg-black ${
-        aspect === '9:16' ? 'aspect-[9/16] max-h-[520px] mx-auto' : 'aspect-square'
+      className={`relative overflow-hidden bg-black ${
+        aspect === '9:16'
+          ? 'mx-auto aspect-[9/16] w-full max-w-[260px]'
+          : 'aspect-square w-full'
       }`}
     >
       {poster ? (
@@ -554,7 +573,7 @@ function AdMedia({ ad }: { ad: GeneratedAd }) {
   if (format === 'video') return <VideoPreview ad={ad} />;
   if (format === 'stories') {
     return (
-      <div className="bg-[#111] py-3">
+      <div className="bg-[#111] py-2 flex justify-center">
         <CreativePreview
           url={ad.image_url || packshot || ''}
           fallbackUrl={packshot}

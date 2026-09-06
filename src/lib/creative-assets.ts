@@ -568,6 +568,37 @@ export async function normalizePackshot(
   };
 }
 
+/** Target canvas size for Meta placements when padding packshots / fallbacks. */
+export function aspectCanvasSize(
+  aspect: '1:1' | '4:5' | '9:16'
+): { width: number; height: number } {
+  if (aspect === '9:16') return { width: 1080, height: 1920 };
+  if (aspect === '4:5') return { width: 1080, height: 1350 };
+  return { width: 1080, height: 1080 };
+}
+
+/**
+ * Fit image inside a Meta aspect canvas without cropping (contain + pad).
+ * Used so Stories / Reels never chop product top/bottom from square packshots.
+ */
+export async function padImageToAspect(
+  input: Buffer,
+  aspect: '1:1' | '4:5' | '9:16',
+  background = '#111827'
+): Promise<{ buffer: Buffer; width: number; height: number }> {
+  const { width, height } = aspectCanvasSize(aspect);
+  const buffer = await sharp(input)
+    .rotate()
+    .resize(width, height, {
+      fit: 'contain',
+      background,
+      withoutEnlargement: false,
+    })
+    .png({ compressionLevel: 8 })
+    .toBuffer();
+  return { buffer, width, height };
+}
+
 export async function bakeCreativeAsset(input: {
   creativeUrl: string;
   origin: string;
@@ -580,14 +611,20 @@ export async function bakeCreativeAsset(input: {
     : `${input.origin.replace(/\/$/, '')}${input.creativeUrl}`;
   const response = await fetch(source, { cache: 'no-store' });
   if (!response.ok) throw new Error(`Creative render failed: HTTP ${response.status}`);
-  const bytes = Buffer.from(await response.arrayBuffer());
+  let bytes = Buffer.from(await response.arrayBuffer());
   const metadata = await sharp(bytes).metadata();
   if (!metadata.width || !metadata.height) throw new Error('Rendered creative has no dimensions');
-  const ratio = metadata.width / metadata.height;
+  let outWidth = metadata.width;
+  let outHeight = metadata.height;
+  const ratio = outWidth / outHeight;
   const expected =
     input.expectedAspect === '9:16' ? 9 / 16 : input.expectedAspect === '4:5' ? 4 / 5 : 1;
+  // Square / mismatched renders: pad to the placement canvas instead of failing or cropping.
   if (Math.abs(ratio - expected) > 0.03) {
-    throw new Error(`Rendered creative has wrong aspect ratio: ${metadata.width}×${metadata.height}`);
+    const padded = await padImageToAspect(bytes, input.expectedAspect);
+    bytes = Buffer.from(padded.buffer);
+    outWidth = padded.width;
+    outHeight = padded.height;
   }
   const stats = await sharp(bytes).stats();
   const channelSpread = stats.channels.reduce((sum, channel) => sum + channel.stdev, 0);
@@ -616,8 +653,8 @@ export async function bakeCreativeAsset(input: {
     const { data } = admin.storage.from('creative-assets').getPublicUrl(objectPath);
     return {
       url: data.publicUrl,
-      width: metadata.width,
-      height: metadata.height,
+      width: outWidth,
+      height: outHeight,
     };
   }
 
@@ -626,8 +663,8 @@ export async function bakeCreativeAsset(input: {
   await writeFile(path.join(dir, filename), output);
   return {
     url: `/uploads/${input.ownerId}/creatives/${filename}`,
-    width: metadata.width,
-    height: metadata.height,
+    width: outWidth,
+    height: outHeight,
   };
 }
 
@@ -676,7 +713,44 @@ export async function bakeCreativeOrPackshot(input: {
     );
   }
 
-  return { url: input.packshotUrl, usedPackshotFallback: true };
+  // Last resort: pad the raw packshot to the expected aspect so Stories/video
+  // previews never show a cropped square inside a 9:16 frame.
+  try {
+    const packshotSource = input.packshotUrl.startsWith('http')
+      ? input.packshotUrl
+      : `${input.origin.replace(/\/$/, '')}${input.packshotUrl}`;
+    const packRes = await fetch(packshotSource, { cache: 'no-store' });
+    if (!packRes.ok) throw new Error(`Packshot fetch HTTP ${packRes.status}`);
+    const packBytes = Buffer.from(await packRes.arrayBuffer());
+    const padded = await padImageToAspect(packBytes, input.expectedAspect);
+    const filename = `${Date.now()}-${randomUUID().slice(0, 8)}-pad.png`;
+    if (input.persistToStorage) {
+      const { createServiceClient } = await import('@/lib/supabase/server');
+      const admin = await createServiceClient();
+      const objectPath = `${input.ownerId}/${filename}`;
+      const { error } = await admin.storage.from('creative-assets').upload(objectPath, padded.buffer, {
+        contentType: 'image/png',
+        cacheControl: '31536000',
+        upsert: false,
+      });
+      if (error) throw new Error(error.message);
+      const { data } = admin.storage.from('creative-assets').getPublicUrl(objectPath);
+      return { url: data.publicUrl, usedPackshotFallback: true };
+    }
+    const dir = path.join(process.cwd(), 'public', 'uploads', input.ownerId, 'creatives');
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, filename), padded.buffer);
+    return {
+      url: `/uploads/${input.ownerId}/creatives/${filename}`,
+      usedPackshotFallback: true,
+    };
+  } catch (padError) {
+    console.warn(
+      '[bake-creative] aspect pad failed, using raw packshot:',
+      padError instanceof Error ? padError.message : padError
+    );
+    return { url: input.packshotUrl, usedPackshotFallback: true };
+  }
 }
 
 export async function persistCreativeFile(input: {

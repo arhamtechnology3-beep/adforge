@@ -753,7 +753,8 @@ export async function POST(request: Request) {
             badge: i === 0 ? item.badge : 'WATCH',
             productImage: img,
             sceneImage: img ? null : item.sceneImage,
-            format: 'feed_1x1',
+            // Vertical canvas so Feed/Stories/Reels video frames never crop 1:1 packshots
+            format: 'story_9x16',
             adFormat: 'video',
             variant: n * 10 + i,
           }),
@@ -770,7 +771,7 @@ export async function POST(request: Request) {
         ad_format: 'video',
         media_payload: {
           placement: META_AD_FORMATS.video.placement,
-          aspect: '1:1',
+          aspect: '9:16',
           frames,
           product_images: productImages.slice(0, frameCount),
         },

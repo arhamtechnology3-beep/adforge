@@ -153,7 +153,8 @@ export async function POST(
       media_payload: { ...candidate.media_payload, ...existing.media_payload },
     };
   } else {
-    const aspect = candidate.ad_format === 'stories' ? '9:16' : '1:1';
+    const aspect =
+      candidate.ad_format === 'stories' || candidate.ad_format === 'video' ? '9:16' : '1:1';
     const bake = async (url: string, expectedAspect: '1:1' | '9:16') =>
       (
         await bakeCreativeAsset({

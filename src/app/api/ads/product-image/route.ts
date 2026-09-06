@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
+import sharp from 'sharp';
 import {
   measureOpaqueRatio,
+  padImageToAspect,
   restoreInvisiblePackshot,
 } from '@/lib/creative-assets';
 
@@ -8,10 +10,12 @@ import {
  * Same-origin product image proxy so Meta creatives can embed brand photos
  * without the OG renderer hanging on flaky external hosts.
  * Also repairs historical cutouts that were saved fully transparent.
+ * Optional `pad=9:16|4:5|1:1` fits the image into that canvas without cropping.
  */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const src = searchParams.get('src');
+  const pad = searchParams.get('pad');
 
   if (!src || !/^https?:\/\//i.test(src)) {
     return NextResponse.json({ error: 'Valid src required' }, { status: 400 });
@@ -51,6 +55,25 @@ export async function GET(request: Request) {
       }
     } catch {
       /* keep original bytes if sharp can't inspect */
+    }
+
+    const padAspect =
+      pad === '9:16' || pad === '4:5' || pad === '1:1' ? pad : null;
+    if (padAspect) {
+      try {
+        const meta = await sharp(output).metadata();
+        const ratio =
+          meta.width && meta.height ? meta.width / meta.height : 1;
+        const expected =
+          padAspect === '9:16' ? 9 / 16 : padAspect === '4:5' ? 4 / 5 : 1;
+        if (Math.abs(ratio - expected) > 0.03) {
+          const padded = await padImageToAspect(output, padAspect);
+          output = padded.buffer;
+          contentType = 'image/png';
+        }
+      } catch {
+        /* keep original if pad fails */
+      }
     }
 
     return new NextResponse(new Uint8Array(output), {
