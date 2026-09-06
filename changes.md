@@ -8,6 +8,51 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-06
 
+### Fix: Rendering spinner + white Image/Stories previews
+**What / why**  
+Previews showed a static “Rendering creative…” then a blank white box. Approved packshots were fully transparent cutouts; direct Supabase URLs also blocked canvas repair (CORS).
+
+**Fix**
+- Animated spinner + progress bar while each creative loads
+- `/api/ads/product-image` restores wiped alpha and serves same-origin
+- Ads preview always proxies remote media through that route; detects blank/white frames
+
+**Paths:** `ads/page.tsx`, `api/ads/product-image/route.ts`, plus prior cutout recovery in `creative-assets.ts`
+
+**Manual:** Commit/push → redeploy Hostinger → hard refresh `/ads` (Regenerate pack optional; proxy repairs existing transparent URLs).
+
+### Fix: Invisible packshot cutout (blank Image/Stories/Video)
+**E2E finding**  
+Carousel worked (Shopify CDN images). Image / Stories / Video used the approved packshot at `product-assets/.../normalized/*-cutout.png`, which is **1080×1080 with alphaMean = 0** (RGB intact, fully transparent). Browser loads the URL → white preview. Video frames used the same asset → black player.
+
+**Fix**
+- Reject / recover invisible cutouts (`restoreInvisiblePackshot` + opaque-ratio gate)
+- Creative bake restores zero-alpha packshots; raise hero size limit
+- Ads UI: checkerboard + in-browser alpha restore for existing broken assets
+- Generate repairs `products.primary_packshot` when normalize replaces a bad cutout
+
+**Paths:** `creative-assets.ts`, `api/ads/creative/route.tsx`, `api/ads/generate/route.ts`, `ads/page.tsx`
+
+**Manual:** Push + redeploy Hostinger → Ads → **Regenerate pack** (or refresh: UI can restore alpha client-side). Optional: re-import packshot in Brand Setup.
+
+### Fix: Blank single-image / stories / video previews (WebP + format coverage)
+**What / why**  
+Only carousel showed product photos; Image / Stories were white and Video was black. Root causes:
+- Shopify packshots are often **WebP** — Satori/`ImageResponse` crashed or produced empty white composites
+- Baked near-white PNGs still “loaded” in the UI so error handlers never ran
+- Extra creative directions could starve Image/Stories/Video of formats
+
+**Fix**
+- Creative route normalizes all heroes to **PNG via sharp** (WebP/AVIF OK)
+- No AI scene → use raw approved packshot (skip broken bake)
+- Reject blank/near-white bakes; fall back to packshot
+- First concept always generates **all** requested Meta formats
+- Ads UI: packshot underlay + video poster / fail → packshot
+
+**Paths:** `api/ads/creative/route.tsx`, `creative-pack.ts`, `creative-assets.ts`, `ads/page.tsx`
+
+**Manual:** Redeploy Hostinger; open Ads → **Regenerate pack** (or generate fresh). Old blank creatives keep empty URLs until regenerated.
+
 ### Fix: Creatives always use approved product packshot (no dead previews)
 **What / why**  
 AI scene gen often fails on Hostinger → broken `/api/ads/creative` URLs → “Creative failed”. Now bake retries packshot-only composite, then raw packshot; UI falls back to `primary_packshot`; carousel cards use product images.

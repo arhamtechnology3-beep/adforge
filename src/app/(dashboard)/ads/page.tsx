@@ -99,6 +99,16 @@ function competitorMediaSrc(url: string): string {
   return `/api/competitor-media/proxy?url=${encodeURIComponent(url)}`;
 }
 
+function sameOriginPreviewUrl(raw: string): string {
+  if (!raw) return '';
+  if (raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+  if (raw.startsWith('/api/ads/product-image')) return raw;
+  if (/^https?:\/\//i.test(raw)) {
+    return `/api/ads/product-image?src=${encodeURIComponent(raw)}`;
+  }
+  return raw;
+}
+
 function CreativePreview({
   url,
   variant,
@@ -110,47 +120,147 @@ function CreativePreview({
   aspect?: 'square' | 'story';
   fallbackUrl?: string | null;
 }) {
-  const [activeUrl, setActiveUrl] = useState(url || fallbackUrl || '');
+  const primary = sameOriginPreviewUrl(url || fallbackUrl || '');
+  const fallback = fallbackUrl ? sameOriginPreviewUrl(fallbackUrl) : null;
+  const [activeUrl, setActiveUrl] = useState(primary);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [usedFallback, setUsedFallback] = useState(false);
 
   useEffect(() => {
-    setActiveUrl(url || fallbackUrl || '');
+    setActiveUrl(primary);
     setStatus('loading');
     setUsedFallback(false);
     const t = window.setTimeout(() => {
       setStatus((s) => (s === 'loading' ? 'error' : s));
     }, 25000);
     return () => window.clearTimeout(t);
-  }, [url, fallbackUrl]);
+  }, [primary, fallback]);
 
   return (
     <div
-      className={`relative w-full bg-gray-200 overflow-hidden ${
+      className={`relative w-full overflow-hidden ${
         aspect === 'story' ? 'aspect-[9/16] max-h-[420px] mx-auto' : 'aspect-square'
       }`}
+      style={{
+        backgroundColor: aspect === 'story' ? '#111827' : '#f3f4f6',
+        backgroundImage:
+          'linear-gradient(45deg, #e5e7eb 25%, transparent 25%), linear-gradient(-45deg, #e5e7eb 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e5e7eb 75%), linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)',
+        backgroundSize: '16px 16px',
+        backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0',
+      }}
     >
+      {fallback && fallback !== activeUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={fallback}
+          alt=""
+          className="absolute inset-0 z-0 h-full w-full object-contain p-2 opacity-70"
+          aria-hidden
+        />
+      ) : null}
+
       {status !== 'ready' && (
-        <div className="absolute inset-0 z-[1] flex items-center justify-center text-xs text-muted px-4 text-center">
-          {status === 'error'
-            ? 'Creative failed — click Regenerate'
-            : 'Rendering creative…'}
+        <div className="absolute inset-0 z-[2] flex flex-col items-center justify-center gap-3 bg-white/75 backdrop-blur-[1px] px-4 text-center">
+          {status === 'loading' ? (
+            <>
+              <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden />
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-ink">Rendering creative…</p>
+                <p className="text-[11px] text-muted">Composing packshot for Meta preview</p>
+              </div>
+              <div className="h-1.5 w-32 overflow-hidden rounded-full bg-slate-200">
+                <div className="h-full w-1/2 animate-pulse rounded-full bg-primary" />
+              </div>
+            </>
+          ) : (
+            <>
+              <AlertTriangle className="h-7 w-7 text-amber-600" aria-hidden />
+              <p className="text-xs text-muted">Creative failed — click Regenerate or Visual</p>
+            </>
+          )}
         </div>
       )}
+
       {activeUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={activeUrl}
           alt={`Meta creative ${variant}`}
-          className={`relative w-full h-full object-contain bg-white transition-opacity ${
+          className={`relative z-[1] w-full h-full object-contain transition-opacity duration-300 ${
             status === 'ready' ? 'opacity-100' : 'opacity-0'
           }`}
           loading="eager"
-          onLoad={() => setStatus('ready')}
+          onLoad={(event) => {
+            try {
+              const img = event.currentTarget;
+              const probe = document.createElement('canvas');
+              probe.width = 32;
+              probe.height = 32;
+              const probeCtx = probe.getContext('2d', { willReadFrequently: true });
+              if (!probeCtx) {
+                setStatus('ready');
+                return;
+              }
+              probeCtx.fillStyle = '#ffffff';
+              probeCtx.fillRect(0, 0, 32, 32);
+              probeCtx.drawImage(img, 0, 0, 32, 32);
+              const sample = probeCtx.getImageData(0, 0, 32, 32).data;
+              let opaque = 0;
+              let lumaSum = 0;
+              let samples = 0;
+              for (let i = 0; i < sample.length; i += 4) {
+                const a = sample[i + 3];
+                if (a > 24) {
+                  opaque += 1;
+                  lumaSum += (sample[i] + sample[i + 1] + sample[i + 2]) / 3;
+                  samples += 1;
+                }
+              }
+              const meanLuma = samples ? lumaSum / samples : 255;
+              const blank =
+                opaque < 12 || (opaque >= 12 && meanLuma > 248 && samples > 20);
+
+              if (blank) {
+                if (!usedFallback && fallback && fallback !== activeUrl) {
+                  setUsedFallback(true);
+                  setActiveUrl(fallback);
+                  setStatus('loading');
+                  return;
+                }
+                // Restore RGB under wiped alpha (same-origin proxy makes canvas readable).
+                const full = document.createElement('canvas');
+                full.width = img.naturalWidth || 512;
+                full.height = img.naturalHeight || 512;
+                const fullCtx = full.getContext('2d');
+                if (fullCtx && opaque < 12) {
+                  fullCtx.drawImage(img, 0, 0);
+                  const pixels = fullCtx.getImageData(0, 0, full.width, full.height);
+                  let colorful = 0;
+                  for (let i = 0; i < pixels.data.length; i += 4) {
+                    const luma = (pixels.data[i] + pixels.data[i + 1] + pixels.data[i + 2]) / 3;
+                    if (luma > 8 && luma < 252) colorful += 1;
+                    pixels.data[i + 3] = 255;
+                  }
+                  if (colorful > full.width * full.height * 0.02) {
+                    fullCtx.putImageData(pixels, 0, 0);
+                    setUsedFallback(true);
+                    setActiveUrl(full.toDataURL('image/png'));
+                    setStatus('ready');
+                    return;
+                  }
+                }
+                setStatus(fallback ? 'ready' : 'error');
+                return;
+              }
+            } catch {
+              /* ignore canvas issues — proxy already repaired most cases */
+            }
+            setStatus('ready');
+          }}
           onError={() => {
-            if (!usedFallback && fallbackUrl && fallbackUrl !== activeUrl) {
+            if (!usedFallback && fallback && fallback !== activeUrl) {
               setUsedFallback(true);
-              setActiveUrl(fallbackUrl);
+              setActiveUrl(fallback);
               setStatus('loading');
               return;
             }
@@ -238,24 +348,56 @@ function CarouselPreview({ ad }: { ad: GeneratedAd }) {
   );
 }
 
-function VeoVideoPreview({ url, aspect }: { url: string; aspect?: string }) {
+function VeoVideoPreview({
+  url,
+  aspect,
+  poster,
+}: {
+  url: string;
+  aspect?: string;
+  poster?: string | null;
+}) {
+  const [failed, setFailed] = useState(false);
+  if (failed || !url) {
+    return (
+      <CreativePreview
+        url={poster || url}
+        fallbackUrl={poster}
+        variant={1}
+        aspect={aspect === '9:16' ? 'story' : 'square'}
+      />
+    );
+  }
   return (
     <div
       className={`relative bg-black ${
         aspect === '9:16' ? 'aspect-[9/16] max-h-[520px] mx-auto' : 'aspect-square'
       }`}
     >
+      {poster ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={poster}
+          alt=""
+          className="absolute inset-0 z-0 h-full w-full object-contain opacity-80"
+          aria-hidden
+        />
+      ) : null}
       <video
         src={url}
-        className="w-full h-full object-cover"
+        poster={poster || undefined}
+        className="relative z-[1] w-full h-full object-contain"
         controls
-        autoPlay
         muted
-        loop
         playsInline
+        onError={() => setFailed(true)}
+        onLoadedMetadata={(event) => {
+          const duration = event.currentTarget.duration;
+          if (!Number.isFinite(duration) || duration <= 0.05) setFailed(true);
+        }}
       />
       <p className="absolute top-2 left-2 z-10 text-[10px] font-semibold uppercase tracking-wide bg-black/55 text-white px-2 py-1 rounded">
-        Veo video
+        Video
       </p>
     </div>
   );
@@ -263,8 +405,14 @@ function VeoVideoPreview({ url, aspect }: { url: string; aspect?: string }) {
 
 function VideoPreview({ ad }: { ad: GeneratedAd }) {
   const videoUrl = ad.media_payload?.video_url;
+  const poster =
+    ad.media_payload?.poster_url ||
+    ad.media_payload?.primary_packshot ||
+    ad.media_payload?.frames?.[0]?.image_url ||
+    ad.image_url ||
+    null;
   if (videoUrl && /\.mp4(\?|$)/i.test(videoUrl)) {
-    return <VeoVideoPreview url={videoUrl} aspect={ad.media_payload?.aspect} />;
+    return <VeoVideoPreview url={videoUrl} aspect={ad.media_payload?.aspect} poster={poster} />;
   }
   return <SlideshowVideoPreview ad={ad} />;
 }

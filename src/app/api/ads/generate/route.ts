@@ -321,9 +321,26 @@ export async function POST(request: Request) {
     value.startsWith('/') ? `${origin}${value}` : value;
   let primaryPackshot = product.primary_packshot;
   try {
-    primaryPackshot = (
-      await normalizePackshot(product.primary_packshot, sessionUser.id, !sessionUser.isDemo)
-    ).url;
+    const normalized = await normalizePackshot(
+      product.primary_packshot,
+      sessionUser.id,
+      !sessionUser.isDemo
+    );
+    primaryPackshot = normalized.url;
+    if (primaryPackshot !== product.primary_packshot && !sessionUser.isDemo) {
+      const nextPackshots = [
+        primaryPackshot,
+        ...product.packshots.filter((url) => url !== primaryPackshot && url !== product.primary_packshot),
+      ];
+      await supabase
+        .from('products')
+        .update({
+          primary_packshot: primaryPackshot,
+          packshots: nextPackshots,
+        })
+        .eq('id', product.id)
+        .eq('user_id', user.id);
+    }
   } catch (error) {
     console.warn(
       '[packshot-normalize]',

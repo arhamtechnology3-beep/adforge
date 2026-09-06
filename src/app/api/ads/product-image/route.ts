@@ -1,8 +1,13 @@
 import { NextResponse } from 'next/server';
+import {
+  measureOpaqueRatio,
+  restoreInvisiblePackshot,
+} from '@/lib/creative-assets';
 
 /**
  * Same-origin product image proxy so Meta creatives can embed brand photos
  * without the OG renderer hanging on flaky external hosts.
+ * Also repairs historical cutouts that were saved fully transparent.
  */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -14,29 +19,45 @@ export async function GET(request: Request) {
 
   try {
     const res = await fetch(src, {
-      signal: AbortSignal.timeout(6000),
+      signal: AbortSignal.timeout(15000),
       headers: {
         'User-Agent': 'Mozilla/5.0 MetaAdsBot/1.0',
         Accept: 'image/*',
       },
-      next: { revalidate: 86400 },
+      cache: 'no-store',
     });
 
     if (!res.ok) {
       return NextResponse.json({ error: 'Upstream image failed' }, { status: 502 });
     }
 
-    const contentType = res.headers.get('content-type') || 'image/jpeg';
-    if (!contentType.startsWith('image/')) {
+    let contentType = res.headers.get('content-type') || 'image/jpeg';
+    if (!contentType.startsWith('image/') && !contentType.includes('octet-stream')) {
       return NextResponse.json({ error: 'Not an image' }, { status: 400 });
     }
 
-    const buf = await res.arrayBuffer();
-    return new NextResponse(buf, {
+    let output: Buffer = Buffer.from(await res.arrayBuffer());
+    if (!output.length) {
+      return NextResponse.json({ error: 'Empty image' }, { status: 502 });
+    }
+
+    try {
+      if ((await measureOpaqueRatio(output)) < 0.02) {
+        const restored = await restoreInvisiblePackshot(output);
+        if (restored) {
+          output = Buffer.from(restored);
+          contentType = 'image/png';
+        }
+      }
+    } catch {
+      /* keep original bytes if sharp can't inspect */
+    }
+
+    return new NextResponse(new Uint8Array(output), {
       status: 200,
       headers: {
-        'Content-Type': contentType,
-        'Cache-Control': 'public, max-age=86400, immutable',
+        'Content-Type': contentType.startsWith('image/') ? contentType : 'image/png',
+        'Cache-Control': 'public, max-age=3600',
       },
     });
   } catch {

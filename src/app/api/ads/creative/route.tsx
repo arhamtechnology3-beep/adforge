@@ -9,11 +9,12 @@ import { optimizeProductImageUrl } from '@/lib/creatives';
 import { ogSafeText } from '@/lib/og-text';
 import fs from 'fs';
 import path from 'path';
+import sharp from 'sharp';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const MAX_HERO_BYTES = 1_400_000;
+const MAX_HERO_BYTES = 3_500_000;
 const fontData = [
   {
     name: 'Noto Sans',
@@ -71,64 +72,78 @@ function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<R
   return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
 }
 
-function readLocalUpload(relativePath: string): string | null {
+/**
+ * Fetch hero image into a PNG data URL so ImageResponse never hangs on
+ * multi-MB Shopify banners, WebP/AVIF, or flaky remote hosts.
+ */
+async function loadHeroDataUrl(raw: string | null, origin?: string): Promise<string | null> {
+  if (!raw) return null;
   try {
-    const filePath = path.join(process.cwd(), 'public', relativePath.replace(/^\//, ''));
-    if (!fs.existsSync(filePath)) return null;
-    const buf = fs.readFileSync(filePath);
-    if (buf.length === 0 || buf.length > MAX_HERO_BYTES) return null;
-    const ext = path.extname(filePath).toLowerCase();
-    const type =
-      ext === '.png' ? 'image/png' : ext === '.gif' ? 'image/gif' : 'image/jpeg';
-    return `data:${type};base64,${buf.toString('base64')}`;
-  } catch {
+    let buf: Buffer;
+    if (raw.startsWith('/uploads/')) {
+      const local = await readLocalUploadBuffer(raw);
+      if (!local) return null;
+      buf = local;
+    } else {
+      const resolved = raw.startsWith('/') && origin ? `${origin}${raw}` : raw;
+      const src = optimizeProductImageUrl(resolved, 1080);
+      const res = await fetchWithTimeout(
+        src,
+        {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+          },
+          cache: 'no-store',
+        },
+        12000
+      );
+      if (!res.ok) return null;
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType && !contentType.startsWith('image/') && !contentType.includes('octet-stream')) {
+        return null;
+      }
+      buf = Buffer.from(await res.arrayBuffer());
+    }
+    if (buf.length === 0 || buf.length > MAX_HERO_BYTES * 4) return null;
+
+    // Always normalize to PNG — Satori crashes on WebP/AVIF ("a is not iterable").
+    let png = await sharp(buf)
+      .rotate()
+      .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
+      .ensureAlpha()
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+
+    // Historical cutouts sometimes wiped alpha to 0 while keeping RGB — restore so bake isn't blank.
+    const { measureOpaqueRatio, restoreInvisiblePackshot } = await import('@/lib/creative-assets');
+    if ((await measureOpaqueRatio(png)) < 0.02) {
+      const restored = await restoreInvisiblePackshot(png);
+      if (restored) png = restored;
+    }
+    if ((await measureOpaqueRatio(png)) < 0.02) return null;
+
+    // Keep under ImageResponse payload limits without dropping valid packshots.
+    if (png.length > MAX_HERO_BYTES) {
+      png = await sharp(png)
+        .resize(900, 900, { fit: 'inside', withoutEnlargement: true })
+        .png({ compressionLevel: 9, palette: true })
+        .toBuffer();
+    }
+    if (!png.length || png.length > MAX_HERO_BYTES) return null;
+    return `data:image/png;base64,${png.toString('base64')}`;
+  } catch (err) {
+    console.warn('[creative] hero fetch skipped', err instanceof Error ? err.message : err);
     return null;
   }
 }
 
-/**
- * Fetch hero image into a data URL so ImageResponse never hangs on
- * multi-MB Shopify banners or flaky remote hosts.
- */
-async function loadHeroDataUrl(raw: string | null, origin?: string): Promise<string | null> {
-  if (!raw) return null;
-  if (raw.startsWith('/uploads/')) {
-    return readLocalUpload(raw);
-  }
+async function readLocalUploadBuffer(publicPath: string): Promise<Buffer | null> {
   try {
-    const resolved = raw.startsWith('/') && origin ? `${origin}${raw}` : raw;
-    const src = optimizeProductImageUrl(resolved, 1080);
-    const res = await fetchWithTimeout(
-      src,
-      {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          Accept: 'image/jpeg,image/png,image/*,*/*;q=0.8',
-        },
-        cache: 'no-store',
-      },
-      12000
-    );
-    if (!res.ok) return null;
-
-    const contentType = res.headers.get('content-type') || 'image/jpeg';
-    if (!contentType.startsWith('image/')) return null;
-    // Satori/ImageResponse crashes on WebP ("a is not iterable")
-    if (/webp/i.test(contentType)) return null;
-
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length === 0 || buf.length > MAX_HERO_BYTES) return null;
-
-    const safeType = /png/i.test(contentType)
-      ? 'image/png'
-      : /gif/i.test(contentType)
-        ? 'image/gif'
-        : 'image/jpeg';
-
-    return `data:${safeType};base64,${buf.toString('base64')}`;
-  } catch (err) {
-    console.warn('[creative] hero fetch skipped', err instanceof Error ? err.message : err);
+    const absolute = path.join(process.cwd(), 'public', publicPath.replace(/^\//, ''));
+    return await fs.promises.readFile(absolute);
+  } catch {
     return null;
   }
 }

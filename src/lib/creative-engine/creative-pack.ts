@@ -18,12 +18,6 @@ import { generateSceneWithProviders, generateVideoWithProviders } from './provid
 import { evaluateCreativeQa, shouldAutoRegenerate } from './qa-engine';
 import { createGenerationJob, updateGenerationJob } from './generation-jobs';
 
-const FORMAT_BY_DIRECTION: MetaAdFormat[][] = [
-  ['single_image'],
-  ['carousel'],
-  ['stories', 'video'],
-];
-
 async function bakeVisual(input: {
   brand: string;
   headline: string;
@@ -42,6 +36,11 @@ async function bakeVisual(input: {
   expectedAspect: '1:1' | '4:5' | '9:16';
   persistToStorage?: boolean;
 }): Promise<string> {
+  // No AI scene → use the approved product packshot directly (reliable Meta visual).
+  if (!input.sceneUrl?.trim()) {
+    return input.productImage;
+  }
+
   const withScene = buildCreativeUrl({
     brand: input.brand,
     headline: input.headline,
@@ -50,7 +49,7 @@ async function bakeVisual(input: {
     cta: input.cta,
     badge: input.badge,
     productImage: input.productImage,
-    sceneImage: input.sceneUrl || null,
+    sceneImage: input.sceneUrl,
     format: input.format,
     adFormat: input.adFormat,
     variant: input.variant,
@@ -84,12 +83,13 @@ async function bakeVisual(input: {
 
 function formatsForDirection(
   directionIndex: number,
-  directionCount: number,
+  _directionCount: number,
   requested: MetaAdFormat[]
 ): MetaAdFormat[] {
-  if (directionCount <= 1) return requested;
-  const assigned = FORMAT_BY_DIRECTION[directionIndex % FORMAT_BY_DIRECTION.length];
-  return assigned.filter((format) => requested.includes(format));
+  // First concept builds every requested Meta format (image/carousel/stories/video).
+  // Extra concepts only add alternate single-image variants so packs stay complete.
+  if (directionIndex === 0) return requested;
+  return requested.includes('single_image') ? ['single_image'] : [];
 }
 
 function sceneSeed(conceptId: string, globalIndex: number, extra = 0): number {
@@ -98,17 +98,19 @@ function sceneSeed(conceptId: string, globalIndex: number, extra = 0): number {
 }
 
 function adFingerprint(ad: CreativePackResult['ads'][number]): string {
-  const payload = ad.media_payload;
+  const payload = ad.media_payload as Record<string, unknown> | undefined;
+  const conceptId = typeof payload?.concept_id === 'string' ? payload.concept_id : '';
   const sceneUrl = payload?.scene_url as string | undefined;
   const cards = payload?.cards as Array<{ image_url: string; scene_url?: string }> | undefined;
   const frames = payload?.frames as Array<{ image_url: string; scene_url?: string }> | undefined;
   if (ad.ad_format === 'carousel' && cards?.length) {
-    return `carousel:${cards.map((card) => card.scene_url || card.image_url).join('|')}`;
+    return `carousel:${conceptId}:${cards.map((card) => card.scene_url || card.image_url).join('|')}`;
   }
   if (ad.ad_format === 'video' && frames?.length) {
-    return `video:${frames.map((frame) => frame.scene_url || frame.image_url).join('|')}`;
+    return `video:${conceptId}:${frames.map((frame) => frame.scene_url || frame.image_url).join('|')}`;
   }
-  return `${ad.ad_format}:${sceneUrl || ad.image_url}`;
+  // Include concept + angle so packshot-only creatives are not collapsed into one card.
+  return `${ad.ad_format}:${conceptId}:${ad.angle}:${sceneUrl || ad.image_url}:${ad.headline}`;
 }
 
 function deduplicatePackAds(ads: CreativePackResult['ads']): CreativePackResult['ads'] {

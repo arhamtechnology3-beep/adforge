@@ -204,6 +204,101 @@ export function isAlreadyCutoutSource(source: string): boolean {
   return /-cutout\.png($|\?)/i.test(source) || /\/normalized\//i.test(source);
 }
 
+/** Share of pixels with meaningful alpha — fully transparent cutouts score ~0. */
+export async function measureOpaqueRatio(input: Buffer): Promise<number> {
+  const { data, info } = await sharp(input)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const total = info.width * info.height;
+  if (!total) return 0;
+  let opaque = 0;
+  for (let index = 3; index < data.length; index += info.channels) {
+    if (data[index] > 24) opaque += 1;
+  }
+  return opaque / total;
+}
+
+/**
+ * remove.bg / local flood-fill sometimes zero alpha while leaving RGB intact.
+ * Restore full opacity so Meta previews are not blank white.
+ */
+export async function restoreInvisiblePackshot(input: Buffer): Promise<Buffer | null> {
+  const { data, info } = await sharp(input)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const total = info.width * info.height;
+  if (!total) return null;
+
+  let opaque = 0;
+  let colorful = 0;
+  for (let position = 0; position < total; position += 1) {
+    const offset = position * info.channels;
+    if (data[offset + 3] > 24) opaque += 1;
+    const luma = (data[offset] + data[offset + 1] + data[offset + 2]) / 3;
+    if (luma > 8 && luma < 252) colorful += 1;
+  }
+  if (opaque / total >= 0.02) return null;
+  if (colorful / total < 0.02) return null;
+
+  for (let index = 3; index < data.length; index += info.channels) {
+    data[index] = 255;
+  }
+  return sharp(data, {
+    raw: { width: info.width, height: info.height, channels: 4 },
+  })
+    .png({ compressionLevel: 8 })
+    .toBuffer();
+}
+
+async function acceptCutoutOrOriginal(
+  candidate: Buffer,
+  originalPng: Buffer,
+  provider: 'remove-bg' | 'local',
+  claimedBackgroundRemoved: boolean
+): Promise<{
+  buffer: Buffer;
+  width: number;
+  height: number;
+  backgroundRemoved: boolean;
+  provider?: 'remove-bg' | 'local';
+}> {
+  if ((await measureOpaqueRatio(candidate)) >= 0.02) {
+    const meta = await sharp(candidate).metadata();
+    return {
+      buffer: candidate,
+      width: meta.width || 0,
+      height: meta.height || 0,
+      backgroundRemoved: claimedBackgroundRemoved,
+      provider,
+    };
+  }
+
+  const restoredCandidate = await restoreInvisiblePackshot(candidate);
+  if (restoredCandidate && (await measureOpaqueRatio(restoredCandidate)) >= 0.02) {
+    console.warn('[packshot-normalize] invisible cutout recovered by restoring alpha');
+    const meta = await sharp(restoredCandidate).metadata();
+    return {
+      buffer: restoredCandidate,
+      width: meta.width || 0,
+      height: meta.height || 0,
+      backgroundRemoved: false,
+      provider,
+    };
+  }
+
+  const restoredOriginal = (await restoreInvisiblePackshot(originalPng)) || originalPng;
+  console.warn('[packshot-normalize] cutout rejected (invisible); using original packshot');
+  const meta = await sharp(restoredOriginal).metadata();
+  return {
+    buffer: restoredOriginal,
+    width: meta.width || 0,
+    height: meta.height || 0,
+    backgroundRemoved: false,
+  };
+}
+
 function defringePixels(
   pixels: Buffer,
   width: number,
@@ -235,7 +330,14 @@ export async function normalizePackshotBuffer(input: Buffer): Promise<{
   backgroundRemoved: boolean;
   provider?: 'remove-bg' | 'local';
 }> {
-  let prepared = await sharp(input)
+  // Recover packshots that were previously saved with alpha wiped to 0.
+  const recovered = await restoreInvisiblePackshot(input);
+  const sourceInput = recovered || input;
+  if (recovered) {
+    console.warn('[packshot-normalize] input was invisible; restored RGB under zero alpha');
+  }
+
+  let prepared = await sharp(sourceInput)
     .rotate()
     .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
     .ensureAlpha()
@@ -245,7 +347,7 @@ export async function normalizePackshotBuffer(input: Buffer): Promise<{
 
   // Upscale tiny PDP thumbnails so import doesn't fail the 300×300 gate.
   if (width < 300 || height < 300) {
-    prepared = await sharp(input)
+    prepared = await sharp(sourceInput)
       .rotate()
       .resize(Math.max(300, width), Math.max(300, height), {
         fit: 'inside',
@@ -260,18 +362,19 @@ export async function normalizePackshotBuffer(input: Buffer): Promise<{
     throw new Error('Packshot must be at least 300×300 pixels');
   }
 
+  const originalPng = await sharp(prepared.data, { raw: rgbaRawInfo(prepared.info) })
+    .png({ compressionLevel: 8 })
+    .toBuffer();
+
   const pixels = Buffer.from(prepared.data);
   const total = width * height;
   let transparentPixels = 0;
   for (let index = 3; index < pixels.length; index += channels) {
     if (pixels[index] < 20) transparentPixels += 1;
   }
-  if (transparentPixels / total > 0.75) {
-    const trimmed = await sharp(pixels, { raw: rgbaRawInfo(prepared.info) })
-      .png({ compressionLevel: 8 })
-      .trim({ threshold: 10 })
-      .png({ compressionLevel: 8 })
-      .toBuffer();
+  // Already a real cutout with enough visible product — keep it.
+  if (transparentPixels / total > 0.75 && (await measureOpaqueRatio(originalPng)) >= 0.02) {
+    const trimmed = await sharp(originalPng).trim({ threshold: 10 }).png({ compressionLevel: 8 }).toBuffer();
     const meta = await sharp(trimmed).metadata();
     return {
       buffer: trimmed,
@@ -290,20 +393,12 @@ export async function normalizePackshotBuffer(input: Buffer): Promise<{
         .trim({ threshold: 8 })
         .png({ compressionLevel: 8 })
         .toBuffer();
-      const meta = await sharp(trimmed).metadata();
-      if (meta.width && meta.height) {
-        return {
-          buffer: trimmed,
-          width: meta.width,
-          height: meta.height,
-          backgroundRemoved: true,
-          provider: 'remove-bg',
-        };
-      }
+      return acceptCutoutOrOriginal(trimmed, originalPng, 'remove-bg', true);
     }
   }
 
-  return normalizePackshotBufferLocal(prepared, pixels, width, height, channels, total);
+  const local = await normalizePackshotBufferLocal(prepared, pixels, width, height, channels, total);
+  return acceptCutoutOrOriginal(local.buffer, originalPng, 'local', local.backgroundRemoved);
 }
 
 async function normalizePackshotBufferLocal(
@@ -423,17 +518,24 @@ export async function normalizePackshot(
 ): Promise<{ url: string; width: number; height: number; backgroundRemoved: boolean }> {
   if (!options?.force && isAlreadyCutoutSource(source)) {
     const input = await sourceBuffer(source);
-    const meta = await sharp(input).metadata();
-    return {
-      url: source,
-      width: meta.width || 0,
-      height: meta.height || 0,
-      backgroundRemoved: true,
-    };
+    if ((await measureOpaqueRatio(input)) >= 0.02) {
+      const meta = await sharp(input).metadata();
+      return {
+        url: source,
+        width: meta.width || 0,
+        height: meta.height || 0,
+        backgroundRemoved: true,
+      };
+    }
+    // Broken historical cutout (fully transparent) — repair and re-upload.
+    console.warn('[packshot-normalize] rejecting invisible cached cutout', source.slice(0, 120));
   }
   const input = await sourceBuffer(source);
   const normalized = await normalizePackshotBuffer(input);
   const output = normalized.buffer;
+  if ((await measureOpaqueRatio(output)) < 0.02) {
+    throw new Error('Packshot normalize produced an invisible image');
+  }
   const dir = path.join(process.cwd(), 'public', 'uploads', ownerId, 'products');
   await mkdir(dir, { recursive: true });
   const digest = createHash('sha1').update(output).digest('hex').slice(0, 12);
@@ -490,6 +592,12 @@ export async function bakeCreativeAsset(input: {
   const stats = await sharp(bytes).stats();
   const channelSpread = stats.channels.reduce((sum, channel) => sum + channel.stdev, 0);
   if (channelSpread < 6) throw new Error('Rendered creative appears blank');
+  const meanLuma =
+    stats.channels.slice(0, 3).reduce((sum, channel) => sum + channel.mean, 0) / 3;
+  // Near-white composites (missing packshot) look "successful" but show empty in the ads UI.
+  if (meanLuma > 245 && channelSpread < 40) {
+    throw new Error('Rendered creative appears empty/white');
+  }
 
   const output = await sharp(bytes).png({ compressionLevel: 8 }).toBuffer();
   const filename = `${Date.now()}-${randomUUID().slice(0, 8)}.png`;
