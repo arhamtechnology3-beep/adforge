@@ -8,6 +8,18 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-07
 
+### Fix: Stories/UGC full-bleed cover (no black letterbox)
+**What / why**  
+#3/#4 still showed a square packshot with large black bars in the 9:16 phone frame. Solid-color “pad” looked like letterboxing; user wants the frame **covered**.
+
+**Fix (Meta center-square method)**
+- `padImageToAspect`: blurred **cover** background edge-to-edge + sharp product in center safe zone
+- Stories/video preview CSS `object-cover`; product-image trims old black bars then rebuilds fill
+- Motion video cover-crop to fill 9:16
+- Project skill: `.cursor/skills/meta-stories-9x16/SKILL.md`
+
+**Manual:** Redeploy → hard refresh `/ads`. If an old baked URL still looks empty, click **Regenerate** on #3 and #4.
+
 ### Fix: Stories / Reels & UGC video cutting top & bottom
 **What / why**  
 #3 Stories and #4 UGC video showed square packshots in a 9:16 frame (checker letterbox) and motion video used FFmpeg **cover+crop**, chopping product top/bottom.

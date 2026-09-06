@@ -61,14 +61,39 @@ export async function GET(request: Request) {
       pad === '9:16' || pad === '4:5' || pad === '1:1' ? pad : null;
     if (padAspect) {
       try {
-        const meta = await sharp(output).metadata();
+        let source = output;
+        // Strip prior black/dark letterbox so we can rebuild a full-bleed cover
+        if (padAspect !== '1:1') {
+          try {
+            const trimmed = await sharp(output)
+              .trim({
+                background: { r: 17, g: 24, b: 39, alpha: 1 },
+                threshold: 32,
+              })
+              .png()
+              .toBuffer();
+            const before = await sharp(output).metadata();
+            const after = await sharp(trimmed).metadata();
+            if (
+              before.height &&
+              after.height &&
+              after.height < before.height * 0.92
+            ) {
+              source = trimmed;
+            }
+          } catch {
+            /* keep source */
+          }
+        }
+        const meta = await sharp(source).metadata();
         const ratio =
           meta.width && meta.height ? meta.width / meta.height : 1;
         const expected =
           padAspect === '9:16' ? 9 / 16 : padAspect === '4:5' ? 4 / 5 : 1;
-        if (Math.abs(ratio - expected) > 0.03) {
-          const padded = await padImageToAspect(output, padAspect);
-          output = padded.buffer;
+        // Always rebuild vertical canvases for full-bleed cover (not solid bars)
+        if (padAspect !== '1:1' || Math.abs(ratio - expected) > 0.03) {
+          const padded = await padImageToAspect(source, padAspect);
+          output = Buffer.from(padded.buffer);
           contentType = 'image/png';
         }
       } catch {

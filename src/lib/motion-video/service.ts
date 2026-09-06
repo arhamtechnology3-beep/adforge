@@ -121,10 +121,10 @@ async function buildFilterGraph(options: {
       index % 2 === 0
         ? `min(zoom+0.0006,1.06)`
         : `if(eq(on,1),1.06,max(1.0,zoom-0.0006))`;
-    // contain + pad (never cover/crop) so product top/bottom stay visible on 9:16
+    // Cover the 9:16 frame edge-to-edge (square sources fill height; sides may crop slightly)
     filters.push(
-      `[${index}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
-        `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,` +
+      `[${index}:v]scale=${width}:${height}:force_original_aspect_ratio=increase,` +
+        `crop=${width}:${height},setsar=1,` +
         `zoompan=z='${zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'` +
         `:d=${clipFrames}:s=${width}x${height}:fps=${FPS},` +
         `trim=duration=${clipDuration.toFixed(3)},setpts=PTS-STARTPTS[v${index}]`

@@ -578,8 +578,9 @@ export function aspectCanvasSize(
 }
 
 /**
- * Fit image inside a Meta aspect canvas without cropping (contain + pad).
- * Used so Stories / Reels never chop product top/bottom from square packshots.
+ * Fill a Meta aspect canvas edge-to-edge (no black letterbox).
+ * For 9:16 / 4:5: blurred cover background + sharp packshot in the center safe zone
+ * (Meta Stories/Reels: critical product in center ~1:1 on 1080×1920).
  */
 export async function padImageToAspect(
   input: Buffer,
@@ -587,15 +588,54 @@ export async function padImageToAspect(
   background = '#111827'
 ): Promise<{ buffer: Buffer; width: number; height: number }> {
   const { width, height } = aspectCanvasSize(aspect);
-  const buffer = await sharp(input)
-    .rotate()
-    .resize(width, height, {
-      fit: 'contain',
-      background,
+
+  if (aspect === '1:1') {
+    const buffer = await sharp(input)
+      .rotate()
+      .resize(width, height, {
+        fit: 'cover',
+        position: 'centre',
+        background,
+      })
+      .png({ compressionLevel: 8 })
+      .toBuffer();
+    return { buffer, width, height };
+  }
+
+  const rotated = await sharp(input).rotate().toBuffer();
+
+  // Full-bleed cover background so the phone frame never shows empty bars
+  const bg = await sharp(rotated)
+    .resize(width, height, { fit: 'cover', position: 'centre' })
+    .modulate({ brightness: 0.55, saturation: 1.05 })
+    .blur(42)
+    .png()
+    .toBuffer();
+
+  // Meta center-square method: keep product sharp inside ~1080×1080 mid band
+  const safeMax = aspect === '9:16' ? 1000 : Math.min(width, height) - 80;
+  const fg = await sharp(rotated)
+    .resize(safeMax, safeMax, {
+      fit: 'inside',
       withoutEnlargement: false,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
     })
+    .ensureAlpha()
+    .png()
+    .toBuffer();
+  const fgMeta = await sharp(fg).metadata();
+  const fgW = fgMeta.width || safeMax;
+  const fgH = fgMeta.height || safeMax;
+  const left = Math.max(0, Math.round((width - fgW) / 2));
+  // Bias slightly upward into Stories safe zone (below top UI, above Reels chrome)
+  const topBias = aspect === '9:16' ? Math.round(height * 0.08) : 0;
+  const top = Math.max(0, Math.round((height - fgH) / 2) - topBias);
+
+  const buffer = await sharp(bg)
+    .composite([{ input: fg, left, top }])
     .png({ compressionLevel: 8 })
     .toBuffer();
+
   return { buffer, width, height };
 }
 

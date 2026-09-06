@@ -205,7 +205,7 @@ function CreativePreview({
         <img
           src={candidates[1]}
           alt=""
-          className="absolute inset-0 z-0 h-full w-full object-contain p-2 opacity-70"
+          className="absolute inset-0 z-0 h-full w-full object-cover p-0 opacity-70"
           aria-hidden
         />
       ) : null}
@@ -238,9 +238,9 @@ function CreativePreview({
           key={activeUrl}
           src={activeUrl}
           alt={`Meta creative ${variant}`}
-          className={`relative z-[1] w-full h-full object-contain transition-opacity duration-300 ${
-            status === 'ready' ? 'opacity-100' : 'opacity-0'
-          }`}
+          className={`relative z-[1] w-full h-full transition-opacity duration-300 ${
+            aspect === 'story' ? 'object-cover' : 'object-contain'
+          } ${status === 'ready' ? 'opacity-100' : 'opacity-0'}`}
           loading="eager"
           onLoad={(event) => {
             try {
@@ -459,14 +459,14 @@ function VeoVideoPreview({
         <img
           src={poster}
           alt=""
-          className="absolute inset-0 z-0 h-full w-full object-contain opacity-80"
+          className="absolute inset-0 z-0 h-full w-full object-cover opacity-80"
           aria-hidden
         />
       ) : null}
       <video
         src={url}
         poster={poster || undefined}
-        className="relative z-[1] w-full h-full object-contain"
+        className="relative z-[1] w-full h-full object-cover"
         controls
         muted
         playsInline
