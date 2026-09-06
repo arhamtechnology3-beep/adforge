@@ -410,6 +410,20 @@ export function CampaignWizard({
         </a>
       </div>
 
+      {metaConnected && (
+        <MetaAssetPicker
+          enabled
+          onSaved={(sel) => {
+            // Parent page also mounts a picker; wizard-local update via toast
+            setToast(
+              sel.pixel_id
+                ? `Saved: Page ${sel.page_name || ''} · Pixel ${sel.pixel_name || sel.pixel_id}`
+                : `Saved: Page ${sel.page_name || ''} (no pixel yet)`
+            );
+          }}
+        />
+      )}
+
       {toast && (
         <div className="mb-4 rounded-lg bg-green-50 border border-green-200 text-green-800 text-sm px-4 py-3">
           {toast}

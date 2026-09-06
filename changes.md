@@ -8,6 +8,20 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-07
 
+### Feature: Visible Page + Pixel selector (dropdown + paste ID)
+**What / why**  
+Clients need an explicit Pixel select; API often returns no website Pixel yet. Global env cannot work multi-tenant.
+
+**Fix**
+- Blue **Select your Meta Page & Pixel** card under Meta status on Campaigns
+- Dropdown of website pixels + other datasets labeled
+- **Paste Pixel ID** from Events Manager when list is empty
+- Saves to that client’s `ad_accounts` only
+
+**Paths:** `MetaAssetPicker.tsx`, `CampaignWizard.tsx`
+
+**Manual:** Redeploy → Campaigns → select Page + Pixel (or paste ID) → Save.
+
 ### Feature: Per-client Page & Pixel picker (multi-tenant SaaS)
 **What / why**  
 Global `META_PAGE_ID` / `META_PIXEL_ID` lock-in cannot work for subscribers — each client has different Meta assets. Auto-first-pick also linked wrong Page/WhatsApp datasets.

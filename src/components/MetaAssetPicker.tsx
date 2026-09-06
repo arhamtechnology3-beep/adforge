@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, Check } from 'lucide-react';
+import { Loader2, Check, RefreshCw } from 'lucide-react';
 
-type AssetOption = { id: string; name: string };
+type AssetOption = { id: string; name: string; kind?: string };
 
 /**
  * Per-client Page + Pixel picker (multi-tenant SaaS).
@@ -27,9 +27,12 @@ export default function MetaAssetPicker({
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [pages, setPages] = useState<AssetOption[]>([]);
   const [pixels, setPixels] = useState<AssetOption[]>([]);
-  const [skipped, setSkipped] = useState<AssetOption[]>([]);
+  const [otherPixels, setOtherPixels] = useState<AssetOption[]>([]);
   const [pageId, setPageId] = useState('');
   const [pixelId, setPixelId] = useState('');
+  const [manualPixelId, setManualPixelId] = useState('');
+  const [useManualPixel, setUseManualPixel] = useState(false);
+  const [loadKey, setLoadKey] = useState(0);
 
   useEffect(() => {
     if (!enabled) return;
@@ -43,9 +46,21 @@ export default function MetaAssetPicker({
         if (cancelled) return;
         setPages(data.pages || []);
         setPixels(data.pixels || []);
-        setSkipped(data.skipped_pixels || []);
-        setPageId(data.selected?.page_id || data.suggested?.page?.id || '');
-        setPixelId(data.selected?.pixel_id || data.suggested?.pixel?.id || '');
+        setOtherPixels(data.skipped_pixels || []);
+        const selPage = data.selected?.page_id || data.suggested?.page?.id || '';
+        const selPixel = data.selected?.pixel_id || data.suggested?.pixel?.id || '';
+        setPageId(selPage);
+        const inWebsite = (data.pixels || []).some((p: AssetOption) => p.id === selPixel);
+        const inOther = (data.skipped_pixels || []).some((p: AssetOption) => p.id === selPixel);
+        if (selPixel && !inWebsite && !inOther) {
+          setUseManualPixel(true);
+          setManualPixelId(selPixel);
+          setPixelId('');
+        } else {
+          setUseManualPixel(false);
+          setPixelId(selPixel);
+          setManualPixelId('');
+        }
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Load failed');
@@ -56,14 +71,27 @@ export default function MetaAssetPicker({
     return () => {
       cancelled = true;
     };
-  }, [enabled]);
+  }, [enabled, loadKey]);
 
   async function save() {
     setSaving(true);
     setError(null);
     setSavedMsg(null);
     const page = pages.find((p) => p.id === pageId);
-    const pixel = pixels.find((p) => p.id === pixelId);
+    const resolvedPixelId = useManualPixel
+      ? manualPixelId.trim()
+      : pixelId.trim();
+    const fromList =
+      pixels.find((p) => p.id === resolvedPixelId) ||
+      otherPixels.find((p) => p.id === resolvedPixelId);
+    const resolvedPixelName = fromList?.name || (resolvedPixelId ? 'Custom Pixel' : null);
+
+    if (resolvedPixelId && !/^\d{5,}$/.test(resolvedPixelId)) {
+      setError('Pixel ID must be numbers only (from Events Manager).');
+      setSaving(false);
+      return;
+    }
+
     try {
       const res = await fetch('/api/meta/assets', {
         method: 'PATCH',
@@ -71,13 +99,13 @@ export default function MetaAssetPicker({
         body: JSON.stringify({
           page_id: pageId || null,
           page_name: page?.name || null,
-          pixel_id: pixelId || null,
-          pixel_name: pixel?.name || null,
+          pixel_id: resolvedPixelId || null,
+          pixel_name: resolvedPixelName,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Save failed');
-      setSavedMsg('Saved for your account');
+      setSavedMsg('Saved for this client account');
       onSaved?.({
         page_id: data.page_id,
         page_name: data.page_name,
@@ -94,13 +122,26 @@ export default function MetaAssetPicker({
   if (!enabled) return null;
 
   return (
-    <div className="meta-card p-4 mb-4 border-blue-100 bg-blue-50/40 space-y-3">
-      <div>
-        <p className="text-sm font-semibold text-[var(--foreground)]">Your Meta Page &amp; Pixel</p>
-        <p className="text-xs text-[var(--muted)] mt-0.5">
-          Each client picks their own assets. WhatsApp messaging datasets are hidden — use your
-          Shopify / website Pixel for store traffic.
-        </p>
+    <div className="meta-card p-4 mb-4 border-2 border-[var(--meta-blue)] bg-blue-50/50 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-[var(--foreground)]">
+            Select your Meta Page &amp; Pixel
+          </p>
+          <p className="text-xs text-[var(--muted)] mt-0.5">
+            Required per client (SaaS). Pick the Facebook Page that should appear on ads, and your
+            Shopify/website Pixel for Sales tracking.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn-secondary text-xs inline-flex items-center gap-1 shrink-0"
+          onClick={() => setLoadKey((k) => k + 1)}
+          disabled={loading}
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          Refresh list
+        </button>
       </div>
 
       {loading ? (
@@ -108,48 +149,78 @@ export default function MetaAssetPicker({
           <Loader2 className="w-4 h-4 animate-spin" /> Loading your Pages &amp; Pixels…
         </div>
       ) : (
-        <div className="grid sm:grid-cols-2 gap-3">
-          <div>
-            <label className="label">Facebook Page</label>
-            <select
-              className="input"
-              value={pageId}
-              onChange={(e) => setPageId(e.target.value)}
-            >
-              <option value="">Select page…</option>
-              {pages.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="label">Website Pixel (optional for Traffic)</label>
-            <select
-              className="input"
-              value={pixelId}
-              onChange={(e) => setPixelId(e.target.value)}
-            >
-              <option value="">No pixel / choose later…</option>
-              {pixels.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            {skipped.length > 0 && (
-              <p className="text-[10px] text-[var(--muted)] mt-1">
-                Hidden {skipped.length} WhatsApp/messaging dataset
-                {skipped.length > 1 ? 's' : ''} (not for website ads).
-              </p>
-            )}
-            {pixels.length === 0 && (
-              <p className="text-[10px] text-amber-700 mt-1">
-                No website Pixel found. Create one in Meta Events Manager and link it to this ad
-                account, then refresh.
-              </p>
-            )}
+        <div className="space-y-3">
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <label className="label">Facebook Page</label>
+              <select
+                className="input"
+                value={pageId}
+                onChange={(e) => setPageId(e.target.value)}
+              >
+                <option value="">Select page…</option>
+                {pages.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Meta Pixel</label>
+              {!useManualPixel ? (
+                <select
+                  className="input"
+                  value={pixelId}
+                  onChange={(e) => setPixelId(e.target.value)}
+                >
+                  <option value="">No pixel / choose later…</option>
+                  {pixels.length > 0 && (
+                    <optgroup label="Website / Shopify pixels">
+                      {pixels.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {otherPixels.length > 0 && (
+                    <optgroup label="Other (WhatsApp etc. — not for store traffic)">
+                      {otherPixels.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              ) : (
+                <input
+                  className="input font-mono text-sm"
+                  placeholder="Paste Pixel ID from Events Manager"
+                  value={manualPixelId}
+                  onChange={(e) => setManualPixelId(e.target.value.trim())}
+                />
+              )}
+              <button
+                type="button"
+                className="text-[11px] text-[var(--meta-blue)] mt-1.5 underline"
+                onClick={() => {
+                  setUseManualPixel((v) => !v);
+                  setError(null);
+                }}
+              >
+                {useManualPixel
+                  ? '← Choose from list instead'
+                  : 'Or paste Pixel ID from Events Manager'}
+              </button>
+              {pixels.length === 0 && !useManualPixel && (
+                <p className="text-[10px] text-amber-800 mt-1">
+                  No website Pixel on this ad account yet. Create one in Events Manager, share it
+                  with this ad account, Refresh list — or paste the Pixel ID above.
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}
