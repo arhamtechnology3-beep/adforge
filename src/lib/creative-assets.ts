@@ -523,6 +523,54 @@ export async function bakeCreativeAsset(input: {
   };
 }
 
+/**
+ * Bake a Meta creative; if render/AI scene fails, rebuild with packshot only,
+ * then fall back to the raw approved product image so the UI never shows a dead preview.
+ */
+export async function bakeCreativeOrPackshot(input: {
+  creativeUrl: string;
+  packshotOnlyUrl: string;
+  packshotUrl: string;
+  origin: string;
+  ownerId: string;
+  expectedAspect: '1:1' | '4:5' | '9:16';
+  persistToStorage?: boolean;
+}): Promise<{ url: string; usedPackshotFallback: boolean }> {
+  try {
+    const baked = await bakeCreativeAsset({
+      creativeUrl: input.creativeUrl,
+      origin: input.origin,
+      ownerId: input.ownerId,
+      expectedAspect: input.expectedAspect,
+      persistToStorage: input.persistToStorage,
+    });
+    return { url: baked.url, usedPackshotFallback: false };
+  } catch (firstError) {
+    console.warn(
+      '[bake-creative] primary bake failed, retrying packshot-only:',
+      firstError instanceof Error ? firstError.message : firstError
+    );
+  }
+
+  try {
+    const baked = await bakeCreativeAsset({
+      creativeUrl: input.packshotOnlyUrl,
+      origin: input.origin,
+      ownerId: input.ownerId,
+      expectedAspect: input.expectedAspect,
+      persistToStorage: input.persistToStorage,
+    });
+    return { url: baked.url, usedPackshotFallback: true };
+  } catch (secondError) {
+    console.warn(
+      '[bake-creative] packshot-only bake failed, using raw packshot:',
+      secondError instanceof Error ? secondError.message : secondError
+    );
+  }
+
+  return { url: input.packshotUrl, usedPackshotFallback: true };
+}
+
 export async function persistCreativeFile(input: {
   publicPath: string;
   ownerId: string;

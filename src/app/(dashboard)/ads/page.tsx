@@ -103,20 +103,26 @@ function CreativePreview({
   url,
   variant,
   aspect = 'square',
+  fallbackUrl,
 }: {
   url: string;
   variant: number;
   aspect?: 'square' | 'story';
+  fallbackUrl?: string | null;
 }) {
+  const [activeUrl, setActiveUrl] = useState(url || fallbackUrl || '');
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [usedFallback, setUsedFallback] = useState(false);
 
   useEffect(() => {
+    setActiveUrl(url || fallbackUrl || '');
     setStatus('loading');
+    setUsedFallback(false);
     const t = window.setTimeout(() => {
       setStatus((s) => (s === 'loading' ? 'error' : s));
     }, 25000);
     return () => window.clearTimeout(t);
-  }, [url]);
+  }, [url, fallbackUrl]);
 
   return (
     <div
@@ -126,29 +132,48 @@ function CreativePreview({
     >
       {status !== 'ready' && (
         <div className="absolute inset-0 z-[1] flex items-center justify-center text-xs text-muted px-4 text-center">
-          {status === 'error' ? 'Creative failed — click Regenerate' : 'Rendering creative…'}
+          {status === 'error'
+            ? 'Creative failed — click Regenerate'
+            : 'Rendering creative…'}
         </div>
       )}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={url}
-        alt={`Meta creative ${variant}`}
-        className={`relative w-full h-full object-cover transition-opacity ${
-          status === 'ready' ? 'opacity-100' : 'opacity-0'
-        }`}
-        loading="eager"
-        onLoad={() => setStatus('ready')}
-        onError={() => setStatus('error')}
-      />
+      {activeUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={activeUrl}
+          alt={`Meta creative ${variant}`}
+          className={`relative w-full h-full object-contain bg-white transition-opacity ${
+            status === 'ready' ? 'opacity-100' : 'opacity-0'
+          }`}
+          loading="eager"
+          onLoad={() => setStatus('ready')}
+          onError={() => {
+            if (!usedFallback && fallbackUrl && fallbackUrl !== activeUrl) {
+              setUsedFallback(true);
+              setActiveUrl(fallbackUrl);
+              setStatus('loading');
+              return;
+            }
+            setStatus('error');
+          }}
+        />
+      ) : null}
     </div>
   );
 }
 
 function CarouselPreview({ ad }: { ad: GeneratedAd }) {
   const cards = ad.media_payload?.cards || [];
+  const packshot = ad.media_payload?.primary_packshot || null;
   const [idx, setIdx] = useState(0);
-  if (cards.length === 0 && ad.image_url) {
-    return <CreativePreview url={ad.image_url} variant={ad.variant_number} />;
+  if (cards.length === 0 && (ad.image_url || packshot)) {
+    return (
+      <CreativePreview
+        url={ad.image_url || packshot || ''}
+        fallbackUrl={packshot}
+        variant={ad.variant_number}
+      />
+    );
   }
 
   const card = cards[idx];
@@ -156,7 +181,11 @@ function CarouselPreview({ ad }: { ad: GeneratedAd }) {
   return (
     <div className="relative">
       {card && (
-        <CreativePreview url={card.image_url} variant={ad.variant_number} />
+        <CreativePreview
+          url={card.image_url || packshot || ''}
+          fallbackUrl={packshot}
+          variant={ad.variant_number}
+        />
       )}
       <div className="absolute bottom-3 left-0 right-0 flex items-center justify-center gap-2 z-10">
         <button
@@ -254,8 +283,14 @@ function SlideshowVideoPreview({ ad }: { ad: GeneratedAd }) {
     return () => window.clearTimeout(t);
   }, [playing, idx, frames.length, frameDuration]);
 
-  if (frames.length === 0 && ad.image_url) {
-    return <CreativePreview url={ad.image_url} variant={ad.variant_number} />;
+  if (frames.length === 0 && (ad.image_url || ad.media_payload?.primary_packshot)) {
+    return (
+      <CreativePreview
+        url={ad.image_url || ad.media_payload?.primary_packshot || ''}
+        fallbackUrl={ad.media_payload?.primary_packshot}
+        variant={ad.variant_number}
+      />
+    );
   }
 
   const frame = frames[idx];
@@ -264,7 +299,8 @@ function SlideshowVideoPreview({ ad }: { ad: GeneratedAd }) {
       {frame && (
         <CreativePreview
           key={`${ad.id}-${idx}`}
-          url={frame.image_url}
+          url={frame.image_url || ad.media_payload?.primary_packshot || ''}
+          fallbackUrl={ad.media_payload?.primary_packshot}
           variant={ad.variant_number}
         />
       )}
@@ -293,16 +329,28 @@ function SlideshowVideoPreview({ ad }: { ad: GeneratedAd }) {
 
 function AdMedia({ ad }: { ad: GeneratedAd }) {
   const format = normalizeFormat(ad);
+  const packshot = ad.media_payload?.primary_packshot || null;
   if (format === 'carousel') return <CarouselPreview ad={ad} />;
   if (format === 'video') return <VideoPreview ad={ad} />;
   if (format === 'stories') {
     return (
       <div className="bg-[#111] py-3">
-        <CreativePreview url={ad.image_url || ''} variant={ad.variant_number} aspect="story" />
+        <CreativePreview
+          url={ad.image_url || packshot || ''}
+          fallbackUrl={packshot}
+          variant={ad.variant_number}
+          aspect="story"
+        />
       </div>
     );
   }
-  return <CreativePreview url={ad.image_url || ''} variant={ad.variant_number} />;
+  return (
+    <CreativePreview
+      url={ad.image_url || packshot || ''}
+      fallbackUrl={packshot}
+      variant={ad.variant_number}
+    />
+  );
 }
 
 export default function AdsPage() {

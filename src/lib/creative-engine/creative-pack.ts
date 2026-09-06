@@ -4,7 +4,7 @@ import {
   META_AD_FORMATS,
   type MetaAdFormat,
 } from '@/lib/creatives';
-import { bakeCreativeAsset, normalizePackshot } from '@/lib/creative-assets';
+import { bakeCreativeOrPackshot, normalizePackshot } from '@/lib/creative-assets';
 import type {
   CreativeAspect,
   CreativeDirection,
@@ -23,6 +23,64 @@ const FORMAT_BY_DIRECTION: MetaAdFormat[][] = [
   ['carousel'],
   ['stories', 'video'],
 ];
+
+async function bakeVisual(input: {
+  brand: string;
+  headline: string;
+  subline: string;
+  angle: string;
+  cta: string;
+  badge: string;
+  productImage: string;
+  sceneUrl?: string | null;
+  format: Parameters<typeof buildCreativeUrl>[0]['format'];
+  adFormat: MetaAdFormat;
+  variant: number;
+  template: string;
+  origin: string;
+  ownerId: string;
+  expectedAspect: '1:1' | '4:5' | '9:16';
+  persistToStorage?: boolean;
+}): Promise<string> {
+  const withScene = buildCreativeUrl({
+    brand: input.brand,
+    headline: input.headline,
+    subline: input.subline,
+    angle: input.angle,
+    cta: input.cta,
+    badge: input.badge,
+    productImage: input.productImage,
+    sceneImage: input.sceneUrl || null,
+    format: input.format,
+    adFormat: input.adFormat,
+    variant: input.variant,
+    template: input.template,
+  });
+  const packshotOnly = buildCreativeUrl({
+    brand: input.brand,
+    headline: input.headline,
+    subline: input.subline,
+    angle: input.angle,
+    cta: input.cta,
+    badge: input.badge,
+    productImage: input.productImage,
+    sceneImage: null,
+    format: input.format,
+    adFormat: input.adFormat,
+    variant: input.variant,
+    template: 'hero-product',
+  });
+  const baked = await bakeCreativeOrPackshot({
+    creativeUrl: withScene,
+    packshotOnlyUrl: packshotOnly,
+    packshotUrl: input.productImage,
+    origin: input.origin,
+    ownerId: input.ownerId,
+    expectedAspect: input.expectedAspect,
+    persistToStorage: input.persistToStorage,
+  });
+  return baked.url;
+}
 
 function formatsForDirection(
   directionIndex: number,
@@ -194,7 +252,7 @@ export async function buildCreativePack(
           userId: request.ownerId,
           pattern: matchedPattern,
         });
-        let imageUrl = buildCreativeUrl({
+        let imageUrl = await bakeVisual({
           brand: request.truth.brandName,
           headline: direction.headline,
           subline,
@@ -202,21 +260,16 @@ export async function buildCreativePack(
           cta: direction.cta,
           badge,
           productImage,
-          sceneImage: scene.url,
+          sceneUrl: scene.url,
           format: creativeFormat(aspect),
           adFormat: 'single_image',
           variant,
           template: direction.name,
+          origin: request.origin,
+          ownerId: request.ownerId,
+          expectedAspect: aspect === '4:5' ? '4:5' : '1:1',
+          persistToStorage: request.persistToStorage,
         });
-        imageUrl = (
-          await bakeCreativeAsset({
-            creativeUrl: imageUrl,
-            origin: request.origin,
-            ownerId: request.ownerId,
-            expectedAspect: aspect === '4:5' ? '4:5' : '1:1',
-            persistToStorage: request.persistToStorage,
-          })
-        ).url;
 
         const qa = await evaluateCreativeQa({
           headline: direction.headline,
@@ -239,7 +292,7 @@ export async function buildCreativePack(
             userId: request.ownerId,
             pattern: matchedPattern,
           });
-          imageUrl = buildCreativeUrl({
+          imageUrl = await bakeVisual({
             brand: request.truth.brandName,
             headline: direction.headline,
             subline,
@@ -247,21 +300,16 @@ export async function buildCreativePack(
             cta: direction.cta,
             badge,
             productImage,
-            sceneImage: scene.url,
+            sceneUrl: scene.url,
             format: creativeFormat(aspect),
             adFormat: 'single_image',
             variant: variant + 100,
             template: direction.name,
+            origin: request.origin,
+            ownerId: request.ownerId,
+            expectedAspect: aspect === '4:5' ? '4:5' : '1:1',
+            persistToStorage: request.persistToStorage,
           });
-          imageUrl = (
-            await bakeCreativeAsset({
-              creativeUrl: imageUrl,
-              origin: request.origin,
-              ownerId: request.ownerId,
-              expectedAspect: aspect === '4:5' ? '4:5' : '1:1',
-              persistToStorage: request.persistToStorage,
-            })
-          ).url;
         }
 
         ads.push({
@@ -313,7 +361,7 @@ export async function buildCreativePack(
         userId: request.ownerId,
         pattern: matchedPattern,
       });
-      let imageUrl = buildCreativeUrl({
+      const imageUrl = await bakeVisual({
         brand: request.truth.brandName,
         headline: direction.headline,
         subline,
@@ -321,21 +369,16 @@ export async function buildCreativePack(
         cta: direction.cta,
         badge,
         productImage,
-        sceneImage: scene.url,
+        sceneUrl: scene.url,
         format: 'story_9x16',
         adFormat: 'stories',
         variant,
         template: direction.name,
+        origin: request.origin,
+        ownerId: request.ownerId,
+        expectedAspect: '9:16',
+        persistToStorage: request.persistToStorage,
       });
-      imageUrl = (
-        await bakeCreativeAsset({
-          creativeUrl: imageUrl,
-          origin: request.origin,
-          ownerId: request.ownerId,
-          expectedAspect: '9:16',
-          persistToStorage: request.persistToStorage,
-        })
-      ).url;
       const qa = await evaluateCreativeQa({
         headline: direction.headline,
         primaryText: direction.primaryText,
@@ -361,7 +404,7 @@ export async function buildCreativePack(
           product_id: request.truth.productId,
           product_name: request.truth.productName,
           primary_packshot: productImage,
-          scene_url: scene.url,
+          scene_url: scene.url || null,
           scene_provider: scene.provider,
           scene_preset: scene.presetId,
           scene_preset_name: scene.presetName,
@@ -380,8 +423,12 @@ export async function buildCreativePack(
       variant += 1;
       const cardCount = 3;
       const cards = [];
+      const packshots = request.truth.packshots?.length
+        ? request.truth.packshots
+        : [productImage];
       for (let cardIndex = 0; cardIndex < cardCount; cardIndex += 1) {
         globalSceneIndex += 1;
+        const cardPackshot = packshots[cardIndex % packshots.length] || productImage;
         const scene = await renderScene({
           truth: request.truth,
           direction,
@@ -395,41 +442,36 @@ export async function buildCreativePack(
           cardIndex === 0
             ? direction.headline
             : `${request.truth.brandName} · ${request.truth.category}`.slice(0, 40);
-        let imageUrl = buildCreativeUrl({
+        const imageUrl = await bakeVisual({
           brand: request.truth.brandName,
           headline: cardHeadline,
           subline,
           angle: direction.angle,
           cta: direction.cta,
           badge: cardIndex === 0 ? badge : `CARD ${cardIndex + 1}`,
-          productImage,
-          sceneImage: scene.url,
+          productImage: cardPackshot,
+          sceneUrl: scene.url,
           format: 'feed_1x1',
           adFormat: 'carousel',
           variant: variant * 10 + cardIndex,
           template: direction.name,
+          origin: request.origin,
+          ownerId: request.ownerId,
+          expectedAspect: '1:1',
+          persistToStorage: request.persistToStorage,
         });
-        imageUrl = (
-          await bakeCreativeAsset({
-            creativeUrl: imageUrl,
-            origin: request.origin,
-            ownerId: request.ownerId,
-            expectedAspect: '1:1',
-            persistToStorage: request.persistToStorage,
-          })
-        ).url;
         cards.push({
           image_url: imageUrl,
           headline: cardHeadline,
           description: subline,
-          scene_url: scene.url,
+          scene_url: scene.url || null,
         });
       }
       ads.push({
         campaign_input_id: request.campaignInputId,
         variant_number: variant,
         copy_text: direction.primaryText,
-        image_url: cards[0]?.image_url || '',
+        image_url: cards[0]?.image_url || productImage,
         status: 'pending',
         ad_format: 'carousel',
         headline: direction.headline,
@@ -463,7 +505,7 @@ export async function buildCreativePack(
           userId: request.ownerId,
           pattern: matchedPattern,
         });
-        let imageUrl = buildCreativeUrl({
+        const imageUrl = await bakeVisual({
           brand: request.truth.brandName,
           headline: sceneDef.headline || direction.headline,
           subline,
@@ -471,26 +513,21 @@ export async function buildCreativePack(
           cta: direction.cta,
           badge: sceneDef.purpose.toUpperCase(),
           productImage,
-          sceneImage: scene.url,
+          sceneUrl: scene.url,
           format: 'story_9x16',
           adFormat: 'video',
           variant: variant * 10 + sceneIndex,
           template: direction.name,
+          origin: request.origin,
+          ownerId: request.ownerId,
+          expectedAspect: '9:16',
+          persistToStorage: request.persistToStorage,
         });
-        imageUrl = (
-          await bakeCreativeAsset({
-            creativeUrl: imageUrl,
-            origin: request.origin,
-            ownerId: request.ownerId,
-            expectedAspect: '9:16',
-            persistToStorage: request.persistToStorage,
-          })
-        ).url;
         frames.push({
           image_url: imageUrl,
           headline: sceneDef.headline || direction.headline,
           duration_ms: Math.round((sceneDef.end - sceneDef.start) * 1000),
-          scene_url: scene.url,
+          scene_url: scene.url || null,
         });
       }
 
@@ -512,7 +549,7 @@ export async function buildCreativePack(
         campaign_input_id: request.campaignInputId,
         variant_number: variant,
         copy_text: direction.primaryText,
-        image_url: frames[0]?.image_url || '',
+        image_url: frames[0]?.image_url || productImage,
         status: 'pending',
         ad_format: 'video',
         headline: direction.headline,
@@ -522,7 +559,7 @@ export async function buildCreativePack(
           aspect: '9:16',
           frames,
           video_url: video?.url || null,
-          poster_url: frames[0]?.image_url || null,
+          poster_url: frames[0]?.image_url || productImage,
           duration_ms: scenePlan.duration * 1000,
           video_style: 'ugc-motion',
           product_id: request.truth.productId,

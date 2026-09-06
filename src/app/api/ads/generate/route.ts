@@ -114,15 +114,23 @@ async function bakeAdRows(
             (row.image_url ? await bake(row.image_url, aspect) : '');
       output.push({ ...row, image_url: imageUrl, media_payload: payload });
     } catch (error) {
+      const packshot =
+        (typeof row.media_payload?.primary_packshot === 'string' &&
+          row.media_payload.primary_packshot) ||
+        '';
       output.push({
         ...row,
+        image_url: packshot || row.image_url,
         media_payload: {
           ...row.media_payload,
-          quality_valid: false,
-          quality_score: Math.min(row.media_payload.quality_score ?? 40, 40),
+          primary_packshot: packshot || row.media_payload?.primary_packshot || null,
+          quality_valid: Boolean(packshot),
+          quality_score: Math.min(row.media_payload.quality_score ?? 55, packshot ? 70 : 40),
           quality_flags: [
             ...(row.media_payload.quality_flags || []),
-            `Render failed: ${error instanceof Error ? error.message : String(error)}`,
+            packshot
+              ? 'Used approved product packshot after render failed'
+              : `Render failed: ${error instanceof Error ? error.message : String(error)}`,
           ],
         },
       });

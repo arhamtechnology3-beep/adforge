@@ -8,6 +8,14 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-06
 
+### Fix: Creatives always use approved product packshot (no dead previews)
+**What / why**  
+AI scene gen often fails on Hostinger → broken `/api/ads/creative` URLs → “Creative failed”. Now bake retries packshot-only composite, then raw packshot; UI falls back to `primary_packshot`; carousel cards use product images.
+
+**Paths:** `creative-assets.ts` (`bakeCreativeOrPackshot`), `creative-pack.ts`, `providers/index.ts`, `ads/page.tsx`, `api/ads/generate/route.ts`
+
+**Manual:** Redeploy; click **Regenerate pack** on existing failed ads (or generate fresh).
+
 ### Fix: Onboarding packshot preview + ingredients; ads flow without Library dead-end
 **What / why**
 - Packshot preview: instant PDP image, checkerboard bg for transparent cutouts, upscale tiny images, keep PDP URL if normalize fails

@@ -8,7 +8,6 @@ import { ArhamImageProvider } from './arham-image';
 import { FreeLLMVideoProvider } from './freellm-video';
 import { PuterVideoProvider } from './puter';
 import { FallbackMotionVideoProvider } from './fallback-motion-video';
-import { LocalImageProvider } from './local-image';
 import { recordCreativeUsage } from '../usage-ledger';
 import { reserveProviderQuota } from '../quota-manager';
 import { evaluateScenePurity } from '@/lib/scene-purity';
@@ -83,17 +82,14 @@ export async function generateSceneWithProviders(
   }
 
   console.warn(
-    `[scene-gen] Arham image API failed for preset=${presetLabel} — using local SVG fallback`
+    `[scene-gen] Arham image API failed for preset=${presetLabel} — packshot-only creative will be used`
   );
-  const local = new LocalImageProvider();
-  const fallback = await local.generate(request);
-  return (
-    fallback || {
-      url: '',
-      provider: 'local',
-      isFinalCreative: false,
-    }
-  );
+  // Do not return a flat SVG scene: Meta creatives must show the approved product packshot.
+  return {
+    url: '',
+    provider: 'packshot-fallback',
+    isFinalCreative: false,
+  };
 }
 
 export async function generateVideoWithProviders(
