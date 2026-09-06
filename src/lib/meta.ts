@@ -51,6 +51,70 @@ export type MetaPixelRow = {
   is_unavailable?: boolean;
 };
 
+export type MetaPageRow = { id: string; name?: string };
+
+/** Skip WhatsApp / messaging datasets — AdForge optimizes website/Shopify traffic. */
+export function isWebsiteMetaPixel(pixel: MetaPixelRow): boolean {
+  const name = String(pixel.name || '').toLowerCase();
+  if (!pixel.id || !/^\d{5,}$/.test(pixel.id) || pixel.is_unavailable) return false;
+  if (
+    /whatsapp|wa\s*market|message event sharing|click.to.whatsapp|ctwa|messaging/.test(
+      name
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/** Prefer real website/Shopify pixels over messaging datasets. */
+export function pickBestWebsitePixel(pixels: MetaPixelRow[]): MetaPixelRow | null {
+  const usable = pixels.filter(isWebsiteMetaPixel);
+  if (!usable.length) return null;
+  const scored = usable.map((p) => {
+    const name = String(p.name || '').toLowerCase();
+    let score = 10;
+    if (/shopify|store|website|purchase|conversion|pixel/.test(name)) score += 30;
+    if (/pickle|divya|food|arham/.test(name)) score += 20;
+    if (/test|demo|sample/.test(name)) score -= 15;
+    return { p, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0]?.p || null;
+}
+
+/** Prefer brand / advertising pages when the user manages many Pages. */
+export function pickBestFacebookPage(
+  pages: MetaPageRow[],
+  hints?: { preferredPageId?: string | null; brandHints?: string[] }
+): MetaPageRow | null {
+  const list = (pages || []).filter((p) => p?.id && /^\d{5,}$/.test(p.id));
+  if (!list.length) return null;
+
+  const preferred = String(hints?.preferredPageId || process.env.META_PAGE_ID || '').trim();
+  if (preferred) {
+    const hit = list.find((p) => p.id === preferred);
+    if (hit) return hit;
+  }
+
+  const brandHints = (hints?.brandHints || [])
+    .map((h) => h.toLowerCase().trim())
+    .filter(Boolean);
+
+  const scored = list.map((p) => {
+    const name = String(p.name || '').toLowerCase();
+    let score = 5;
+    if (/advertising|ads|official|store|shop/.test(name)) score += 25;
+    if (/arham/.test(name)) score += 20;
+    for (const h of brandHints) {
+      if (h.length >= 3 && name.includes(h)) score += 35;
+    }
+    return { p, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0]?.p || list[0];
+}
+
 export async function getAdAccountPixels(
   accessToken: string,
   adAccountId: string
@@ -66,7 +130,6 @@ export async function getAdAccountPixels(
     }
   };
 
-  // 1) Pixels directly on the ad account
   try {
     const res = await fetch(
       `${META_BASE}/${actId}/adspixels?fields=id,name,is_unavailable&limit=50&access_token=${accessToken}`
@@ -81,24 +144,21 @@ export async function getAdAccountPixels(
     console.warn('[Meta] adspixels fetch error', err);
   }
 
-  // 2) Business-owned / client pixels (common for Shopify stores)
-  if (found.size === 0) {
-    try {
-      const res = await fetch(
-        `${META_BASE}/me/businesses?fields=id,name,owned_pixels{id,name},client_pixels{id,name}&access_token=${accessToken}`
-      );
-      if (res.ok) {
-        const data = await res.json();
-        for (const biz of data.data || []) {
-          ingest(biz.owned_pixels?.data as MetaPixelRow[]);
-          ingest(biz.client_pixels?.data as MetaPixelRow[]);
-        }
-      } else {
-        console.warn('[Meta] businesses pixels', await res.text());
+  try {
+    const res = await fetch(
+      `${META_BASE}/me/businesses?fields=id,name,owned_pixels{id,name},client_pixels{id,name}&access_token=${accessToken}`
+    );
+    if (res.ok) {
+      const data = await res.json();
+      for (const biz of data.data || []) {
+        ingest(biz.owned_pixels?.data as MetaPixelRow[]);
+        ingest(biz.client_pixels?.data as MetaPixelRow[]);
       }
-    } catch (err) {
-      console.warn('[Meta] businesses pixels error', err);
+    } else {
+      console.warn('[Meta] businesses pixels', await res.text());
     }
+  } catch (err) {
+    console.warn('[Meta] businesses pixels error', err);
   }
 
   return Array.from(found.values());
@@ -106,7 +166,7 @@ export async function getAdAccountPixels(
 
 /**
  * Resolve Meta Pixel for conversion campaigns.
- * Prefer stored/env; otherwise first available pixel on the ad account.
+ * Prefer stored/env; otherwise best website pixel (never WhatsApp message datasets).
  */
 export async function ensureMetaPixelId(opts: {
   accessToken: string;
@@ -122,7 +182,7 @@ export async function ensureMetaPixelId(opts: {
     return { pixelId: fromEnv, source: 'env' };
   }
   const pixels = await getAdAccountPixels(opts.accessToken, opts.adAccountId);
-  const primary = pixels.find((p) => p?.id && !p.is_unavailable && /^\d{5,}$/.test(p.id));
+  const primary = pickBestWebsitePixel(pixels);
   if (!primary?.id) return null;
   return { pixelId: primary.id, pixelName: primary.name || null, source: 'live' };
 }
@@ -142,16 +202,17 @@ export async function getFacebookPages(accessToken: string) {
   );
   if (!res.ok) return [];
   const data = await res.json();
-  return (data.data || []) as Array<{ id: string; name?: string }>;
+  return (data.data || []) as MetaPageRow[];
 }
 
 /**
  * Resolve a real Facebook Page ID for ad creatives.
- * Prefer stored/env ID; otherwise fetch pages from the user token.
+ * Prefer stored/env ID; otherwise best matching Page from the user token.
  */
 export async function ensureFacebookPageId(opts: {
   accessToken: string;
   storedPageId?: string | null;
+  brandHints?: string[];
 }): Promise<{ pageId: string; pageName?: string | null; source: 'stored' | 'env' | 'live' }> {
   const stored = String(opts.storedPageId || '').trim();
   if (stored && stored !== 'me' && /^\d{5,}$/.test(stored)) {
@@ -162,7 +223,9 @@ export async function ensureFacebookPageId(opts: {
     return { pageId: fromEnv, source: 'env' };
   }
   const pages = await getFacebookPages(opts.accessToken);
-  const primary = pages.find((p) => p?.id && /^\d{5,}$/.test(p.id));
+  const primary = pickBestFacebookPage(pages, {
+    brandHints: opts.brandHints,
+  });
   if (!primary?.id) {
     throw new Error(
       'No Facebook Page found on this Meta login. Open Meta Business Suite, make sure your user manages a Page, reconnect Facebook in AdForge, or set META_PAGE_ID.'

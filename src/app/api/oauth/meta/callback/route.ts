@@ -4,6 +4,8 @@ import {
   getAdAccounts,
   getFacebookPages,
   getAdAccountPixels,
+  pickBestFacebookPage,
+  pickBestWebsitePixel,
   storeToken,
 } from '@/lib/meta';
 import { exchangeCodeForToken, getLongLivedToken } from '@/lib/meta-oauth';
@@ -61,23 +63,29 @@ export async function GET(request: Request) {
       getFacebookPages(longToken.access_token),
     ]);
     const primaryAccount = adAccounts[0];
-    const primaryPage = pages[0];
+    // Prefer Advertising / brand pages — not "first Page Meta returns"
+    const primaryPage = pickBestFacebookPage(pages, {
+      brandHints: ['arham advertising', 'divyaprabha', 'divya', 'pickle'],
+    });
     const expiresAt = new Date(
       Date.now() + (longToken.expires_in || 5184000) * 1000
     ).toISOString();
     const encrypted = storeToken(longToken.access_token);
     const pageId = primaryPage?.id || process.env.META_PAGE_ID || null;
 
-    // Auto-link Meta Pixel from the connected ad account (Phase 3)
+    // Prefer website/Shopify Pixel — never WhatsApp "Message Event Sharing"
     let pixelId: string | null = process.env.META_PIXEL_ID || null;
     let pixelName: string | null = null;
     if (primaryAccount?.id) {
       try {
         const pixels = await getAdAccountPixels(longToken.access_token, primaryAccount.id);
-        const primaryPixel = pixels.find((p) => p?.id && !p.is_unavailable);
+        const primaryPixel = pickBestWebsitePixel(pixels);
         if (primaryPixel?.id) {
           pixelId = primaryPixel.id;
           pixelName = primaryPixel.name || null;
+        } else {
+          pixelId = null;
+          pixelName = null;
         }
       } catch (err) {
         console.warn('[Meta OAuth] pixel auto-link skipped', err);

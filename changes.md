@@ -8,6 +8,19 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-07
 
+### Fix: Wrong Page/Pixel on Connect (Pickle Affair + WhatsApp dataset)
+**What / why**  
+OAuth used Meta’s **first** Page and **first** Pixel. With many businesses, that linked **The Pickle Affair** + **WhatsApp Marketing Message Event Sharing** instead of the store website Pixel / Advertising page.
+
+**Fix**
+- `pickBestFacebookPage` — prefer Advertising / brand-named pages (or `META_PAGE_ID`)
+- `pickBestWebsitePixel` — skip WhatsApp/messaging datasets; prefer Shopify/website pixels
+- Clear WhatsApp pixel if no website pixel exists (don’t fake-link)
+
+**Paths:** `meta.ts`, `oauth/meta/callback`
+
+**Manual:** Redeploy → **Reconnect Facebook**. Optional Hostinger: set `META_PAGE_ID=<correct page id>` and `META_PIXEL_ID=<shopify website pixel id>` from Events Manager.
+
 ### Fix: Hostinger build failed on unused vars in CampaignWizard
 **What / why**  
 Deploy `a0b033c` failed ESLint: unused `setMetaPageName` / `setMetaPixelName` / `setMetaPixelId`.
