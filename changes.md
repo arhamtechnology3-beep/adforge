@@ -8,6 +8,23 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-06
 
+### Feature: Full website-traffic Meta tree (Campaign → Ad set → Ad)
+**What / why**  
+Team workflow in Ads Manager is Campaign → Ad set → **Create ad** (page, media, copy, website URL). AdForge must create that full tree automatically for Shopify/store traffic — not leave an empty ad set, and not use WhatsApp as destination.
+
+**Fix**
+- Ad sets for Traffic use `destination_type: WEBSITE`
+- Ads require https store URL + primary text + headline + image; website CTAs only (WhatsApp CTA removed)
+- Confirm activates **campaign + ad set + ads** (`activateCampaignTree`) so Ads Manager can preview
+- Validation blocks empty copy/headline and non-https / example.com URLs
+- Wizard copy clarifies website-only traffic and that “Create ad” in Ads Manager is not needed
+
+**Paths:** `meta.ts`, `meta-campaign.ts`, `campaign-validation.ts`, `campaigns/launch|confirm`, `CampaignWizard.tsx`
+
+**Manual:** Redeploy Hostinger → Create on Meta → Confirm & Go Live → open Ads Manager **Ads** tab (not a blank manual draft). Billing must be OK for delivery.
+
+**Note:** No Facebook MCP is configured in this project; publishing uses the Marketing API in `src/lib/meta.ts`.
+
 ### Fix: “Ad 1: Meta returned no ad id”
 **What / why**  
 Launch/Confirm reached Meta ad create but Graph returned HTTP 200 without an `id` (often empty/`success`-only when nested JSON fields are dropped). UI showed a vague “Meta returned no ad id”.

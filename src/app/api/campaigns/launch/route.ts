@@ -6,7 +6,7 @@ import {
   ensureFacebookPageId,
   publishAdsToMeta,
 } from '@/lib/meta';
-import { genderToMetaGenders } from '@/lib/meta-campaign';
+import { genderToMetaGenders, isHttpsWebsiteUrl, normalizeWebsiteCta } from '@/lib/meta-campaign';
 import { getSessionUser } from '@/lib/auth/session';
 import { checkTrialAccess } from '@/lib/trial-gate';
 import {
@@ -106,6 +106,16 @@ export async function POST(request: Request) {
   const metaConnection = await resolveMetaConnection(user);
   const metaReady = metaConnectionIsLive(metaConnection);
 
+  if (metaReady && !isHttpsWebsiteUrl(destination)) {
+    return NextResponse.json(
+      {
+        error:
+          'Enter your Shopify/store https:// website URL. AdForge only publishes website traffic ads (not WhatsApp).',
+      },
+      { status: 422 }
+    );
+  }
+
   let metaCampaignId: string | null = null;
   let metaAdSetId: string | null = null;
   let metaSyncError: string | null = null;
@@ -160,8 +170,8 @@ export async function POST(request: Request) {
           })
           .eq('user_id', user.id);
       }
-      const link = destination || website_url || 'https://example.com';
-      const ctaType = String(cta || audience?.cta || 'SHOP_NOW');
+      const link = String(destination);
+      const ctaType = normalizeWebsiteCta(String(cta || audience?.cta || 'SHOP_NOW'));
       const linkDescription = audience?.link_description || undefined;
 
       const published = await publishAdsToMeta({
@@ -195,7 +205,7 @@ export async function POST(request: Request) {
   const launchConfig = {
     audience,
     budget_type,
-    cta: cta || audience?.cta || 'SHOP_NOW',
+    cta: normalizeWebsiteCta(cta || audience?.cta || 'SHOP_NOW'),
     website_url: destination,
     format_mix: formatMix,
     meta_synced: !!metaCampaignId && adsSynced && !metaSyncError,

@@ -119,6 +119,8 @@ import {
   getObjectiveConfig,
   buildPlacementSpec,
   buildScheduleTimes,
+  normalizeWebsiteCta,
+  isHttpsWebsiteUrl,
   type CampaignAudienceInput,
 } from '@/lib/meta-campaign';
 import {
@@ -188,6 +190,14 @@ export async function createAdSet(
     status: 'PAUSED',
     access_token: accessToken,
   };
+
+  // Website traffic / store promotion — same destination your team picks in Ads Manager
+  if (
+    objConfig.optimization_goal === 'LINK_CLICKS' ||
+    options?.objective === 'OUTCOME_TRAFFIC'
+  ) {
+    body.destination_type = 'WEBSITE';
+  }
 
   const budgetPaise = Math.round(budget * 100);
   if (options?.budgetType === 'lifetime') {
@@ -392,12 +402,32 @@ export async function publishAdsToMeta(opts: {
 }): Promise<{ metaAdIds: string[]; errors: string[] }> {
   const metaAdIds: string[] = [];
   const errors: string[] = [];
-  const ctaType = opts.ctaType || 'SHOP_NOW';
+  const ctaType = normalizeWebsiteCta(opts.ctaType);
+  const link = String(opts.link || '').trim();
+
+  if (!isHttpsWebsiteUrl(link)) {
+    return {
+      metaAdIds: [],
+      errors: [
+        'Website URL must be a public https:// store/Shopify link before Meta ads can be created.',
+      ],
+    };
+  }
 
   for (const [index, ad] of opts.ads.entries()) {
     const picture = ad.image_url || ad.media_payload?.cards?.[0]?.image_url || '';
+    const copy = String(ad.copy_text || '').trim();
+    const headline = String(ad.headline || '').trim();
     if (!picture) {
       errors.push(`Ad ${index + 1}: missing image URL`);
+      continue;
+    }
+    if (!copy) {
+      errors.push(`Ad ${index + 1}: missing primary text (ad copy)`);
+      continue;
+    }
+    if (!headline) {
+      errors.push(`Ad ${index + 1}: missing headline`);
       continue;
     }
     try {
@@ -405,11 +435,11 @@ export async function publishAdsToMeta(opts: {
         opts.accessToken,
         opts.adAccountId,
         opts.adSetId,
-        String(ad.copy_text || '').slice(0, 2200),
+        copy.slice(0, 2200),
         picture,
         opts.pageId,
-        opts.link,
-        ad.headline ? String(ad.headline).slice(0, 40) : undefined,
+        link,
+        headline.slice(0, 40),
         ctaType,
         opts.linkDescription,
         ad.media_payload?.cards || undefined
@@ -445,18 +475,31 @@ export async function createAd(
   linkDescription?: string,
   cards?: MetaCreateAdCard[]
 ): Promise<{ id: string; creative_id: string }> {
-  const destination = link || process.env.DEFAULT_AD_LINK || 'https://example.com';
-  const cta = (ctaType || 'SHOP_NOW').toUpperCase().replace(/\s+/g, '_');
+  const destination = String(link || '').trim();
+  if (!isHttpsWebsiteUrl(destination)) {
+    throw new Error(
+      'Ad creation needs a valid https:// website/store URL (Shopify or your store).'
+    );
+  }
+  const cta = normalizeWebsiteCta(ctaType);
+  const primaryText = String(copyText || '').trim();
+  const adHeadline = String(headline || '').trim().slice(0, 40);
+  if (!primaryText) {
+    throw new Error('Ad creation needs primary text (ad copy).');
+  }
+  if (!adHeadline) {
+    throw new Error('Ad creation needs a headline.');
+  }
 
   const linkData: Record<string, unknown> = {
-    message: copyText.slice(0, 2200),
+    message: primaryText.slice(0, 2200),
     link: destination,
+    name: adHeadline,
     call_to_action: {
       type: cta,
       value: { link: destination },
     },
   };
-  if (headline) linkData.name = headline.slice(0, 40);
   if (linkDescription) linkData.description = linkDescription.slice(0, 30);
 
   const cardList = (cards || []).filter((c) => c?.image_url).slice(0, 10);
@@ -466,7 +509,7 @@ export async function createAd(
       const ref = await metaImageRef(accessToken, adAccountId, card.image_url);
       child_attachments.push({
         link: card.link || destination,
-        name: String(card.headline || headline || 'Shop now').slice(0, 40),
+        name: String(card.headline || adHeadline || 'Shop now').slice(0, 40),
         description: String(card.description || linkDescription || '').slice(0, 30),
         ...ref,
         call_to_action: {
@@ -489,7 +532,7 @@ export async function createAd(
   // Form-encoded body is the most reliable for Marketing API nested fields
   // (JSON posts sometimes drop `creative` / `object_story_spec` and return success without an id).
   const creativeBody = new URLSearchParams();
-  creativeBody.set('name', `Creative ${Date.now()}`);
+  creativeBody.set('name', `${adHeadline} · Creative`);
   creativeBody.set(
     'object_story_spec',
     JSON.stringify({
@@ -508,7 +551,7 @@ export async function createAd(
   const creativeId = assertMetaMutationOk('Creative creation failed', creativeRes, creativePayload);
 
   const adBody = new URLSearchParams();
-  adBody.set('name', `Ad ${Date.now()}`);
+  adBody.set('name', adHeadline);
   adBody.set('adset_id', adSetId);
   adBody.set('creative', JSON.stringify({ creative_id: creativeId }));
   adBody.set('status', 'PAUSED');
@@ -524,14 +567,42 @@ export async function createAd(
   return { id: adId, creative_id: creativeId };
 }
 
-export async function activateCampaign(accessToken: string, campaignId: string) {
-  const res = await fetch(`${META_BASE}/${campaignId}`, {
+async function setMetaObjectStatus(
+  accessToken: string,
+  objectId: string,
+  status: 'ACTIVE' | 'PAUSED',
+  label: string
+) {
+  const res = await fetch(`${META_BASE}/${objectId}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status: 'ACTIVE', access_token: accessToken }),
+    body: JSON.stringify({ status, access_token: accessToken }),
   });
-  if (!res.ok) throw new Error('Failed to activate campaign');
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(formatMetaApiError(`Failed to set ${label} ${status}`, err));
+  }
   return res.json();
+}
+
+/** Activate campaign + ad set + ads so Ads Manager shows a complete, publishable tree. */
+export async function activateCampaignTree(opts: {
+  accessToken: string;
+  campaignId: string;
+  adSetId?: string | null;
+  adIds?: string[];
+}) {
+  await setMetaObjectStatus(opts.accessToken, opts.campaignId, 'ACTIVE', 'campaign');
+  if (opts.adSetId) {
+    await setMetaObjectStatus(opts.accessToken, opts.adSetId, 'ACTIVE', 'ad set');
+  }
+  for (const adId of opts.adIds || []) {
+    await setMetaObjectStatus(opts.accessToken, adId, 'ACTIVE', 'ad');
+  }
+}
+
+export async function activateCampaign(accessToken: string, campaignId: string) {
+  return setMetaObjectStatus(accessToken, campaignId, 'ACTIVE', 'campaign');
 }
 
 export async function pauseCampaign(accessToken: string, campaignId: string) {

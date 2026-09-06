@@ -580,8 +580,17 @@ export function CampaignWizard({
                 </div>
               </div>
               <div>
-                <label className="label">Destination URL</label>
-                <input type="url" className="input" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} placeholder="https://yourstore.com" />
+                <label className="label">Website / Shopify URL</label>
+                <input
+                  type="url"
+                  className="input"
+                  value={websiteUrl}
+                  onChange={(e) => setWebsiteUrl(e.target.value)}
+                  placeholder="https://yourstore.myshopify.com"
+                />
+                <p className="text-xs text-[var(--muted)] mt-1">
+                  Website traffic only — people click the ad and land on your store (not WhatsApp).
+                </p>
               </div>
               <div className="grid sm:grid-cols-2 gap-4">
                 <div>
@@ -679,17 +688,24 @@ export function CampaignWizard({
               <p className="text-sm text-[var(--muted)] max-w-sm mx-auto">
                 {lastLaunchMetaSynced ? (
                   <>
-                    Your campaign is created as <strong>PAUSED</strong> on Meta. Confirm below to go
-                    live on Facebook &amp; Instagram.
+                    AdForge created the full Meta tree:{' '}
+                    <strong>Campaign → Ad set → Ad</strong> (with your page, image, copy, and store
+                    URL), all matching what your team builds manually. Status is{' '}
+                    <strong>PAUSED</strong> until you Confirm — then Campaign, Ad set, and Ads turn{' '}
+                    <strong>ACTIVE</strong> so you can preview in Ads Manager.
                   </>
                 ) : (
                   <>
                     Local draft is saved
                     {lastLaunchMetaError
-                      ? ', but Meta sync failed. Confirm will retry publishing to Meta.'
+                      ? ', but Meta sync failed. Confirm will retry creating the Ad under your Ad set.'
                       : '. Connect Meta or Confirm to publish when ready.'}
                   </>
                 )}
+              </p>
+              <p className="text-xs text-[var(--muted)] mb-6 max-w-md mx-auto">
+                You should not need to click “Create ad” in Ads Manager — AdForge fills identity,
+                creative, and website destination automatically.
               </p>
               {lastLaunchedId && (
                 <button

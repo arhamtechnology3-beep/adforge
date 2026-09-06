@@ -3,6 +3,8 @@ import {
   type CampaignLaunchInput,
   getObjectiveConfig,
   META_CTA_OPTIONS,
+  normalizeWebsiteCta,
+  isHttpsWebsiteUrl,
 } from '@/lib/meta-campaign';
 import { resolvePublicCreativeImageUrl } from '@/lib/meta';
 
@@ -155,28 +157,27 @@ export function validateCampaignLaunch(opts: {
     errors.push('Minimum budget is ₹100');
   }
 
-  // Destination URL
+  // Destination URL — website / Shopify only
   const url = input.website_url?.trim() || '';
-  const urlValid = /^https:\/\/.+/i.test(url);
-  if (urlValid) {
+  if (isHttpsWebsiteUrl(url)) {
     items.push({
       id: 'url',
-      label: 'Destination URL',
+      label: 'Website destination (Shopify/store)',
       status: 'pass',
       message: url.length > 50 ? `${url.slice(0, 50)}…` : url,
     });
   } else {
     items.push({
       id: 'url',
-      label: 'Destination URL',
+      label: 'Website destination (Shopify/store)',
       status: 'fail',
-      message: 'Must be a valid HTTPS URL',
+      message: 'Must be a valid https:// store URL (not WhatsApp)',
     });
-    errors.push('Destination URL must start with https://');
+    errors.push('Destination URL must be your https:// website/store link');
   }
 
-  // CTA
-  const cta = (input.cta || input.audience?.cta || 'SHOP_NOW').toUpperCase();
+  // CTA — website traffic buttons only
+  const cta = normalizeWebsiteCta(input.cta || input.audience?.cta || 'SHOP_NOW');
   if (VALID_CTAS.has(cta as (typeof META_CTA_OPTIONS)[number]['value'])) {
     items.push({
       id: 'cta',
@@ -264,10 +265,18 @@ export function validateCampaignLaunch(opts: {
     });
 
     for (const ad of selectedAds) {
-      const headline = ad.headline || '';
-      const copy = ad.copy_text || '';
+      const headline = (ad.headline || '').trim();
+      const copy = (ad.copy_text || '').trim();
 
-      if (headline.length > 40) {
+      if (!headline) {
+        items.push({
+          id: `headline_${ad.id}`,
+          label: `Headline (variant)`,
+          status: 'fail',
+          message: 'Required — Meta ads need a headline',
+        });
+        errors.push('Each creative needs a headline');
+      } else if (headline.length > 40) {
         items.push({
           id: `headline_${ad.id}`,
           label: `Headline (variant)`,
@@ -276,7 +285,15 @@ export function validateCampaignLaunch(opts: {
         });
         errors.push(`Headline exceeds 40 characters`);
       }
-      if (copy.length > 2200) {
+      if (!copy) {
+        items.push({
+          id: `copy_${ad.id}`,
+          label: `Primary text (variant)`,
+          status: 'fail',
+          message: 'Required — Meta ads need primary text',
+        });
+        errors.push('Each creative needs primary text (ad copy)');
+      } else if (copy.length > 2200) {
         items.push({
           id: `copy_${ad.id}`,
           label: `Primary text (variant)`,

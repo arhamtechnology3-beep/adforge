@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import {
-  activateCampaign,
+  activateCampaignTree,
   createCampaign,
   createAdSet,
   ensureFacebookPageId,
   publishAdsToMeta,
 } from '@/lib/meta';
 import type { PlacementToggles } from '@/lib/meta-campaign';
-import { genderToMetaGenders } from '@/lib/meta-campaign';
+import { genderToMetaGenders, isHttpsWebsiteUrl, normalizeWebsiteCta } from '@/lib/meta-campaign';
 import { getSessionUser } from '@/lib/auth/session';
 import {
   metaAccessToken,
@@ -190,6 +190,20 @@ export async function POST(
         );
       }
 
+      const websiteLink =
+        (typeof campaign.website_url === 'string' && campaign.website_url) ||
+        (typeof launchConfig.website_url === 'string' && launchConfig.website_url) ||
+        '';
+      if (!isHttpsWebsiteUrl(websiteLink)) {
+        return NextResponse.json(
+          {
+            error:
+              'Set a valid https:// Shopify/store website URL on the campaign before Confirm. Ads must send traffic to your website.',
+          },
+          { status: 422 }
+        );
+      }
+
       const pageResolved = await ensureFacebookPageId({
         accessToken: token,
         storedPageId: metaConnection.page_id,
@@ -210,8 +224,8 @@ export async function POST(
         adAccountId,
         adSetId: metaAdSetId!,
         pageId: pageResolved.pageId,
-        link: campaign.website_url || process.env.DEFAULT_AD_LINK || 'https://example.com',
-        ctaType: String(launchConfig.cta || audience.cta || 'SHOP_NOW'),
+        link: websiteLink,
+        ctaType: normalizeWebsiteCta(String(launchConfig.cta || audience.cta || 'SHOP_NOW')),
         linkDescription: (audience.link_description as string) || undefined,
         ads,
       });
@@ -229,7 +243,12 @@ export async function POST(
       }
     }
 
-    await activateCampaign(token, metaCampaignId!);
+    await activateCampaignTree({
+      accessToken: token,
+      campaignId: metaCampaignId!,
+      adSetId: metaAdSetId,
+      adIds: metaAdIds,
+    });
 
     const updatedLaunchConfig = {
       ...launchConfig,
@@ -265,14 +284,14 @@ export async function POST(
       return NextResponse.json({
         campaign: data || updated,
         meta_live: true,
-        message: `Campaign is live on Meta with ${metaAdIds.length} ad(s). If Delivery shows Payment error, add a payment method in Ads Manager → Billing.`,
+        message: `Campaign is live on Meta with ${metaAdIds.length} ad(s) (Campaign → Ad set → Ad). Open Ads Manager to review; fix Billing if Delivery shows Payment error.`,
       });
     }
 
     return NextResponse.json({
       campaign: updated,
       meta_live: true,
-      message: `Campaign is live on Meta with ${metaAdIds.length} ad(s). If Delivery shows Payment error, add a payment method in Ads Manager → Billing.`,
+      message: `Campaign is live on Meta with ${metaAdIds.length} ad(s) (Campaign → Ad set → Ad). Open Ads Manager to review; fix Billing if Delivery shows Payment error.`,
     });
   } catch (err) {
     console.error('[Campaign Confirm]', err);

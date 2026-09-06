@@ -48,8 +48,31 @@ export const META_CTA_OPTIONS = [
   { value: 'BOOK_NOW', label: 'Book Now' },
   { value: 'GET_OFFER', label: 'Get Offer' },
   { value: 'CONTACT_US', label: 'Contact Us' },
-  { value: 'WHATSAPP_MESSAGE', label: 'WhatsApp' },
 ] as const;
+
+/** Website-traffic CTAs only (Shopify / store URLs). WhatsApp is out of scope. */
+export const WEBSITE_CTA_VALUES = META_CTA_OPTIONS.map((c) => c.value);
+
+export function normalizeWebsiteCta(raw: string | null | undefined): string {
+  const cta = String(raw || 'SHOP_NOW')
+    .toUpperCase()
+    .replace(/\s+/g, '_');
+  if (cta === 'WHATSAPP_MESSAGE' || cta === 'WHATSAPP' || cta === 'MESSAGE_PAGE') {
+    return 'SHOP_NOW';
+  }
+  return (WEBSITE_CTA_VALUES as readonly string[]).includes(cta) ? cta : 'SHOP_NOW';
+}
+
+export function isHttpsWebsiteUrl(url: string | null | undefined): boolean {
+  const u = String(url || '').trim();
+  if (!/^https:\/\/.+/i.test(u)) return false;
+  try {
+    const parsed = new URL(u);
+    return Boolean(parsed.hostname) && parsed.hostname !== 'example.com';
+  } catch {
+    return false;
+  }
+}
 
 export type PlacementToggles = {
   reels: boolean;
