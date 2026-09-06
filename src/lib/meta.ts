@@ -56,15 +56,52 @@ export async function getAdAccountPixels(
   adAccountId: string
 ): Promise<MetaPixelRow[]> {
   const actId = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
-  const res = await fetch(
-    `${META_BASE}/${actId}/adspixels?fields=id,name,is_unavailable,last_fired_time&access_token=${accessToken}`
-  );
-  if (!res.ok) {
-    console.warn('[Meta] adspixels fetch failed', await res.text());
-    return [];
+  const found = new Map<string, MetaPixelRow>();
+
+  const ingest = (rows: MetaPixelRow[] | undefined) => {
+    for (const p of rows || []) {
+      if (p?.id && /^\d{5,}$/.test(p.id) && !p.is_unavailable) {
+        found.set(p.id, p);
+      }
+    }
+  };
+
+  // 1) Pixels directly on the ad account
+  try {
+    const res = await fetch(
+      `${META_BASE}/${actId}/adspixels?fields=id,name,is_unavailable&limit=50&access_token=${accessToken}`
+    );
+    if (res.ok) {
+      const data = await res.json();
+      ingest(data.data as MetaPixelRow[]);
+    } else {
+      console.warn('[Meta] adspixels', await res.text());
+    }
+  } catch (err) {
+    console.warn('[Meta] adspixels fetch error', err);
   }
-  const data = await res.json();
-  return (data.data || []) as MetaPixelRow[];
+
+  // 2) Business-owned / client pixels (common for Shopify stores)
+  if (found.size === 0) {
+    try {
+      const res = await fetch(
+        `${META_BASE}/me/businesses?fields=id,name,owned_pixels{id,name},client_pixels{id,name}&access_token=${accessToken}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        for (const biz of data.data || []) {
+          ingest(biz.owned_pixels?.data as MetaPixelRow[]);
+          ingest(biz.client_pixels?.data as MetaPixelRow[]);
+        }
+      } else {
+        console.warn('[Meta] businesses pixels', await res.text());
+      }
+    } catch (err) {
+      console.warn('[Meta] businesses pixels error', err);
+    }
+  }
+
+  return Array.from(found.values());
 }
 
 /**

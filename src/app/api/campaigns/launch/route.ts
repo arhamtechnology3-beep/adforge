@@ -329,6 +329,10 @@ export async function GET() {
       meta_connected: metaConnected,
       meta_account_id: metaConnection?.meta_ad_account_id || null,
       meta_account_name: metaConnection?.meta_ad_account_name || null,
+      page_id: metaConnection?.page_id || null,
+      page_name: metaConnection?.page_name || null,
+      pixel_id: metaConnection?.pixel_id || null,
+      pixel_name: metaConnection?.pixel_name || null,
     });
   }
 
@@ -343,5 +347,9 @@ export async function GET() {
     campaigns: campaigns || [],
     meta_connected: metaConnected,
     meta_account_id: metaConnection?.meta_ad_account_id || null,
+    page_id: metaConnection?.page_id || null,
+    page_name: metaConnection?.page_name || null,
+    pixel_id: metaConnection?.pixel_id || null,
+    pixel_name: metaConnection?.pixel_name || null,
   });
 }

@@ -51,6 +51,18 @@ Or run migration `010_ops_pixel_change_logs.sql`.
 
 Then: Hostinger env `RESEND_API_KEY`, `EMAIL_FROM` → redeploy → **Reconnect Facebook** (auto-links Pixel) → keep Ops worker running for scheduled slots.
 
+### Fix: Pixel discovery + show Page/Pixel on Campaigns
+**What / why**  
+Reconnect succeeded (Page linked) but Pixel stayed empty when Pixel lived under Business Manager, not directly on the ad account. UI also hid Pixel status.
+
+**Fix**
+- Fetch pixels from ad account **and** Business `owned_pixels` / `client_pixels`
+- Campaigns status bar shows Page + Pixel (or “not linked yet”)
+
+**Paths:** `meta.ts` (`getAdAccountPixels`), `campaigns/launch` GET, `CampaignWizard.tsx`, `campaigns/page.tsx`
+
+**Manual:** Redeploy → Reconnect Facebook once more. If still no Pixel, create one in Meta Events Manager for this ad account / business, then Reconnect.
+
 ### Feature: Full website-traffic Meta tree (Campaign → Ad set → Ad)
 **What / why**  
 Team workflow in Ads Manager is Campaign → Ad set → **Create ad** (page, media, copy, website URL). AdForge must create that full tree automatically for Shopify/store traffic — not leave an empty ad set, and not use WhatsApp as destination.

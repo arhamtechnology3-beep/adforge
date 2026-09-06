@@ -14,6 +14,9 @@ function CampaignsPageInner() {
   const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
   const [approvedAds, setApprovedAds] = useState<GeneratedAd[]>([]);
   const [metaConnected, setMetaConnected] = useState(false);
+  const [pageName, setPageName] = useState<string | null>(null);
+  const [pixelId, setPixelId] = useState<string | null>(null);
+  const [pixelName, setPixelName] = useState<string | null>(null);
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -25,6 +28,9 @@ function CampaignsPageInner() {
       .then(([campaignData, onboardingData]) => {
         setCampaigns(campaignData.campaigns || []);
         setMetaConnected(!!campaignData.meta_connected);
+        setPageName(campaignData.page_name || null);
+        setPixelId(campaignData.pixel_id || null);
+        setPixelName(campaignData.pixel_name || null);
         if (onboardingData?.website_url) setWebsiteUrl(onboardingData.website_url);
 
         if (onboardingData?.id) {
@@ -57,6 +63,9 @@ function CampaignsPageInner() {
       websiteUrl={websiteUrl}
       initialTemplateId={template}
       fromAds={fromAds}
+      pageName={pageName}
+      pixelId={pixelId}
+      pixelName={pixelName}
     />
   );
 }

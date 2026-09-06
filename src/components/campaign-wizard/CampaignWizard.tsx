@@ -77,6 +77,9 @@ export function CampaignWizard({
   websiteUrl: initialWebsiteUrl,
   initialTemplateId,
   fromAds,
+  pageName: initialPageName,
+  pixelId: initialPixelId,
+  pixelName: initialPixelName,
 }: {
   campaigns: MetaCampaign[];
   approvedAds: GeneratedAd[];
@@ -84,11 +87,17 @@ export function CampaignWizard({
   websiteUrl: string;
   initialTemplateId?: string;
   fromAds?: boolean;
+  pageName?: string | null;
+  pixelId?: string | null;
+  pixelName?: string | null;
 }) {
   const searchParams = useSearchParams();
   const [step, setStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
   const [campaigns, setCampaigns] = useState(initialCampaigns);
+  const [metaPageName, setMetaPageName] = useState<string | null>(initialPageName || null);
+  const [metaPixelName, setMetaPixelName] = useState<string | null>(initialPixelName || null);
+  const [metaPixelId, setMetaPixelId] = useState<string | null>(initialPixelId || null);
 
   // Form state
   const [name, setName] = useState('');
@@ -136,9 +145,13 @@ export function CampaignWizard({
       setError(META_CONNECT_ERRORS[code]);
     }
     if (searchParams.get('connected') === 'true') {
-      setToast('Meta connected — we pulled your Facebook ad account automatically.');
+      setToast(
+        metaPixelId
+          ? `Meta connected — Page${metaPageName ? ` (${metaPageName})` : ''} + Pixel linked.`
+          : 'Meta connected — Page linked. Pixel not found on this ad account yet (create a Pixel in Events Manager, then Reconnect).'
+      );
     }
-  }, [searchParams]);
+  }, [searchParams, metaPixelId, metaPageName]);
 
   function applyTemplate(templateId: string) {
     const t = getCampaignTemplate(templateId);
@@ -368,9 +381,25 @@ export function CampaignWizard({
           <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
         )}
         <p className="text-sm flex-1">
-          {metaConnected
-            ? 'Meta connected — campaigns sync as PAUSED until you confirm launch. Reconnect anytime to refresh Page + Pixel.'
-            : 'Meta not connected — you can save drafts locally. Connect with Facebook to publish live (we pull your ad account automatically).'}
+          {metaConnected ? (
+            <>
+              Meta connected — campaigns sync as PAUSED until you confirm launch.
+              {metaPageName ? (
+                <span className="block text-xs text-[var(--muted)] mt-1">
+                  Page: {metaPageName}
+                  {metaPixelId
+                    ? ` · Pixel: ${metaPixelName || metaPixelId}`
+                    : ' · Pixel: not linked yet — create in Meta Events Manager, then Reconnect'}
+                </span>
+              ) : (
+                <span className="block text-xs text-[var(--muted)] mt-1">
+                  Reconnect anytime to refresh Page + Pixel.
+                </span>
+              )}
+            </>
+          ) : (
+            'Meta not connected — you can save drafts locally. Connect with Facebook to publish live (we pull your ad account automatically).'
+          )}
         </p>
         <a
           href="/api/oauth/meta/connect"
