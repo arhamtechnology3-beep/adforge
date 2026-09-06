@@ -36,8 +36,8 @@ export async function GET() {
     const websitePixels = pixels.filter(isWebsiteMetaPixel);
     const otherPixels = pixels.filter((p) => !isWebsiteMetaPixel(p));
 
-    let selectedPageId = connection.page_id || null;
-    let selectedPageName = connection.page_name || null;
+    const selectedPageId = connection.page_id || null;
+    const selectedPageName = connection.page_name || null;
     let selectedPixelId = connection.pixel_id || null;
     let selectedPixelName = connection.pixel_name || null;
 
