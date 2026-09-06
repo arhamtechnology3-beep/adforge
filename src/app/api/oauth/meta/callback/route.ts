@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import {
   getAdAccounts,
   getFacebookPages,
+  getAdAccountPixels,
   storeToken,
 } from '@/lib/meta';
 import { exchangeCodeForToken, getLongLivedToken } from '@/lib/meta-oauth';
@@ -67,6 +68,26 @@ export async function GET(request: Request) {
     const encrypted = storeToken(longToken.access_token);
     const pageId = primaryPage?.id || process.env.META_PAGE_ID || null;
 
+    // Auto-link Meta Pixel from the connected ad account (Phase 3)
+    let pixelId: string | null = process.env.META_PIXEL_ID || null;
+    let pixelName: string | null = null;
+    if (primaryAccount?.id) {
+      try {
+        const pixels = await getAdAccountPixels(longToken.access_token, primaryAccount.id);
+        const primaryPixel = pixels.find((p) => p?.id && !p.is_unavailable);
+        if (primaryPixel?.id) {
+          pixelId = primaryPixel.id;
+          pixelName = primaryPixel.name || null;
+        }
+      } catch (err) {
+        console.warn('[Meta OAuth] pixel auto-link skipped', err);
+      }
+    }
+
+    const returnPath = state.returnTo.startsWith('/')
+      ? state.returnTo
+      : '/campaigns?connected=true';
+
     if (state.isDemo || state.userId === DEMO_USER.id) {
       await saveDemoMetaConnection({
         user_id: state.userId || DEMO_USER.id,
@@ -76,12 +97,12 @@ export async function GET(request: Request) {
         token_expires_at: expiresAt,
         connected_at: new Date().toISOString(),
         page_id: pageId,
+        pixel_id: pixelId,
+        pixel_name: pixelName,
       });
 
       const onboarding = await readDemoOnboarding();
-      const response = NextResponse.redirect(
-        `${origin}${state.returnTo.startsWith('/') ? state.returnTo : '/campaigns?connected=true'}`
-      );
+      const response = NextResponse.redirect(`${origin}${returnPath}`);
       if (onboarding) {
         return withDemoOnboardingCookie(response, { ...onboarding, meta_connected: true });
       }
@@ -98,15 +119,15 @@ export async function GET(request: Request) {
         connected_at: new Date().toISOString(),
         page_id: pageId,
         page_name: primaryPage?.name || null,
+        pixel_id: pixelId,
+        pixel_name: pixelName,
       },
       { onConflict: 'user_id' }
     );
 
     if (upsertError) throw upsertError;
 
-    return NextResponse.redirect(
-      `${origin}${state.returnTo.startsWith('/') ? state.returnTo : '/campaigns?connected=true'}`
-    );
+    return NextResponse.redirect(`${origin}${returnPath}`);
   } catch (err) {
     console.error('[Meta OAuth Callback]', err);
     return NextResponse.redirect(`${origin}/campaigns?error=meta_failed`);

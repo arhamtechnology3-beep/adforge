@@ -10,6 +10,7 @@ import {
   pauseAd,
 } from '@/lib/meta';
 import { runOpsAnalysis } from '@/lib/ops-agent';
+import { notifyAgentChange } from '@/lib/ops-agent/change-email';
 import { sendEmail, formatPolicyAlertEmail } from '@/lib/email';
 import type { InsightBreakdowns, MetaCampaign } from '@/types/database';
 import type { AgentSlot } from '@/types/database';
@@ -286,14 +287,61 @@ export async function runOpsMonitorSlot(slot: AgentSlot = 'morning') {
           details: { title: rec.title, type: rec.type },
         });
 
-        if (profile?.email && (rec.severity === 'critical' || rec.severity === 'high')) {
-          const mail = formatPolicyAlertEmail({
+        const campName =
+          (userCampaigns || []).find((c) => c.id === rec.meta_campaign_id)?.name ||
+          rec.title;
+
+        let emailSent = false;
+        const shouldEmail =
+          !!profile?.email &&
+          profile.email_reports_opt_in !== false &&
+          (rec.severity === 'critical' ||
+            rec.severity === 'high' ||
+            rec.proposed_action.action === 'pause_campaign' ||
+            rec.proposed_action.action === 'pause_ad');
+
+        if (shouldEmail && profile?.email) {
+          const mailed = await notifyAgentChange({
+            to: profile.email,
+            userName: profile.name,
             title: rec.title,
-            body: rec.body,
+            detail: rec.body,
+            action: String(rec.proposed_action.action || rec.type),
+            campaignName: campName,
+            before: { status: 'active' },
+            after: {
+              status:
+                rec.proposed_action.action === 'pause_campaign' ? 'paused' : 'updated',
+              ...rec.proposed_action,
+            },
             severity: rec.severity,
           });
-          await sendEmail({ to: profile.email, ...mail });
+          emailSent = !!mailed.success;
+          if (!mailed.success && rec.source === 'policy') {
+            const mail = formatPolicyAlertEmail({
+              title: rec.title,
+              body: rec.body,
+              severity: rec.severity,
+            });
+            await sendEmail({ to: profile.email, ...mail });
+            emailSent = true;
+          }
         }
+
+        await supabase.from('agent_change_logs').insert({
+          user_id: userId,
+          meta_campaign_id: rec.meta_campaign_id || null,
+          action: String(rec.proposed_action.action || rec.type),
+          title: rec.title,
+          detail: rec.body,
+          before_state: { status: 'active' },
+          after_state: {
+            status: rec.proposed_action.action === 'pause_campaign' ? 'paused' : 'updated',
+            action: rec.proposed_action,
+          },
+          email_sent: emailSent,
+          email_to: profile?.email || null,
+        });
         applied++;
       } else {
         await supabase.from('agent_recommendations').insert({

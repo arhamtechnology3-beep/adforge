@@ -13,6 +13,8 @@ export type MetaConnection = {
   connected_at: string;
   page_id?: string | null;
   page_name?: string | null;
+  pixel_id?: string | null;
+  pixel_name?: string | null;
   source: 'demo' | 'supabase';
 };
 
@@ -63,7 +65,7 @@ export async function resolveMetaConnection(
   const { data } = await supabase
     .from('ad_accounts')
     .select(
-      'user_id, meta_ad_account_id, access_token_encrypted, token_expires_at, connected_at, page_id, page_name'
+      'user_id, meta_ad_account_id, access_token_encrypted, token_expires_at, connected_at, page_id, page_name, pixel_id, pixel_name'
     )
     .eq('user_id', user.id)
     .maybeSingle();
@@ -77,6 +79,8 @@ export async function resolveMetaConnection(
     connected_at: data.connected_at || new Date().toISOString(),
     page_id: (data as { page_id?: string | null }).page_id || null,
     page_name: (data as { page_name?: string | null }).page_name || null,
+    pixel_id: (data as { pixel_id?: string | null }).pixel_id || null,
+    pixel_name: (data as { pixel_name?: string | null }).pixel_name || null,
     source: 'supabase',
   };
 }

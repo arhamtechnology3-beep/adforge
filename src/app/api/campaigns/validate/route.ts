@@ -78,7 +78,7 @@ export async function POST(request: Request) {
     input: { ...input, ad_ids },
     ads: ads as GeneratedAd[],
     meta_connected: metaConnected,
-    has_pixel: !!process.env.META_PIXEL_ID,
+    has_pixel: !!(metaConnection?.pixel_id || process.env.META_PIXEL_ID),
     page_id: pageId,
   });
 

@@ -156,6 +156,7 @@ export async function POST(
           budgetType,
           objective: campaign.objective || 'OUTCOME_TRAFFIC',
           accessToken: token,
+          pixelId: metaConnection.pixel_id || process.env.META_PIXEL_ID || null,
         }
       );
       metaAdSetId = adSet.id;

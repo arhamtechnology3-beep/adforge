@@ -45,6 +45,51 @@ export function formatMetaApiError(prefix: string, raw: string): string {
   return `${prefix}: ${trimmed.slice(0, 240)}`;
 }
 
+export type MetaPixelRow = {
+  id: string;
+  name?: string;
+  is_unavailable?: boolean;
+};
+
+export async function getAdAccountPixels(
+  accessToken: string,
+  adAccountId: string
+): Promise<MetaPixelRow[]> {
+  const actId = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
+  const res = await fetch(
+    `${META_BASE}/${actId}/adspixels?fields=id,name,is_unavailable,last_fired_time&access_token=${accessToken}`
+  );
+  if (!res.ok) {
+    console.warn('[Meta] adspixels fetch failed', await res.text());
+    return [];
+  }
+  const data = await res.json();
+  return (data.data || []) as MetaPixelRow[];
+}
+
+/**
+ * Resolve Meta Pixel for conversion campaigns.
+ * Prefer stored/env; otherwise first available pixel on the ad account.
+ */
+export async function ensureMetaPixelId(opts: {
+  accessToken: string;
+  adAccountId: string;
+  storedPixelId?: string | null;
+}): Promise<{ pixelId: string; pixelName?: string | null; source: 'stored' | 'env' | 'live' } | null> {
+  const stored = String(opts.storedPixelId || '').trim();
+  if (stored && /^\d{5,}$/.test(stored)) {
+    return { pixelId: stored, source: 'stored' };
+  }
+  const fromEnv = String(process.env.META_PIXEL_ID || '').trim();
+  if (fromEnv && /^\d{5,}$/.test(fromEnv)) {
+    return { pixelId: fromEnv, source: 'env' };
+  }
+  const pixels = await getAdAccountPixels(opts.accessToken, opts.adAccountId);
+  const primary = pixels.find((p) => p?.id && !p.is_unavailable && /^\d{5,}$/.test(p.id));
+  if (!primary?.id) return null;
+  return { pixelId: primary.id, pixelName: primary.name || null, source: 'live' };
+}
+
 export async function getAdAccounts(accessToken: string) {
   const res = await fetch(
     `${META_BASE}/me/adaccounts?fields=id,name,account_status&access_token=${accessToken}`
@@ -146,6 +191,8 @@ export type MetaAdSetOptions = {
   budgetType?: 'daily' | 'lifetime';
   objective?: string;
   accessToken?: string;
+  /** Meta Pixel ID for Sales / conversion optimization */
+  pixelId?: string | null;
 };
 
 export async function createAdSet(
@@ -209,10 +256,14 @@ export async function createAdSet(
   if (schedule.start_time) body.start_time = schedule.start_time;
   if (schedule.end_time) body.end_time = schedule.end_time;
 
-  // Sales objective: attach pixel for conversion optimization when configured
-  if (objConfig.optimization_goal === 'OFFSITE_CONVERSIONS' && process.env.META_PIXEL_ID) {
+  // Sales objective: attach pixel for Purchase optimization (account pixel or META_PIXEL_ID)
+  const pixelId =
+    options?.pixelId ||
+    process.env.META_PIXEL_ID ||
+    null;
+  if (objConfig.optimization_goal === 'OFFSITE_CONVERSIONS' && pixelId) {
     body.promoted_object = {
-      pixel_id: process.env.META_PIXEL_ID,
+      pixel_id: pixelId,
       custom_event_type: 'PURCHASE',
     };
   }

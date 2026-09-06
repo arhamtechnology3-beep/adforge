@@ -5,6 +5,7 @@ import {
   pauseCampaign,
   updateCampaignBudget,
 } from '@/lib/meta';
+import { notifyAgentChange } from '@/lib/ops-agent/change-email';
 
 export async function POST(
   request: Request,
@@ -65,6 +66,16 @@ export async function POST(
     .eq('user_id', user.id)
     .maybeSingle();
 
+  const { data: profile } = await supabase
+    .from('users')
+    .select('email, name, email_reports_opt_in')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  let beforeState: Record<string, unknown> = {};
+  let afterState: Record<string, unknown> = {};
+  let campaignName: string | null = null;
+
   try {
     if (adAccount?.access_token_encrypted && rec.meta_campaign_id) {
       const { data: campaign } = await supabase
@@ -73,14 +84,17 @@ export async function POST(
         .eq('id', rec.meta_campaign_id)
         .single();
 
+      campaignName = campaign?.name || null;
       const token = retrieveToken(adAccount.access_token_encrypted);
 
       if (action.action === 'pause_campaign' && campaign?.meta_campaign_id) {
+        beforeState = { status: campaign.status, budget: campaign.budget };
         await pauseCampaign(token, campaign.meta_campaign_id);
         await supabase
           .from('meta_campaigns')
           .update({ status: 'paused' })
           .eq('id', campaign.id);
+        afterState = { status: 'paused', budget: campaign.budget };
       }
 
       if (
@@ -88,11 +102,17 @@ export async function POST(
         campaign?.ad_set_id &&
         typeof action.new_budget === 'number'
       ) {
+        beforeState = { status: campaign.status, budget: campaign.budget };
         await updateCampaignBudget(token, campaign.ad_set_id, action.new_budget);
         await supabase
           .from('meta_campaigns')
           .update({ budget: action.new_budget })
           .eq('id', campaign.id);
+        afterState = {
+          status: campaign.status,
+          budget: action.new_budget,
+          previous_budget: campaign.budget,
+        };
       }
     }
   } catch (err) {
@@ -108,5 +128,34 @@ export async function POST(
     .update({ status: 'applied', resolved_at: new Date().toISOString() })
     .eq('id', rec.id);
 
-  return NextResponse.json({ ok: true, status: 'applied' });
+  let emailSent = false;
+  if (profile?.email && profile.email_reports_opt_in !== false) {
+    const mailed = await notifyAgentChange({
+      to: profile.email,
+      userName: profile.name,
+      title: rec.title,
+      detail: rec.body,
+      action: String(action.action || rec.type),
+      campaignName,
+      before: beforeState,
+      after: afterState,
+      severity: rec.severity,
+    });
+    emailSent = !!mailed.success;
+  }
+
+  await supabase.from('agent_change_logs').insert({
+    user_id: user.id,
+    meta_campaign_id: rec.meta_campaign_id || null,
+    recommendation_id: rec.id,
+    action: String(action.action || rec.type),
+    title: rec.title,
+    detail: rec.body,
+    before_state: beforeState,
+    after_state: afterState,
+    email_sent: emailSent,
+    email_to: profile?.email || null,
+  });
+
+  return NextResponse.json({ ok: true, status: 'applied', email_sent: emailSent });
 }

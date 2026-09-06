@@ -95,6 +95,8 @@ export interface AdAccount {
   connected_at: string;
   page_id?: string | null;
   page_name?: string | null;
+  pixel_id?: string | null;
+  pixel_name?: string | null;
 }
 
 export interface CompetitorEntry {

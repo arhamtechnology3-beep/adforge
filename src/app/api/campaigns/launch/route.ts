@@ -152,6 +152,7 @@ export async function POST(request: Request) {
           budgetType: budget_type,
           objective,
           accessToken: token,
+          pixelId: metaConnection.pixel_id || process.env.META_PIXEL_ID || null,
         }
       );
       metaAdSetId = adSet.id;

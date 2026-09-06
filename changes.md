@@ -6,7 +6,42 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
-## 2026-09-06
+## 2026-09-07
+
+### Feature: Ops Agent Phase 1–3 + Pixel auto-link + change emails
+**What / why**  
+Sellable subscription needs accurate launch, performance optimization, and conversion tracking — plus trust when the agent changes live campaigns.
+
+**Phase 1 (accuracy)** — already strengthened: full Campaign→Ad set→Ad, website-only, Confirm activates tree.
+
+**Phase 2 (results)** — research-backed rules in `ops-agent/rules.ts`:
+- Learning protection: no CPA auto-pause / scale until ~1,000 impressions or spend ≥ max(₹500, 2× CPA)
+- Auto-pause after 3 days above 1.5× CPA (with spend floor)
+- Scale winners +15% only (Confirm required; Meta learning-safe)
+- Creative fatigue (frequency ≥ 3.5), low CTR, pacing
+
+**Phase 3 (conversions)**
+- Auto-fetch Meta Pixel on Facebook Connect → `ad_accounts.pixel_id`
+- Sales ad sets use account Pixel for Purchase `promoted_object`
+- Tracking-gap + ATC-without-purchase + low conversion-rate recommendations
+
+**Emails on live changes**
+- When Ops Agent auto-applies or user Confirms a change: HTML email + PNG screenshot card to the user’s account email (`RESEND_API_KEY` / `EMAIL_FROM`)
+- Audit table `agent_change_logs`
+
+**Paths:** `ops-agent/rules.ts`, `ops-agent/change-email.ts`, `email.ts`, `ops-monitor.ts`, `ops/.../confirm`, `oauth/meta/callback`, `meta.ts` (pixels), migration `010_ops_pixel_change_logs.sql`, `OpsClient.tsx`
+
+**Manual (Supabase — required once)**
+```sql
+ALTER TABLE ad_accounts
+  ADD COLUMN IF NOT EXISTS pixel_id TEXT,
+  ADD COLUMN IF NOT EXISTS pixel_name TEXT;
+
+-- plus create agent_change_logs (see migration 010)
+```
+Or run migration `010_ops_pixel_change_logs.sql`.
+
+Then: Hostinger env `RESEND_API_KEY`, `EMAIL_FROM` → redeploy → **Reconnect Facebook** (auto-links Pixel) → keep Ops worker running for scheduled slots.
 
 ### Feature: Full website-traffic Meta tree (Campaign → Ad set → Ad)
 **What / why**  

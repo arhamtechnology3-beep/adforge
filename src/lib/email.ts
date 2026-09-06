@@ -8,31 +8,45 @@ export async function sendEmail(opts: {
   subject: string;
   text: string;
   html?: string;
+  attachments?: Array<{
+    filename: string;
+    content: string; // base64
+    contentType?: string;
+  }>;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM || 'AdForge <reports@adforge.app>';
 
   if (!apiKey) {
     console.log(
-      `[Email STUB] To: ${opts.to}\nSubject: ${opts.subject}\n${opts.text.slice(0, 400)}...`
+      `[Email STUB] To: ${opts.to}\nSubject: ${opts.subject}\nAttachments: ${opts.attachments?.length || 0}\n${opts.text.slice(0, 400)}...`
     );
     return { success: true, messageId: `stub_${Date.now()}` };
   }
 
   try {
+    const payload: Record<string, unknown> = {
+      from,
+      to: [opts.to],
+      subject: opts.subject,
+      text: opts.text,
+      html: opts.html || `<pre style="font-family:sans-serif">${opts.text}</pre>`,
+    };
+    if (opts.attachments?.length) {
+      payload.attachments = opts.attachments.map((a) => ({
+        filename: a.filename,
+        content: a.content,
+        content_type: a.contentType || 'application/octet-stream',
+      }));
+    }
+
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        from,
-        to: [opts.to],
-        subject: opts.subject,
-        text: opts.text,
-        html: opts.html || `<pre style="font-family:sans-serif">${opts.text}</pre>`,
-      }),
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) {

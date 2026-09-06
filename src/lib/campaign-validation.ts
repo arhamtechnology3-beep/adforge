@@ -131,7 +131,7 @@ export function validateCampaignLaunch(opts: {
         id: 'pixel',
         label: 'Meta Pixel installed',
         status: 'warn',
-        message: 'Recommended for Sales objective — set META_PIXEL_ID',
+        message: 'Recommended for Sales — reconnect Meta to auto-link Pixel, or set META_PIXEL_ID',
       });
       warnings.push('Meta Pixel recommended for Sales campaigns');
     }

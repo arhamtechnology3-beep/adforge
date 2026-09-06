@@ -41,5 +41,6 @@ export function runOpsAnalysis(input: {
 export { analyzePerformance } from './rules';
 export { scanCreativesForPolicy, POLICY_PACK_V1 } from './policy/pack';
 export { META_POLICY_PACK_VERSION } from './types';
+export { notifyAgentChange, formatAgentChangeEmail } from './change-email';
 export * from './dry-run';
 export * from './types';

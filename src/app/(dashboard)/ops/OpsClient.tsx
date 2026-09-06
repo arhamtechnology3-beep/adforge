@@ -66,7 +66,8 @@ export default function OpsClient() {
         <div>
           <h1 className="text-2xl font-bold">Ops Agent</h1>
           <p className="text-muted mt-1">
-            Monitor, Policy Guard, and Confirm optimizations — email digests, no WhatsApp reports.
+            Research-backed Meta rules: learning-phase protection, pause losers, scale winners
+            +15%, Pixel/conversion gaps. Live changes email you a detailed report + screenshot.
           </p>
           {dryRun && (
             <p className="text-xs mt-2 text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 inline-block">
