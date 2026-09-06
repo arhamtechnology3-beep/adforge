@@ -6,6 +6,25 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+## 2026-09-06
+
+### Onboarding: 3 steps, auto import claims/packshot, carousel URLs
+**What / why**
+- Removed **Connect Meta** from onboarding (was step 4). Finish after Competitors → `/ads`. Connect Meta later at campaign launch.
+- **Import suggestions** now auto-fills benefits, ingredients, approved/prohibited claims, and imports the first product-page image as packshot (click other thumbnails to switch; upload still optional override).
+- Optional **extra product URLs** on Product step for Facebook carousels (2–10 total). Prefills Ad Generation carousel URL box via sessionStorage.
+
+**Paths**
+- `src/app/(dashboard)/onboarding/OnboardingClient.tsx`
+- `src/lib/product-page-suggestions.ts` (`enrichProductSuggestions`, `fetchPublicProductImage`)
+- `src/app/api/products/upload/route.ts` (JSON `{ image_url }`)
+- `src/lib/carousel-url-prefill.ts`
+- `src/app/(dashboard)/ads/page.tsx`
+
+**Manual:** Redeploy. No new env. Old `/onboarding?step=4` redirects to ads.
+
+---
+
 ## 2026-09-04
 
 ### Feature: Forgot / reset password

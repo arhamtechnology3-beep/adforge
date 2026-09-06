@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth/session';
 import {
+  enrichProductSuggestions,
   parseProductPageHtml,
   suggestProductFromPage,
 } from '@/lib/product-page-suggestions';
@@ -34,7 +35,9 @@ export async function POST(request: Request) {
       if (!response.ok || !payload.html || !payload.url) {
         throw new Error(payload.error || 'Browser importer could not read this page');
       }
-      return NextResponse.json(parseProductPageHtml(payload.html, payload.url));
+      return NextResponse.json(
+        enrichProductSuggestions(parseProductPageHtml(payload.html, payload.url))
+      );
     } catch (workerError) {
       const error =
         workerError instanceof Error && workerError.message

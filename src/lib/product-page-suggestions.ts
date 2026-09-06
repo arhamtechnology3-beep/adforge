@@ -11,10 +11,76 @@ export type ProductPageSuggestions = {
   description: string;
   benefits: string[];
   ingredients: string[];
+  approved_claims: string[];
+  prohibited_claims: string[];
   price: string;
   offer: string;
   image_urls: string[];
 };
+
+const DEFAULT_PROHIBITED_CLAIMS = [
+  'Cures disease or medical conditions',
+  'FDA approved / clinically proven (unless documented)',
+  'Guaranteed results or 100% effectiveness',
+  'Before/after medical transformation claims',
+  'Weight-loss or detox miracle claims',
+];
+
+function splitDescriptionLines(description: string, max = 6): string[] {
+  return description
+    .split(/[.!?\n]+/)
+    .map((sentence) => sentence.replace(/\s+/g, ' ').trim())
+    .filter((sentence) => sentence.length >= 18 && sentence.length <= 180)
+    .slice(0, max);
+}
+
+function extractIngredientsFromText(text: string): string[] {
+  const match = text.match(
+    /(?:ingredients?|materials?|contains?)\s*[:\-–]\s*([^\n.!?]{8,400})/i
+  );
+  if (!match?.[1]) return [];
+  return match[1]
+    .split(/[,;|•]/)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 2 && item.length <= 80)
+    .slice(0, 30);
+}
+
+/** Fill gaps and derive reviewable claims so users mostly approve, not type. */
+export function enrichProductSuggestions(
+  suggestions: Omit<ProductPageSuggestions, 'approved_claims' | 'prohibited_claims'> &
+    Partial<Pick<ProductPageSuggestions, 'approved_claims' | 'prohibited_claims'>>
+): ProductPageSuggestions {
+  const benefits =
+    suggestions.benefits?.length > 0
+      ? suggestions.benefits
+      : splitDescriptionLines(suggestions.description, 5);
+  const ingredients =
+    suggestions.ingredients?.length > 0
+      ? suggestions.ingredients
+      : extractIngredientsFromText(suggestions.description);
+
+  const approved =
+    suggestions.approved_claims?.length
+      ? suggestions.approved_claims
+      : benefits
+          .slice(0, 5)
+          .map((line) => line.replace(/^[•\-\d.)\s]+/, '').trim())
+          .filter(Boolean);
+
+  const prohibited =
+    suggestions.prohibited_claims?.length
+      ? suggestions.prohibited_claims
+      : DEFAULT_PROHIBITED_CLAIMS;
+
+  return {
+    ...suggestions,
+    benefits,
+    ingredients,
+    approved_claims: approved,
+    prohibited_claims: prohibited,
+  };
+}
 
 function isPrivateAddress(address: string): boolean {
   if (address === '::1' || address.startsWith('fc') || address.startsWith('fd')) return true;
@@ -279,7 +345,7 @@ export function parseProductPageHtml(
     .filter((sentence) => sentence.length >= 20 && sentence.length <= 180)
     .slice(0, 5);
 
-  return {
+  return enrichProductSuggestions({
     product_url: url.toString(),
     brand_name: decode(brand || meta(html, 'og:site_name')),
     product_name: title.slice(0, 180),
@@ -288,11 +354,11 @@ export function parseProductPageHtml(
     benefits: benefits.length ? benefits : descriptionBenefits,
     ingredients: ingredientProperty
       ? ingredientProperty.value.split(/[,|]/).map((item) => item.trim()).filter(Boolean).slice(0, 30)
-      : [],
+      : extractIngredientsFromText(description),
     price: rawPrice ? `${currencyMark}${rawPrice}` : '',
     offer: '',
     image_urls: images,
-  };
+  });
 }
 
 type ShopifyProductJson = {
@@ -334,18 +400,19 @@ function shopifyToSuggestions(
   const price = product.variants?.[0]?.price
     ? `₹${product.variants[0].price}`
     : '';
-  return {
+  const description = decode(String(product.body_html || '')).slice(0, 1200);
+  return enrichProductSuggestions({
     product_url: canonical,
     brand_name: decode(String(product.vendor || '')),
     product_name: decode(String(product.title || handle || 'Product')).slice(0, 180),
     category: decode(String(product.product_type || '')).slice(0, 120),
-    description: decode(String(product.body_html || '')).slice(0, 1200),
-    benefits: [],
-    ingredients: [],
+    description,
+    benefits: splitDescriptionLines(description, 5),
+    ingredients: extractIngredientsFromText(description),
     price,
     offer: '',
     image_urls: images,
-  };
+  });
 }
 
 function scoreShopifyHandle(requested: string, candidate: string): number {
@@ -421,16 +488,16 @@ export async function suggestFromShopifyStore(
 
 export async function suggestProductFromPage(value: string): Promise<ProductPageSuggestions> {
   const shopify = await suggestFromShopifyStore(value);
-  if (shopify?.image_urls?.length) return shopify;
+  if (shopify?.image_urls?.length) return enrichProductSuggestions(shopify);
 
   const initial = await validatedUrl(value);
   try {
     const { html, url } = await fetchPage(initial);
     const parsed = parseProductPageHtml(html, url);
-    if (parsed.image_urls.length || !shopify) return parsed;
-    return shopify;
+    if (parsed.image_urls.length || !shopify) return enrichProductSuggestions(parsed);
+    return enrichProductSuggestions(shopify);
   } catch (error) {
-    if (shopify) return shopify;
+    if (shopify) return enrichProductSuggestions(shopify);
     // Last resort: plain fetch (avoids custom DNS lookup failures)
     try {
       const response = await fetch(initial.toString(), {
@@ -445,9 +512,36 @@ export async function suggestProductFromPage(value: string): Promise<ProductPage
       });
       if (!response.ok) throw new Error(`Product page returned HTTP ${response.status}`);
       const html = await response.text();
-      return parseProductPageHtml(html, response.url || initial.toString());
+      return enrichProductSuggestions(parseProductPageHtml(html, response.url || initial.toString()));
     } catch {
       throw error;
     }
   }
+}
+
+/** Safe fetch of a public product image for packshot import (SSRF-hardened). */
+export async function fetchPublicProductImage(value: string): Promise<{
+  buffer: Buffer;
+  contentType: string;
+}> {
+  const url = await validatedUrl(value);
+  const response = await fetch(url.toString(), {
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+      Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+    },
+    signal: AbortSignal.timeout(20000),
+    cache: 'no-store',
+    redirect: 'follow',
+  });
+  if (!response.ok) throw new Error(`Image URL returned HTTP ${response.status}`);
+  const contentType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  if (!contentType.startsWith('image/')) {
+    throw new Error('URL did not return an image');
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (!buffer.length) throw new Error('The image is empty');
+  if (buffer.length > 10 * 1024 * 1024) throw new Error('Image too large (max 10MB)');
+  return { buffer, contentType };
 }

@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { saveCampaignPrefill } from '@/lib/campaign-prefill';
+import { loadCarouselUrlPrefill } from '@/lib/carousel-url-prefill';
+import { CAROUSEL_URL_MIN } from '@/lib/carousel-from-urls';
 import {
   Sparkles,
   Check,
@@ -413,6 +415,19 @@ export default function AdsPage() {
     });
     router.push('/campaigns?from=ads');
   }
+
+  useEffect(() => {
+    const urls = loadCarouselUrlPrefill();
+    if (urls.length >= CAROUSEL_URL_MIN) {
+      setCarouselProductUrls(urls.join('\n'));
+      setDesiredFormats((prev) =>
+        prev.includes('carousel') ? prev : [...prev, 'carousel']
+      );
+      setCarouselPreviewNote(
+        `Prefill from onboarding: ${urls.length} product URLs ready for carousel.`
+      );
+    }
+  }, []);
 
   useEffect(() => {
     setLoadError(null);
