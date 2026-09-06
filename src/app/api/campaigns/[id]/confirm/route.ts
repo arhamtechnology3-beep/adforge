@@ -4,8 +4,8 @@ import {
   activateCampaign,
   createCampaign,
   createAdSet,
-  createAd,
   ensureFacebookPageId,
+  publishAdsToMeta,
 } from '@/lib/meta';
 import type { PlacementToggles } from '@/lib/meta-campaign';
 import { genderToMetaGenders } from '@/lib/meta-campaign';
@@ -29,7 +29,6 @@ export async function POST(
   }
 
   let campaign: MetaCampaign | null = null;
-  let ads: GeneratedAd[] = [];
 
   if (sessionUser.isDemo) {
     campaign = await getDemoCampaign(params.id, sessionUser.id);
@@ -113,10 +112,16 @@ export async function POST(
     const adAccountId = metaConnection.meta_ad_account_id!;
     let metaCampaignId = campaign.meta_campaign_id;
     let metaAdSetId = campaign.ad_set_id;
+    const launchConfig = (campaign.launch_config || {}) as Record<string, unknown>;
+    const audience = (launchConfig.audience || {}) as Record<string, unknown>;
+    const budgetType = (launchConfig.budget_type as 'daily' | 'lifetime') || 'daily';
+    let metaAdIds = Array.isArray(launchConfig.meta_ad_ids)
+      ? (launchConfig.meta_ad_ids as string[])
+      : [];
 
-    // If draft was local-only, push to Meta now before activating
+    const name = campaign.name || `Campaign ${Date.now()}`;
+
     if (!metaCampaignId) {
-      const name = campaign.name || `Campaign ${Date.now()}`;
       const created = await createCampaign(
         token,
         adAccountId,
@@ -124,15 +129,16 @@ export async function POST(
         campaign.objective || 'OUTCOME_TRAFFIC'
       );
       metaCampaignId = created.id;
+    }
 
-      const launchConfig = (campaign.launch_config || {}) as Record<string, unknown>;
-      const audience = (launchConfig.audience || {}) as Record<string, unknown>;
-      const budgetType = (launchConfig.budget_type as 'daily' | 'lifetime') || 'daily';
-
+    if (!metaAdSetId) {
+      if (!metaCampaignId) {
+        throw new Error('Meta campaign id missing after create');
+      }
       const adSet = await createAdSet(
         token,
         adAccountId,
-        created.id,
+        metaCampaignId,
         Number(campaign.budget || 500),
         `${name} · Ad set`,
         {
@@ -153,8 +159,12 @@ export async function POST(
         }
       );
       metaAdSetId = adSet.id;
+    }
 
+    // Always create ads when prior sync left an empty ad set
+    if (!metaAdIds.length) {
       const adIds: string[] = campaign.ad_ids || [];
+      let ads: GeneratedAd[] = [];
       if (adIds.length) {
         if (sessionUser.isDemo) {
           const demoAds = await readDemoAds();
@@ -168,56 +178,73 @@ export async function POST(
             .eq('status', 'approved');
           ads = (data || []) as GeneratedAd[];
         }
+      }
 
-        const pageResolved = await ensureFacebookPageId({
-          accessToken: token,
-          storedPageId: metaConnection.page_id,
-        });
-        const pageId = pageResolved.pageId;
-        if (pageResolved.source === 'live' && !sessionUser.isDemo) {
-          const supabasePages = await createClient();
-          await supabasePages
-            .from('ad_accounts')
-            .update({
-              page_id: pageResolved.pageId,
-              page_name: pageResolved.pageName || null,
-            })
-            .eq('user_id', sessionUser.id);
-        }
-        const link = campaign.website_url || process.env.DEFAULT_AD_LINK || 'https://example.com';
-        const ctaType = String(launchConfig.cta || audience.cta || 'SHOP_NOW');
-        const linkDescription = (audience.link_description as string) || undefined;
+      if (!ads.length) {
+        return NextResponse.json(
+          {
+            error:
+              'No approved creatives linked to this campaign. Go back to Ads step, select approved ads, and Create again.',
+          },
+          { status: 422 }
+        );
+      }
 
-        for (const ad of ads) {
-          await createAd(
-            token,
-            adAccountId,
-            adSet.id,
-            ad.copy_text,
-            ad.image_url || '',
-            pageId,
-            link,
-            ad.headline || undefined,
-            ctaType,
-            linkDescription,
-            ad.media_payload?.cards
-          );
-        }
+      const pageResolved = await ensureFacebookPageId({
+        accessToken: token,
+        storedPageId: metaConnection.page_id,
+      });
+      if (pageResolved.source === 'live' && !sessionUser.isDemo) {
+        const supabasePages = await createClient();
+        await supabasePages
+          .from('ad_accounts')
+          .update({
+            page_id: pageResolved.pageId,
+            page_name: pageResolved.pageName || null,
+          })
+          .eq('user_id', sessionUser.id);
+      }
+
+      const published = await publishAdsToMeta({
+        accessToken: token,
+        adAccountId,
+        adSetId: metaAdSetId!,
+        pageId: pageResolved.pageId,
+        link: campaign.website_url || process.env.DEFAULT_AD_LINK || 'https://example.com',
+        ctaType: String(launchConfig.cta || audience.cta || 'SHOP_NOW'),
+        linkDescription: (audience.link_description as string) || undefined,
+        ads,
+      });
+      metaAdIds = published.metaAdIds;
+      if (!metaAdIds.length) {
+        return NextResponse.json(
+          {
+            error:
+              published.errors[0] ||
+              'Meta campaign/ad set exist but ads could not be created. Reconnect Facebook, then Confirm again.',
+            meta_ad_errors: published.errors,
+          },
+          { status: 502 }
+        );
       }
     }
 
     await activateCampaign(token, metaCampaignId!);
+
+    const updatedLaunchConfig = {
+      ...launchConfig,
+      meta_live: true,
+      meta_synced: true,
+      meta_ad_ids: metaAdIds,
+      activated_at: new Date().toISOString(),
+    };
 
     const updated: MetaCampaign = {
       ...campaign,
       meta_campaign_id: metaCampaignId,
       ad_set_id: metaAdSetId,
       status: 'active',
-      launch_config: {
-        ...(campaign.launch_config || {}),
-        meta_live: true,
-        activated_at: new Date().toISOString(),
-      },
+      launch_config: updatedLaunchConfig,
     };
 
     if (sessionUser.isDemo) {
@@ -230,7 +257,7 @@ export async function POST(
           status: 'active',
           meta_campaign_id: metaCampaignId,
           ad_set_id: metaAdSetId,
-          launch_config: updated.launch_config,
+          launch_config: updatedLaunchConfig,
         })
         .eq('id', params.id)
         .select()
@@ -238,14 +265,14 @@ export async function POST(
       return NextResponse.json({
         campaign: data || updated,
         meta_live: true,
-        message: 'Campaign is now live on Meta!',
+        message: `Campaign is live on Meta with ${metaAdIds.length} ad(s). If Delivery shows Payment error, add a payment method in Ads Manager → Billing.`,
       });
     }
 
     return NextResponse.json({
       campaign: updated,
       meta_live: true,
-      message: 'Campaign is now live on Meta!',
+      message: `Campaign is live on Meta with ${metaAdIds.length} ad(s). If Delivery shows Payment error, add a payment method in Ads Manager → Billing.`,
     });
   } catch (err) {
     console.error('[Campaign Confirm]', err);

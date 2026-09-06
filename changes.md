@@ -8,6 +8,23 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-06
 
+### Fix: Campaign/ad set created but Ads tab empty + clearer Payment error
+**What / why**  
+Ads Manager showed Campaign + Ad set, **no ads**, and Delivery **Payment error**. Confirm previously activated Meta when `meta_campaign_id` already existed **without creating ads**. Launch could also leave an empty ad set if ad create failed.
+
+**Fix**
+- `publishAdsToMeta()` — create each ad, collect per-ad errors
+- Launch requires ≥1 Meta ad; `meta_synced` only when ads exist
+- Confirm always creates ads when `meta_ad_ids` is empty (even if campaign/ad set already exist)
+- Billing/payment Graph errors get actionable Ads Manager → Billing copy
+
+**Paths:** `src/lib/meta.ts`, `campaigns/launch/route.ts`, `campaigns/[id]/confirm/route.ts`
+
+**Manual**
+1. Redeploy Hostinger after push
+2. In AdForge: open the draft → **Confirm** again (creates missing ads under the existing ad set)
+3. **Payment error** is Meta billing — Ads Manager → **Billing** → add/update payment method (not fixable in app code)
+
 ### Fix: META_PAGE_ID warning + Meta sync + creative HTTPS check
 **What / why**  
 Pre-launch showed “Set META_PAGE_ID…”, “Image must be publicly accessible via HTTPS”, and “Meta sync failed”. Real OAuth never saved Facebook Page ID to `ad_accounts`, so launch used invalid `me`. Relative `/api/ads/product-image?…` URLs failed the HTTPS check even when the underlying Shopify URL was fine.

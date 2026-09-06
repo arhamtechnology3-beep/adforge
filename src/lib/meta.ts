@@ -23,6 +23,19 @@ export function formatMetaApiError(prefix: string, raw: string): string {
         'Facebook blocks creating ad creatives (page posts) until the app is public/Live.'
       );
     }
+    const blob = `${err?.error_user_msg || ''} ${err?.error_user_title || ''} ${err?.message || ''} ${raw}`.toLowerCase();
+    if (
+      blob.includes('payment') ||
+      blob.includes('billing') ||
+      blob.includes('funding') ||
+      err?.code === 1359188 ||
+      err?.error_subcode === 2446187
+    ) {
+      return (
+        `${prefix}: Meta ad account has a payment/billing issue. ` +
+        'Open Ads Manager → Billing and add/update a payment method, then Confirm again in AdForge.'
+      );
+    }
     const human = err?.error_user_msg || err?.error_user_title || err?.message;
     if (human) return `${prefix}: ${human}`;
   } catch {
@@ -301,10 +314,69 @@ async function metaImageRef(
   try {
     const hash = await uploadAdImageHash(accessToken, adAccountId, publicUrl);
     return { image_hash: hash };
-  } catch {
+  } catch (uploadError) {
+    console.warn(
+      '[meta-image-upload]',
+      uploadError instanceof Error ? uploadError.message : uploadError,
+      publicUrl.slice(0, 120)
+    );
     // Fallback: let Meta pull the public CDN URL directly
     return { picture: publicUrl };
   }
+}
+
+export type PublishableAd = {
+  copy_text?: string | null;
+  headline?: string | null;
+  image_url?: string | null;
+  media_payload?: { cards?: MetaCreateAdCard[] } | null;
+};
+
+/** Create Meta ads under an ad set; continues on per-ad failures and returns ids + errors. */
+export async function publishAdsToMeta(opts: {
+  accessToken: string;
+  adAccountId: string;
+  adSetId: string;
+  pageId: string;
+  link: string;
+  ctaType?: string;
+  linkDescription?: string;
+  ads: PublishableAd[];
+}): Promise<{ metaAdIds: string[]; errors: string[] }> {
+  const metaAdIds: string[] = [];
+  const errors: string[] = [];
+  const ctaType = opts.ctaType || 'SHOP_NOW';
+
+  for (const [index, ad] of opts.ads.entries()) {
+    const picture = ad.image_url || ad.media_payload?.cards?.[0]?.image_url || '';
+    if (!picture) {
+      errors.push(`Ad ${index + 1}: missing image URL`);
+      continue;
+    }
+    try {
+      const created = await createAd(
+        opts.accessToken,
+        opts.adAccountId,
+        opts.adSetId,
+        String(ad.copy_text || '').slice(0, 2200),
+        picture,
+        opts.pageId,
+        opts.link,
+        ad.headline ? String(ad.headline).slice(0, 40) : undefined,
+        ctaType,
+        opts.linkDescription,
+        ad.media_payload?.cards || undefined
+      );
+      if (created?.id) metaAdIds.push(created.id);
+      else errors.push(`Ad ${index + 1}: Meta returned no ad id`);
+    } catch (error) {
+      errors.push(
+        `Ad ${index + 1}: ${error instanceof Error ? error.message : 'create failed'}`
+      );
+    }
+  }
+
+  return { metaAdIds, errors };
 }
 
 export type MetaCreateAdCard = {

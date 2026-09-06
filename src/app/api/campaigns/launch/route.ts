@@ -3,8 +3,8 @@ import { createClient } from '@/lib/supabase/server';
 import {
   createCampaign,
   createAdSet,
-  createAd,
   ensureFacebookPageId,
+  publishAdsToMeta,
 } from '@/lib/meta';
 import { genderToMetaGenders } from '@/lib/meta-campaign';
 import { getSessionUser } from '@/lib/auth/session';
@@ -164,26 +164,26 @@ export async function POST(request: Request) {
       const ctaType = String(cta || audience?.cta || 'SHOP_NOW');
       const linkDescription = audience?.link_description || undefined;
 
-      for (const ad of ads) {
-        const message = String(ad.copy_text || '').slice(0, 2200);
-        const headline = String(ad.headline || '').slice(0, 40);
-        const picture = ad.image_url || '';
-        if (!picture) continue;
-
-        const created = await createAd(
-          token,
-          adAccountId,
-          adSet.id,
-          message,
-          picture,
-          pageId,
-          link,
-          headline || undefined,
-          ctaType,
-          linkDescription,
-          ad.media_payload?.cards
+      const published = await publishAdsToMeta({
+        accessToken: token,
+        adAccountId,
+        adSetId: adSet.id,
+        pageId,
+        link,
+        ctaType,
+        linkDescription,
+        ads,
+      });
+      metaAdIds.push(...published.metaAdIds);
+      if (!published.metaAdIds.length) {
+        throw new Error(
+          published.errors[0] ||
+            'Campaign and ad set were created on Meta, but no ads were created. Check Page access and creative images, then Confirm again.'
         );
-        if (created?.id) metaAdIds.push(created.id);
+      }
+      if (published.errors.length) {
+        console.warn('[Campaign Launch Meta] partial ad errors', published.errors);
+        metaSyncError = `Some ads failed: ${published.errors.slice(0, 2).join(' | ')}`;
       }
     } catch (err) {
       console.error('[Campaign Launch Meta]', err);
@@ -191,13 +191,14 @@ export async function POST(request: Request) {
     }
   }
 
+  const adsSynced = metaAdIds.length > 0;
   const launchConfig = {
     audience,
     budget_type,
     cta: cta || audience?.cta || 'SHOP_NOW',
     website_url: destination,
     format_mix: formatMix,
-    meta_synced: !!metaCampaignId && !metaSyncError,
+    meta_synced: !!metaCampaignId && adsSynced && !metaSyncError,
     meta_sync_error: metaSyncError,
     meta_ad_ids: metaAdIds,
     ad_count: ads.length,
@@ -224,10 +225,12 @@ export async function POST(request: Request) {
     return NextResponse.json({
       campaign: metaCampaign,
       meta_connected: metaReady,
-      meta_synced: !!metaCampaignId && !metaSyncError,
+      meta_synced: !!metaCampaignId && adsSynced && !metaSyncError,
       meta_sync_error: metaSyncError,
-      message: metaCampaignId
-        ? 'Draft created on Meta (PAUSED). Confirm to go live.'
+      message: metaCampaignId && adsSynced
+        ? metaSyncError
+          ? `Draft on Meta with ${metaAdIds.length} ad(s). Warning: ${metaSyncError.slice(0, 160)}`
+          : 'Draft created on Meta (PAUSED). Confirm to go live.'
         : metaReady
           ? `Local draft saved. Meta sync failed${metaSyncError ? `: ${metaSyncError.slice(0, 180)}` : ''} — try Confirm later or Create again.`
           : 'Local draft saved. Connect Meta, then Confirm & Launch to go live.',
@@ -286,12 +289,14 @@ export async function POST(request: Request) {
   return NextResponse.json({
     campaign: metaCampaign,
     meta_connected: metaReady,
-    meta_synced: !!metaCampaignId && !metaSyncError,
+    meta_synced: !!metaCampaignId && adsSynced && !metaSyncError,
     meta_sync_error: metaSyncError,
-    message: metaCampaignId
-      ? 'Draft created on Meta (PAUSED). Confirm to go live.'
+    message: metaCampaignId && adsSynced
+      ? metaSyncError
+        ? `Draft on Meta with ${metaAdIds.length} ad(s). Warning: ${metaSyncError.slice(0, 160)}`
+        : 'Draft created on Meta (PAUSED). Confirm to go live.'
       : metaReady
-        ? 'Local draft saved. Meta sync failed — reconnect and try Confirm later.'
+        ? `Local draft saved. Meta sync failed${metaSyncError ? `: ${metaSyncError.slice(0, 180)}` : ''} — Confirm will retry creating ads.`
         : 'Local draft saved. Connect Meta, then Confirm & Launch to go live.',
   });
 }
