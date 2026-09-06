@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import type { GeneratedAd, MetaCampaign } from '@/types/database';
 import { CampaignWizard } from '@/components/campaign-wizard/CampaignWizard';
+import MetaAssetPicker from '@/components/MetaAssetPicker';
 
 function CampaignsPageInner() {
   const searchParams = useSearchParams();
@@ -19,8 +20,10 @@ function CampaignsPageInner() {
   const [pixelName, setPixelName] = useState<string | null>(null);
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [loading, setLoading] = useState(true);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
+    setLoading(true);
     Promise.all([
       fetch('/api/campaigns/launch').then((r) => r.json()),
       fetch('/api/onboarding').then((r) => r.json()),
@@ -45,7 +48,7 @@ function CampaignsPageInner() {
         }
       })
       .finally(() => setLoading(false));
-  }, [searchParams]);
+  }, [searchParams, reloadToken]);
 
   if (loading) {
     return (
@@ -56,17 +59,28 @@ function CampaignsPageInner() {
   }
 
   return (
-    <CampaignWizard
-      campaigns={campaigns}
-      approvedAds={approvedAds}
-      metaConnected={metaConnected}
-      websiteUrl={websiteUrl}
-      initialTemplateId={template}
-      fromAds={fromAds}
-      pageName={pageName}
-      pixelId={pixelId}
-      pixelName={pixelName}
-    />
+    <>
+      <MetaAssetPicker
+        enabled={metaConnected}
+        onSaved={(sel) => {
+          setPageName(sel.page_name);
+          setPixelId(sel.pixel_id);
+          setPixelName(sel.pixel_name);
+          setReloadToken((n) => n + 1);
+        }}
+      />
+      <CampaignWizard
+        campaigns={campaigns}
+        approvedAds={approvedAds}
+        metaConnected={metaConnected}
+        websiteUrl={websiteUrl}
+        initialTemplateId={template}
+        fromAds={fromAds}
+        pageName={pageName}
+        pixelId={pixelId}
+        pixelName={pixelName}
+      />
+    </>
   );
 }
 

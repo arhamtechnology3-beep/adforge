@@ -8,6 +8,20 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-07
 
+### Feature: Per-client Page & Pixel picker (multi-tenant SaaS)
+**What / why**  
+Global `META_PAGE_ID` / `META_PIXEL_ID` lock-in cannot work for subscribers — each client has different Meta assets. Auto-first-pick also linked wrong Page/WhatsApp datasets.
+
+**Fix**
+- After Connect, Campaigns shows **Your Meta Page & Pixel** dropdowns loaded from *that client's* Meta login
+- Saves to their `ad_accounts` row only
+- WhatsApp / messaging datasets are hidden; website/Shopify pixels listed
+- Smart suggest still runs on OAuth, but client can correct and Save
+
+**Paths:** `api/meta/assets`, `MetaAssetPicker.tsx`, `campaigns/page.tsx`, prior `pickBest*` helpers
+
+**Manual:** Redeploy → Campaigns → choose correct Page + website Pixel → **Save Page & Pixel**. No Hostinger env needed per client.
+
 ### Fix: Wrong Page/Pixel on Connect (Pickle Affair + WhatsApp dataset)
 **What / why**  
 OAuth used Meta’s **first** Page and **first** Pixel. With many businesses, that linked **The Pickle Affair** + **WhatsApp Marketing Message Event Sharing** instead of the store website Pixel / Advertising page.
