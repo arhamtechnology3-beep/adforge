@@ -38,7 +38,7 @@ import type { CampaignValidationResult } from '@/lib/campaign-validation';
 import { formatCurrency } from '@/lib/utils';
 import { WizardStepper } from './WizardStepper';
 import { ValidationChecklist } from './ValidationChecklist';
-import { FacebookAdPreview } from '@/components/ad-preview/FacebookAdPreview';
+import { FacebookAdPreview, previewFormatFromAdFormat } from '@/components/ad-preview/FacebookAdPreview';
 import MetaAssetPicker from '@/components/MetaAssetPicker';
 
 const WIZARD_STEPS = [
@@ -121,6 +121,9 @@ export function CampaignWizard({
   const [selectedAds, setSelectedAds] = useState<string[]>(
     initialAds.map((a) => a.id)
   );
+  const [previewAdId, setPreviewAdId] = useState<string | null>(
+    initialAds[0]?.id || null
+  );
 
   const [validation, setValidation] = useState<CampaignValidationResult | null>(null);
   const [validating, setValidating] = useState(false);
@@ -201,7 +204,33 @@ export function CampaignWizard({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const previewAd = approvedAds.find((a) => selectedAds.includes(a.id)) || approvedAds[0];
+  const previewAd =
+    approvedAds.find((a) => a.id === previewAdId && selectedAds.includes(a.id)) ||
+    approvedAds.find((a) => selectedAds.includes(a.id)) ||
+    approvedAds[0];
+  const previewFormat = previewFormatFromAdFormat(previewAd?.ad_format);
+  const previewFormatMeta =
+    META_AD_FORMATS[previewAd?.ad_format as keyof typeof META_AD_FORMATS];
+
+  function previewImageUrl(ad: typeof previewAd): string | undefined {
+    if (!ad) return undefined;
+    const raw =
+      ad.media_payload?.poster_url ||
+      ad.media_payload?.frames?.[0]?.image_url ||
+      ad.media_payload?.primary_packshot ||
+      ad.image_url ||
+      '';
+    if (!raw) return undefined;
+    if (/^https?:\/\//i.test(raw)) {
+      return `/api/ads/product-image?src=${encodeURIComponent(raw)}`;
+    }
+    if (raw.startsWith('/uploads/') && typeof window !== 'undefined') {
+      return `/api/ads/product-image?src=${encodeURIComponent(
+        `${window.location.origin}${raw}`
+      )}`;
+    }
+    return raw;
+  }
 
   const buildPayload = useCallback(
     () => ({
@@ -280,9 +309,11 @@ export function CampaignWizard({
   }
 
   function toggleAd(id: string) {
-    setSelectedAds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+    setSelectedAds((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      return [...prev, id];
+    });
+    setPreviewAdId(id);
   }
 
   function togglePlacement(key: keyof PlacementToggles) {
@@ -671,12 +702,15 @@ export function CampaignWizard({
                     <button
                       key={ad.id}
                       type="button"
-                      onClick={() => toggleAd(ad.id)}
+                      onClick={() => {
+                        setPreviewAdId(ad.id);
+                        if (!selected) toggleAd(ad.id);
+                      }}
                       className={`w-full flex gap-3 p-3 rounded-xl border-2 text-left transition-all ${
                         selected
                           ? 'border-[var(--meta-green)] bg-green-50/50'
                           : 'border-[var(--border)] opacity-70 hover:opacity-100'
-                      }`}
+                      } ${previewAdId === ad.id ? 'ring-2 ring-[var(--meta-blue)]/40' : ''}`}
                     >
                       <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-100 shrink-0">
                         {ad.image_url && (
@@ -817,20 +851,17 @@ export function CampaignWizard({
               Live preview
             </p>
             <p className="text-[11px] text-[var(--muted)] mb-4">
-              Same layout as Facebook Ads Manager / Ad Library feed
+              Replica of Facebook / Instagram — switches with the creative you select
             </p>
             <FacebookAdPreview
               headline={previewAd?.headline || undefined}
               primaryText={previewAd?.copy_text}
-              imageUrl={
-                previewAd?.image_url
-                  ? /^https?:\/\//i.test(previewAd.image_url)
-                    ? `/api/ads/product-image?src=${encodeURIComponent(previewAd.image_url)}`
-                    : previewAd.image_url
-                  : undefined
-              }
+              imageUrl={previewImageUrl(previewAd)}
               cta={cta}
+              preferredFormat={previewFormat}
+              adFormatLabel={previewFormatMeta?.shortLabel || previewAd?.ad_format || undefined}
               pageName={
+                metaPageName ||
                 (typeof previewAd?.headline === 'string' &&
                 (previewAd.headline.includes('·') || previewAd.headline.includes('-'))
                   ? previewAd.headline.split(/[·\-]/)[0]?.trim()
@@ -852,6 +883,11 @@ export function CampaignWizard({
                   : undefined
               }
             />
+            {selectedAds.length > 1 && (
+              <p className="mt-3 text-[10px] text-[var(--muted)] text-center">
+                Tip: click a creative on the left to preview that ad format
+              </p>
+            )}
           </div>
         </div>
       </div>

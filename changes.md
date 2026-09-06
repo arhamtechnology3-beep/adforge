@@ -8,6 +8,19 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-07
 
+### Fix: Campaign live preview matches Meta Feed/Stories/Reels
+**What / why**  
+Campaign wizard preview stayed feed-like and didn’t match `/ads` Stories replica or the selected creative format.
+
+**Fix**
+- `FacebookAdPreview` uses `StoryFillImage` cover-fill for Stories/Reels (same as `/ads`)
+- Auto-switches Feed / Stories / Reels from selected ad format
+- Clicking a creative on Campaigns updates the live preview + format label
+
+**Paths:** `FacebookAdPreview.tsx`, `CampaignWizard.tsx`
+
+**Manual:** Redeploy → `/campaigns` → select Stories or Video creative → Live preview shows Meta phone replica.
+
 ### Fix: Stories/video preview = real FB/IG replica (cover fill)
 **What / why**  
 Black/white bars on #3/#4 are **not** how Facebook/Instagram Stories & Reels look. On device Meta **cover-fills** the phone (edge-to-edge); square assets get side-cropped, not letterboxed.

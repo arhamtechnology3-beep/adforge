@@ -1,11 +1,12 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Globe, MoreHorizontal, ThumbsUp, MessageCircle, Share2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { META_CTA_OPTIONS } from '@/lib/meta-campaign';
+import StoryFillImage from '@/components/ads/StoryFillImage';
 
-type PreviewFormat = 'feed' | 'stories' | 'reels';
+export type PreviewFormat = 'feed' | 'stories' | 'reels';
 
 /** Meta feed usually shows ~125 chars then “See more”. */
 const FEED_PRIMARY_COLLAPSE_AT = 125;
@@ -46,6 +47,15 @@ function FeedPrimaryText({ text }: { text: string }) {
   );
 }
 
+/** Map generated ad format → Meta placement preview tab */
+export function previewFormatFromAdFormat(
+  adFormat?: string | null
+): PreviewFormat {
+  if (adFormat === 'stories') return 'stories';
+  if (adFormat === 'video') return 'reels';
+  return 'feed';
+}
+
 export function FacebookAdPreview({
   headline,
   primaryText,
@@ -53,6 +63,8 @@ export function FacebookAdPreview({
   cta,
   pageName = 'Your Brand',
   linkDisplay,
+  preferredFormat,
+  adFormatLabel,
 }: {
   headline?: string;
   primaryText?: string;
@@ -60,10 +72,17 @@ export function FacebookAdPreview({
   cta?: string;
   pageName?: string;
   linkDisplay?: string;
+  /** When set (from selected creative), preview switches to that Meta placement */
+  preferredFormat?: PreviewFormat;
+  adFormatLabel?: string;
 }) {
-  const [format, setFormat] = useState<PreviewFormat>('feed');
+  const [format, setFormat] = useState<PreviewFormat>(preferredFormat || 'feed');
   const ctaLabel =
     META_CTA_OPTIONS.find((c) => c.value === cta)?.label || 'Shop Now';
+
+  useEffect(() => {
+    if (preferredFormat) setFormat(preferredFormat);
+  }, [preferredFormat]);
 
   const domain = useMemo(() => {
     const raw = (linkDisplay || 'yourstore.com').replace(/^https?:\/\//i, '').replace(/\/$/, '');
@@ -75,6 +94,8 @@ export function FacebookAdPreview({
     { id: 'stories', label: 'Stories' },
     { id: 'reels', label: 'Reels' },
   ];
+
+  const fillSrc = imageUrl || '';
 
   return (
     <div className="w-full max-w-[360px] mx-auto">
@@ -96,17 +117,23 @@ export function FacebookAdPreview({
         ))}
       </div>
 
+      {adFormatLabel ? (
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[#65676B]">
+          Showing · {adFormatLabel} · as on Meta
+        </p>
+      ) : null}
+
       {/* Phone chrome */}
       <div
         className={cn(
           'bg-[#F0F2F5] border border-[#CCD0D5] shadow-[0_2px_12px_rgba(0,0,0,0.12)] overflow-hidden',
           format === 'feed' && 'rounded-2xl',
-          (format === 'stories' || format === 'reels') && 'rounded-[28px] aspect-[9/16] bg-black'
+          (format === 'stories' || format === 'reels') &&
+            'rounded-[28px] aspect-[9/16] max-h-[560px] bg-black border-black/40'
         )}
       >
         {format === 'feed' && (
           <div className="bg-white">
-            {/* Page header — matches Meta feed */}
             <div className="flex items-start gap-2 px-3 pt-3 pb-2">
               <div className="w-10 h-10 rounded-full bg-[#0866FF] flex items-center justify-center text-white text-base font-bold shrink-0">
                 {(pageName || 'Y').charAt(0).toUpperCase()}
@@ -126,10 +153,8 @@ export function FacebookAdPreview({
               </button>
             </div>
 
-            {/* Primary text — Facebook-style wrap + See more (no mid-word CSS clamp) */}
             {primaryText ? <FeedPrimaryText text={primaryText} /> : null}
 
-            {/* Creative — edge-to-edge */}
             <div className="aspect-square bg-[#E4E6EB] relative">
               {imageUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -141,7 +166,6 @@ export function FacebookAdPreview({
               )}
             </div>
 
-            {/* Link / CTA strip — Ads Manager style */}
             <div className="bg-[#F0F2F5] px-3 py-2.5 flex items-center gap-3 border-t border-[#E4E6EB]">
               <div className="min-w-0 flex-1">
                 <p className="text-[12px] text-[#65676B] tracking-wide truncate">{domain}</p>
@@ -157,7 +181,6 @@ export function FacebookAdPreview({
               </button>
             </div>
 
-            {/* Social row — makes it feel like a real feed unit */}
             <div className="flex items-center justify-between px-1 py-1 border-t border-[#E4E6EB]">
               {[
                 { icon: ThumbsUp, label: 'Like' },
@@ -178,20 +201,19 @@ export function FacebookAdPreview({
         )}
 
         {(format === 'stories' || format === 'reels') && (
-          <div className="relative h-full min-h-[520px] bg-black">
-            {imageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+          <div className="relative h-full min-h-[480px] bg-black">
+            {fillSrc ? (
+              <StoryFillImage src={fillSrc} alt="" className="z-0" />
             ) : (
               <div className="absolute inset-0 bg-gradient-to-b from-[#1c2b4a] to-black" />
             )}
-            <div className="absolute top-3 left-3 right-3 flex gap-1">
+            <div className="absolute top-3 left-3 right-3 z-10 flex gap-1">
               <div className="h-[2px] flex-1 bg-white/35 rounded-full overflow-hidden">
                 <div className="h-full w-2/5 bg-white rounded-full" />
               </div>
               <div className="h-[2px] flex-1 bg-white/35 rounded-full" />
             </div>
-            <div className="absolute top-6 left-3 flex items-center gap-2">
+            <div className="absolute top-6 left-3 z-10 flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-[#0866FF] flex items-center justify-center text-white text-xs font-bold">
                 {(pageName || 'Y').charAt(0).toUpperCase()}
               </div>
@@ -200,7 +222,7 @@ export function FacebookAdPreview({
                 <p className="text-white/70 text-[11px]">Sponsored</p>
               </div>
             </div>
-            <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/85 via-black/40 to-transparent pt-16">
+            <div className="absolute bottom-0 left-0 right-0 z-10 p-4 bg-gradient-to-t from-black/85 via-black/40 to-transparent pt-16">
               {headline && (
                 <p className="text-white text-[17px] font-semibold leading-snug mb-1 break-words">
                   {headline}
@@ -219,7 +241,7 @@ export function FacebookAdPreview({
               </button>
             </div>
             {format === 'reels' && (
-              <div className="absolute right-3 bottom-36 flex flex-col items-center gap-4 text-white text-[11px] font-semibold">
+              <div className="absolute right-3 bottom-36 z-10 flex flex-col items-center gap-4 text-white text-[11px] font-semibold">
                 <span className="flex flex-col items-center gap-1">
                   <ThumbsUp className="w-6 h-6" /> Like
                 </span>
