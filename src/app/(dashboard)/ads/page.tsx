@@ -547,7 +547,7 @@ function VideoPreview({ ad }: { ad: GeneratedAd }) {
         url={videoUrl}
         aspect={ad.media_payload?.aspect || '9:16'}
         poster={poster}
-        pageName={ad.media_payload?.page_name || null}
+        pageName={null}
         headline={ad.headline}
       />
     );
@@ -572,7 +572,7 @@ function SlideshowVideoPreview({ ad }: { ad: GeneratedAd }) {
   if (frames.length === 0 && (ad.image_url || ad.media_payload?.primary_packshot)) {
     return (
       <StoriesPhoneChrome
-        pageName={ad.media_payload?.page_name || 'Your Page'}
+        pageName={'Your Page'}
         headline={ad.headline}
         badge="Video · as on IG/FB"
       >
@@ -592,7 +592,7 @@ function SlideshowVideoPreview({ ad }: { ad: GeneratedAd }) {
     .filter((url, index) => Boolean(url) && index !== idx);
   return (
     <StoriesPhoneChrome
-      pageName={ad.media_payload?.page_name || 'Your Page'}
+      pageName={'Your Page'}
       headline={ad.headline}
       badge={`Video · ${idx + 1}/${frames.length}`}
     >
@@ -632,7 +632,7 @@ function AdMedia({ ad }: { ad: GeneratedAd }) {
   if (format === 'stories') {
     return (
       <StoriesPhoneChrome
-        pageName={ad.media_payload?.page_name || 'Your Page'}
+        pageName={'Your Page'}
         headline={ad.headline}
         badge="Stories · as on IG/FB"
       >
