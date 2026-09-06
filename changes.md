@@ -8,6 +8,25 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-06
 
+### Ops: Meta “Can't load URL” / App Domains on connect
+**What / why**  
+Connect with Facebook failed: *“The domain of this URL isn't included in the app's domains”* → `/campaigns?error=meta_invalid`. Redirect URI in use: `https://adforge.arhamtechnology.com/api/oauth/meta/callback` (App ID `927571939897794`).
+
+**Manual (Meta Developer Console — required)**  
+1. [developers.facebook.com](https://developers.facebook.com) → app **927571939897794**  
+2. **Settings → Basic → App Domains:** add `adforge.arhamtechnology.com` (save)  
+3. Add product **Facebook Login** if missing → **Settings**  
+4. **Valid OAuth Redirect URIs:** exactly  
+   `https://adforge.arhamtechnology.com/api/oauth/meta/callback`  
+5. **Settings → Basic → Website** (or add Website platform) **Site URL:**  
+   `https://adforge.arhamtechnology.com/`  
+6. Hostinger env must match:  
+   `NEXT_PUBLIC_APP_URL=https://adforge.arhamtechnology.com`  
+   `META_REDIRECT_URI=https://adforge.arhamtechnology.com/api/oauth/meta/callback`  
+7. Retry **Connect with Facebook**
+
+**Code:** Clearer `meta_invalid` banner copy in `CampaignWizard.tsx`.
+
 ### UX: Campaign live preview matches Facebook Ads Manager feed
 **What / why**  
 Preview truncated primary text and headline with ellipsis mid-word; didn’t feel like Ad Library / Ads Manager.

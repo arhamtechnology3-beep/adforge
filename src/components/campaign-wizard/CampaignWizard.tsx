@@ -64,7 +64,8 @@ const META_CONNECT_ERRORS: Record<string, string> = {
     'Facebook connect is not enabled on this AdForge install yet. The platform Meta App must be configured on the server (not by each customer).',
   meta_login_required: 'Sign in first, then connect with Facebook.',
   meta_denied: 'Facebook login was cancelled. Click Connect with Facebook to try again.',
-  meta_invalid: 'Meta connect failed (invalid callback). Try Connect with Facebook again.',
+  meta_invalid:
+    'Meta rejected the login URL. In Meta Developer → your app → App Domains add adforge.arhamtechnology.com, and under Facebook Login → Settings add Valid OAuth Redirect URI: https://adforge.arhamtechnology.com/api/oauth/meta/callback — then try Connect again.',
   meta_failed:
     'Meta connect failed while talking to Facebook. Try Connect with Facebook again.',
 };
