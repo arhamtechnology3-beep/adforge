@@ -95,9 +95,9 @@ export function CampaignWizard({
   const [step, setStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
   const [campaigns, setCampaigns] = useState(initialCampaigns);
-  const [metaPageName, setMetaPageName] = useState<string | null>(initialPageName || null);
-  const [metaPixelName, setMetaPixelName] = useState<string | null>(initialPixelName || null);
-  const [metaPixelId, setMetaPixelId] = useState<string | null>(initialPixelId || null);
+  const metaPageName = initialPageName || null;
+  const metaPixelName = initialPixelName || null;
+  const metaPixelId = initialPixelId || null;
 
   // Form state
   const [name, setName] = useState('');
