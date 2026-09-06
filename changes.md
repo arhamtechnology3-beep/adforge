@@ -8,6 +8,12 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-07
 
+### Fix: MetaAssetPicker import in CampaignWizard
+**What / why**  
+Picker was rendered but not imported — build/lint would fail and UI would break.
+
+**Paths:** `CampaignWizard.tsx`
+
 ### Feature: Visible Page + Pixel selector (dropdown + paste ID)
 **What / why**  
 Clients need an explicit Pixel select; API often returns no website Pixel yet. Global env cannot work multi-tenant.

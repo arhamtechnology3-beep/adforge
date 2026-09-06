@@ -39,6 +39,7 @@ import { formatCurrency } from '@/lib/utils';
 import { WizardStepper } from './WizardStepper';
 import { ValidationChecklist } from './ValidationChecklist';
 import { FacebookAdPreview } from '@/components/ad-preview/FacebookAdPreview';
+import MetaAssetPicker from '@/components/MetaAssetPicker';
 
 const WIZARD_STEPS = [
   { id: 'goal', label: 'Campaign Goal', shortLabel: 'Goal' },
@@ -95,9 +96,9 @@ export function CampaignWizard({
   const [step, setStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
   const [campaigns, setCampaigns] = useState(initialCampaigns);
-  const metaPageName = initialPageName || null;
-  const metaPixelName = initialPixelName || null;
-  const metaPixelId = initialPixelId || null;
+  const [metaPageName, setMetaPageName] = useState(initialPageName || null);
+  const [metaPixelName, setMetaPixelName] = useState(initialPixelName || null);
+  const [metaPixelId, setMetaPixelId] = useState(initialPixelId || null);
 
   // Form state
   const [name, setName] = useState('');
@@ -414,7 +415,9 @@ export function CampaignWizard({
         <MetaAssetPicker
           enabled
           onSaved={(sel) => {
-            // Parent page also mounts a picker; wizard-local update via toast
+            setMetaPageName(sel.page_name);
+            setMetaPixelId(sel.pixel_id);
+            setMetaPixelName(sel.pixel_name);
             setToast(
               sel.pixel_id
                 ? `Saved: Page ${sel.page_name || ''} · Pixel ${sel.pixel_name || sel.pixel_id}`
