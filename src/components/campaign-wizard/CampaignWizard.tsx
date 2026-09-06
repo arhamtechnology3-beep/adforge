@@ -369,17 +369,16 @@ export function CampaignWizard({
         )}
         <p className="text-sm flex-1">
           {metaConnected
-            ? 'Meta connected — campaigns sync as PAUSED until you confirm launch.'
+            ? 'Meta connected — campaigns sync as PAUSED until you confirm launch. Reconnect anytime to refresh Page + Pixel.'
             : 'Meta not connected — you can save drafts locally. Connect with Facebook to publish live (we pull your ad account automatically).'}
         </p>
-        {!metaConnected && (
-          <a
-            href="/api/oauth/meta/connect"
-            className="btn-primary text-sm inline-flex items-center gap-2 shrink-0"
-          >
-            <Link2 className="w-4 h-4" /> Connect with Facebook
-          </a>
-        )}
+        <a
+          href="/api/oauth/meta/connect"
+          className={`${metaConnected ? 'btn-secondary' : 'btn-primary'} text-sm inline-flex items-center gap-2 shrink-0`}
+        >
+          <Link2 className="w-4 h-4" />
+          {metaConnected ? 'Reconnect Facebook' : 'Connect with Facebook'}
+        </a>
       </div>
 
       {toast && (

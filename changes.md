@@ -8,6 +8,14 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-07
 
+### UX: Always show Reconnect Facebook on Campaigns
+**What / why**  
+When Meta was already connected, the Connect button was hidden — users could not refresh Page + Pixel after migration.
+
+**Fix:** Campaigns status bar always shows **Reconnect Facebook** (or Connect when disconnected).
+
+**Paths:** `CampaignWizard.tsx`
+
 ### Feature: Ops Agent Phase 1–3 + Pixel auto-link + change emails
 **What / why**  
 Sellable subscription needs accurate launch, performance optimization, and conversion tracking — plus trust when the agent changes live campaigns.
