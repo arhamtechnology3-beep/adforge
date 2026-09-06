@@ -8,6 +8,19 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-07
 
+### Fix: Stories fill works client-side (E2E)
+**What / why**  
+Server pad + CSS cover still left black bars on #3/#4 (square or letterboxed assets, relative URLs skipping pad, img not absolutely filling).
+
+**Fix**
+- New `StoryFillImage` canvas compositor: blur-cover bg + sharp center product; strips dark letterbox
+- Stories/video previews use it directly in `/ads`
+- Proxy wraps all same-origin paths for story pad
+
+**Paths:** `StoryFillImage.tsx`, `ads/page.tsx`
+
+**Manual:** Redeploy → hard refresh `/ads` (no regenerate required for preview). Regenerate still recommended to bake permanent assets.
+
 ### Fix: Stories/UGC full-bleed cover (no black letterbox)
 **What / why**  
 #3/#4 still showed a square packshot with large black bars in the 9:16 phone frame. Solid-color “pad” looked like letterboxing; user wants the frame **covered**.

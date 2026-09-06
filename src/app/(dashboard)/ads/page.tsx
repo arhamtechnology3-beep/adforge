@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { saveCampaignPrefill } from '@/lib/campaign-prefill';
 import { loadCarouselUrlPrefill } from '@/lib/carousel-url-prefill';
 import { CAROUSEL_URL_MIN } from '@/lib/carousel-limits';
+import StoryFillImage from '@/components/ads/StoryFillImage';
 import {
   Sparkles,
   Check,
@@ -104,21 +105,36 @@ function sameOriginPreviewUrl(raw: string, padAspect?: '9:16' | '4:5' | '1:1'): 
   if (raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
   if (raw.startsWith('/api/ads/product-image')) {
     if (!padAspect || raw.includes('pad=')) return raw;
-    return `${raw}&pad=${encodeURIComponent(padAspect)}`;
+    const join = raw.includes('?') ? '&' : '?';
+    return `${raw}${join}pad=${encodeURIComponent(padAspect)}`;
   }
   if (/^https?:\/\//i.test(raw)) {
     const pad = padAspect ? `&pad=${encodeURIComponent(padAspect)}` : '';
     return `/api/ads/product-image?src=${encodeURIComponent(raw)}${pad}`;
   }
-  // Local /uploads creatives that are square still need 9:16 pad in Stories preview
-  if (padAspect && raw.startsWith('/uploads/')) {
-    // Absolute URL required by product-image proxy
+  // Any same-origin path (/uploads, /api/ads/creative, etc.)
+  if (padAspect && raw.startsWith('/')) {
     if (typeof window !== 'undefined') {
       const absolute = `${window.location.origin}${raw}`;
       return `/api/ads/product-image?src=${encodeURIComponent(absolute)}&pad=${encodeURIComponent(padAspect)}`;
     }
   }
   return raw;
+}
+
+function previewSourceForFill(raw: string): string {
+  if (!raw) return '';
+  if (raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+  const unwrapped = unwrapForPreview(raw);
+  if (/^https?:\/\//i.test(unwrapped)) {
+    return `/api/ads/product-image?src=${encodeURIComponent(unwrapped)}`;
+  }
+  if (unwrapped.startsWith('/') && typeof window !== 'undefined') {
+    return `/api/ads/product-image?src=${encodeURIComponent(
+      `${window.location.origin}${unwrapped}`
+    )}`;
+  }
+  return unwrapped || raw;
 }
 
 function unwrapForPreview(url: string): string {
@@ -217,7 +233,11 @@ function CreativePreview({
               <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden />
               <div className="space-y-1">
                 <p className="text-sm font-medium text-ink">Rendering creative…</p>
-                <p className="text-[11px] text-muted">Composing packshot for Meta preview</p>
+                <p className="text-[11px] text-muted">
+                  {aspect === 'story'
+                    ? 'Filling 9:16 Stories frame…'
+                    : 'Composing packshot for Meta preview'}
+                </p>
               </div>
               <div className="h-1.5 w-32 overflow-hidden rounded-full bg-slate-200">
                 <div className="h-full w-1/2 animate-pulse rounded-full bg-primary" />
@@ -232,15 +252,30 @@ function CreativePreview({
         </div>
       )}
 
-      {activeUrl ? (
+      {aspect === 'story' && activeUrl ? (
+        <StoryFillImage
+          key={activeUrl}
+          src={previewSourceForFill(url) || previewSourceForFill(fallbackUrl || '') || activeUrl}
+          alt={`Meta creative ${variant}`}
+          className={`z-[1] transition-opacity duration-300 ${
+            status === 'ready' ? 'opacity-100' : 'opacity-0'
+          }`}
+          onReady={() => setStatus('ready')}
+          onError={() => {
+            if (tryNextCandidate()) return;
+            onHardFail?.();
+            setStatus('error');
+          }}
+        />
+      ) : activeUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           key={activeUrl}
           src={activeUrl}
           alt={`Meta creative ${variant}`}
-          className={`relative z-[1] w-full h-full transition-opacity duration-300 ${
-            aspect === 'story' ? 'object-cover' : 'object-contain'
-          } ${status === 'ready' ? 'opacity-100' : 'opacity-0'}`}
+          className={`absolute inset-0 z-[1] h-full w-full object-contain transition-opacity duration-300 ${
+            status === 'ready' ? 'opacity-100' : 'opacity-0'
+          }`}
           loading="eager"
           onLoad={(event) => {
             try {
