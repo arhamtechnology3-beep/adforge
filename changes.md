@@ -8,6 +8,17 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-07
 
+### Fix: Stories/video preview = real FB/IG replica (cover fill)
+**What / why**  
+Black/white bars on #3/#4 are **not** how Facebook/Instagram Stories & Reels look. On device Meta **cover-fills** the phone (edge-to-edge); square assets get side-cropped, not letterboxed.
+
+**Fix**
+- `StoryFillImage` uses cover-crop only (strips baked black bars first)
+- `#3` / `#4` wrap in `StoriesPhoneChrome` (progress, Sponsored, CTA) like IG/FB
+- Video uses full-bleed `object-cover` inside the same phone frame
+
+**Manual:** Redeploy → hard refresh `/ads`. Preview should match Stories on phone.
+
 ### Fix: Stories fill works client-side (E2E)
 **What / why**  
 Server pad + CSS cover still left black bars on #3/#4 (square or letterboxed assets, relative URLs skipping pad, img not absolutely filling).

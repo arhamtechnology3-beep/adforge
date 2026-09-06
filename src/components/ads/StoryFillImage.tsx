@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react';
 
 /**
- * Client-side Stories/Reels fill: edge-to-edge blur cover + sharp product center.
- * Works even when the server still serves a square or black-letterboxed asset.
+ * Meta Stories / Reels replica fill.
+ * Real FB/IG vertical placements cover the phone edge-to-edge (no black bars).
+ * Square packshots are cover-cropped into 9:16 — sides may crop; frame is always full.
  */
 export default function StoryFillImage({
   src,
@@ -37,9 +38,8 @@ export default function StoryFillImage({
         const iw = img.naturalWidth || 1;
         const ih = img.naturalHeight || 1;
 
-        // Detect solid dark letterbox on already-tall images and crop to content
         const probe = document.createElement('canvas');
-        const maxProbe = 64;
+        const maxProbe = 72;
         const scale = Math.min(1, maxProbe / Math.max(iw, ih));
         const pw = Math.max(1, Math.round(iw * scale));
         const ph = Math.max(1, Math.round(ih * scale));
@@ -49,6 +49,7 @@ export default function StoryFillImage({
         if (!pctx) throw new Error('no probe');
         pctx.drawImage(img, 0, 0, pw, ph);
         const pixels = pctx.getImageData(0, 0, pw, ph).data;
+
         const rowLuma = (y: number) => {
           let sum = 0;
           for (let x = 0; x < pw; x += 1) {
@@ -57,57 +58,55 @@ export default function StoryFillImage({
           }
           return sum / pw;
         };
+        const colLuma = (x: number) => {
+          let sum = 0;
+          for (let y = 0; y < ph; y += 1) {
+            const i = (y * pw + x) * 4;
+            sum += (pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3;
+          }
+          return sum / ph;
+        };
+
+        // Strip baked black letterbox / pillarbox before cover-crop
         let top = 0;
         let bottom = ph - 1;
-        while (top < ph - 1 && rowLuma(top) < 28) top += 1;
-        while (bottom > top && rowLuma(bottom) < 28) bottom -= 1;
-        const contentH = bottom - top + 1;
-        const letterboxed = ih / iw > 1.2 && contentH / ph < 0.78;
+        let left = 0;
+        let right = pw - 1;
+        while (top < ph - 1 && rowLuma(top) < 30) top += 1;
+        while (bottom > top && rowLuma(bottom) < 30) bottom -= 1;
+        while (left < pw - 1 && colLuma(left) < 30) left += 1;
+        while (right > left && colLuma(right) < 30) right -= 1;
 
-        const sx = 0;
-        const sy = letterboxed ? Math.round((top / ph) * ih) : 0;
-        const sw = iw;
-        const sh = letterboxed ? Math.round((contentH / ph) * ih) : ih;
+        const sx = Math.round((left / pw) * iw);
+        const sy = Math.round((top / ph) * ih);
+        const sw = Math.max(1, Math.round(((right - left + 1) / pw) * iw));
+        const sh = Math.max(1, Math.round(((bottom - top + 1) / ph) * ih));
 
         const W = 540;
-        const H = 960; // 9:16
+        const H = 960; // 9:16 phone
         const canvas = document.createElement('canvas');
         canvas.width = W;
         canvas.height = H;
         const ctx = canvas.getContext('2d');
         if (!ctx) throw new Error('no canvas');
 
+        // Cover fill — same as Instagram Stories / Reels on device
         const ir = sw / sh;
         const cr = W / H;
-        let bw: number;
-        let bh: number;
+        let dw: number;
+        let dh: number;
         if (ir > cr) {
-          bh = H;
-          bw = H * ir;
+          dh = H;
+          dw = H * ir;
         } else {
-          bw = W;
-          bh = W / ir;
+          dw = W;
+          dh = W / ir;
         }
-        const bx = (W - bw) / 2;
-        const by = (H - bh) / 2;
-
-        ctx.filter = 'blur(18px) brightness(0.55) saturate(1.05)';
-        ctx.drawImage(img, sx, sy, sw, sh, bx, by, bw, bh);
-        ctx.filter = 'none';
-
-        const safe = Math.min(W, H) * 0.92;
-        let fw: number;
-        let fh: number;
-        if (ir >= 1) {
-          fw = safe;
-          fh = safe / ir;
-        } else {
-          fh = safe;
-          fw = safe * ir;
-        }
-        const fx = (W - fw) / 2;
-        const fy = (H - fh) / 2 - H * 0.04;
-        ctx.drawImage(img, sx, sy, sw, sh, fx, fy, fw, fh);
+        const dx = (W - dw) / 2;
+        const dy = (H - dh) / 2;
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, W, H);
+        ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
 
         const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
         if (!cancelled) {
@@ -136,12 +135,11 @@ export default function StoryFillImage({
     return () => {
       cancelled = true;
     };
-    // Intentionally only re-run when src changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src]);
 
   if (!out) {
-    return <div className={`absolute inset-0 bg-[#111827] ${className}`} aria-hidden />;
+    return <div className={`absolute inset-0 bg-black ${className}`} aria-hidden />;
   }
 
   // eslint-disable-next-line @next/next/no-img-element

@@ -6,6 +6,7 @@ import { saveCampaignPrefill } from '@/lib/campaign-prefill';
 import { loadCarouselUrlPrefill } from '@/lib/carousel-url-prefill';
 import { CAROUSEL_URL_MIN } from '@/lib/carousel-limits';
 import StoryFillImage from '@/components/ads/StoryFillImage';
+import StoriesPhoneChrome from '@/components/ads/StoriesPhoneChrome';
 import {
   Sparkles,
   Check,
@@ -202,7 +203,7 @@ function CreativePreview({
     <div
       className={`relative overflow-hidden ${
         aspect === 'story'
-          ? 'mx-auto aspect-[9/16] w-full max-w-[236px] bg-[#111827]'
+          ? 'absolute inset-0 h-full w-full bg-black'
           : 'aspect-square w-full bg-[#f3f4f6]'
       }`}
       style={
@@ -465,56 +466,70 @@ function VeoVideoPreview({
   url,
   aspect,
   poster,
+  pageName,
+  headline,
 }: {
   url: string;
   aspect?: string;
   poster?: string | null;
+  pageName?: string | null;
+  headline?: string | null;
 }) {
   const [failed, setFailed] = useState(false);
+  const isStory = aspect === '9:16' || !aspect;
+
   if (failed || !url) {
-    return (
+    const preview = (
       <CreativePreview
         url={poster || url}
         fallbackUrl={poster}
         variant={1}
-        aspect={aspect === '9:16' ? 'story' : 'square'}
+        aspect={isStory ? 'story' : 'square'}
       />
     );
+    return isStory ? (
+      <StoriesPhoneChrome pageName={pageName || 'Your Page'} headline={headline} badge="Video · as on IG/FB">
+        {preview}
+      </StoriesPhoneChrome>
+    ) : (
+      preview
+    );
   }
-  return (
-    <div
-      className={`relative overflow-hidden bg-black ${
-        aspect === '9:16'
-          ? 'mx-auto aspect-[9/16] w-full max-w-[260px]'
-          : 'aspect-square w-full'
-      }`}
-    >
+
+  const media = (
+    <div className={isStory ? 'absolute inset-0 bg-black' : 'relative aspect-square w-full bg-black'}>
       {poster ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={poster}
           alt=""
-          className="absolute inset-0 z-0 h-full w-full object-cover opacity-80"
+          className="absolute inset-0 z-0 h-full w-full object-cover opacity-90"
           aria-hidden
         />
       ) : null}
       <video
         src={url}
         poster={poster || undefined}
-        className="relative z-[1] w-full h-full object-cover"
-        controls
+        className="absolute inset-0 z-[1] h-full w-full object-cover"
         muted
         playsInline
+        autoPlay
+        loop
         onError={() => setFailed(true)}
         onLoadedMetadata={(event) => {
           const duration = event.currentTarget.duration;
           if (!Number.isFinite(duration) || duration <= 0.05) setFailed(true);
         }}
       />
-      <p className="absolute top-2 left-2 z-10 text-[10px] font-semibold uppercase tracking-wide bg-black/55 text-white px-2 py-1 rounded">
-        Video
-      </p>
     </div>
+  );
+
+  if (!isStory) return media;
+
+  return (
+    <StoriesPhoneChrome pageName={pageName || 'Your Page'} headline={headline} badge="Video · as on IG/FB">
+      {media}
+    </StoriesPhoneChrome>
   );
 }
 
@@ -527,7 +542,15 @@ function VideoPreview({ ad }: { ad: GeneratedAd }) {
     ad.image_url ||
     null;
   if (videoUrl && /\.mp4(\?|$)/i.test(videoUrl)) {
-    return <VeoVideoPreview url={videoUrl} aspect={ad.media_payload?.aspect} poster={poster} />;
+    return (
+      <VeoVideoPreview
+        url={videoUrl}
+        aspect={ad.media_payload?.aspect || '9:16'}
+        poster={poster}
+        pageName={ad.media_payload?.page_name || null}
+        headline={ad.headline}
+      />
+    );
   }
   return <SlideshowVideoPreview ad={ad} />;
 }
@@ -548,11 +571,18 @@ function SlideshowVideoPreview({ ad }: { ad: GeneratedAd }) {
 
   if (frames.length === 0 && (ad.image_url || ad.media_payload?.primary_packshot)) {
     return (
-      <CreativePreview
-        url={ad.image_url || ad.media_payload?.primary_packshot || ''}
-        fallbackUrl={ad.media_payload?.primary_packshot}
-        variant={ad.variant_number}
-      />
+      <StoriesPhoneChrome
+        pageName={ad.media_payload?.page_name || 'Your Page'}
+        headline={ad.headline}
+        badge="Video · as on IG/FB"
+      >
+        <CreativePreview
+          url={ad.image_url || ad.media_payload?.primary_packshot || ''}
+          fallbackUrl={ad.media_payload?.primary_packshot}
+          variant={ad.variant_number}
+          aspect="story"
+        />
+      </StoriesPhoneChrome>
     );
   }
 
@@ -561,7 +591,11 @@ function SlideshowVideoPreview({ ad }: { ad: GeneratedAd }) {
     .map((item) => item.image_url || '')
     .filter((url, index) => Boolean(url) && index !== idx);
   return (
-    <div className="relative">
+    <StoriesPhoneChrome
+      pageName={ad.media_payload?.page_name || 'Your Page'}
+      headline={ad.headline}
+      badge={`Video · ${idx + 1}/${frames.length}`}
+    >
       {frame && (
         <CreativePreview
           key={`${ad.id}-${idx}`}
@@ -580,24 +614,13 @@ function SlideshowVideoPreview({ ad }: { ad: GeneratedAd }) {
       )}
       <button
         type="button"
-        className="absolute bottom-3 right-3 z-10 p-2 rounded-full bg-black/55 text-white"
+        className="absolute bottom-20 right-3 z-30 p-2 rounded-full bg-black/55 text-white"
         onClick={() => setPlaying((p) => !p)}
         aria-label={playing ? 'Pause' : 'Play'}
       >
         {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
       </button>
-      <div className="absolute bottom-3 left-3 z-10 flex gap-1">
-        {frames.map((_, i) => (
-          <div
-            key={i}
-            className={`h-1 rounded-full transition-all ${i === idx ? 'w-6 bg-white' : 'w-3 bg-white/40'}`}
-          />
-        ))}
-      </div>
-      <p className="absolute top-2 left-2 z-10 text-[10px] font-semibold uppercase tracking-wide bg-black/55 text-white px-2 py-1 rounded">
-        Video preview · {idx + 1}/{frames.length}
-      </p>
-    </div>
+    </StoriesPhoneChrome>
   );
 }
 
@@ -608,14 +631,18 @@ function AdMedia({ ad }: { ad: GeneratedAd }) {
   if (format === 'video') return <VideoPreview ad={ad} />;
   if (format === 'stories') {
     return (
-      <div className="bg-[#111] py-2 flex justify-center">
+      <StoriesPhoneChrome
+        pageName={ad.media_payload?.page_name || 'Your Page'}
+        headline={ad.headline}
+        badge="Stories · as on IG/FB"
+      >
         <CreativePreview
           url={ad.image_url || packshot || ''}
           fallbackUrl={packshot}
           variant={ad.variant_number}
           aspect="story"
         />
-      </div>
+      </StoriesPhoneChrome>
     );
   }
   return (
