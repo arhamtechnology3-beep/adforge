@@ -3,8 +3,13 @@ import { createClient } from '@/lib/supabase/server';
 import { validateCampaignLaunch } from '@/lib/campaign-validation';
 import type { GeneratedAd } from '@/types/database';
 import { getSessionUser } from '@/lib/auth/session';
-import { metaConnectionIsLive, resolveMetaConnection } from '@/lib/auth/demo-meta';
+import {
+  metaAccessToken,
+  metaConnectionIsLive,
+  resolveMetaConnection,
+} from '@/lib/auth/demo-meta';
 import { readDemoAds } from '@/lib/auth/demo-ads';
+import { ensureFacebookPageId } from '@/lib/meta';
 
 export async function POST(request: Request) {
   const user = await getSessionUser();
@@ -18,6 +23,26 @@ export async function POST(request: Request) {
 
   const metaConnection = await resolveMetaConnection(user);
   const metaConnected = metaConnectionIsLive(metaConnection);
+
+  let pageId = metaConnection?.page_id || process.env.META_PAGE_ID || null;
+  if (metaConnected && metaConnection && (!pageId || pageId === 'me')) {
+    try {
+      const resolved = await ensureFacebookPageId({
+        accessToken: metaAccessToken(metaConnection),
+        storedPageId: metaConnection.page_id,
+      });
+      pageId = resolved.pageId;
+      if (resolved.source === 'live' && !user.isDemo) {
+        const supabase = await createClient();
+        await supabase
+          .from('ad_accounts')
+          .update({ page_id: resolved.pageId, page_name: resolved.pageName || null })
+          .eq('user_id', user.id);
+      }
+    } catch {
+      pageId = null;
+    }
+  }
 
   let ads: Array<{
     id: string;
@@ -54,7 +79,7 @@ export async function POST(request: Request) {
     ads: ads as GeneratedAd[],
     meta_connected: metaConnected,
     has_pixel: !!process.env.META_PIXEL_ID,
-    page_id: metaConnection?.page_id || process.env.META_PAGE_ID || null,
+    page_id: pageId,
   });
 
   return NextResponse.json(result);

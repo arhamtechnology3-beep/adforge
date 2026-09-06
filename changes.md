@@ -8,6 +8,26 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-06
 
+### Fix: META_PAGE_ID warning + Meta sync + creative HTTPS check
+**What / why**  
+Pre-launch showed “Set META_PAGE_ID…”, “Image must be publicly accessible via HTTPS”, and “Meta sync failed”. Real OAuth never saved Facebook Page ID to `ad_accounts`, so launch used invalid `me`. Relative `/api/ads/product-image?…` URLs failed the HTTPS check even when the underlying Shopify URL was fine.
+
+**Fix**
+- Save `page_id` / `page_name` on Meta connect; live-fetch Page if missing on validate/launch/confirm
+- Unwrap product-image proxy URLs for validation; Meta upload already uses public CDN URLs
+- Migration `009_ad_accounts_page_id.sql`
+
+**Paths:** `oauth/meta/callback`, `demo-meta.ts`, `meta.ts` (`ensureFacebookPageId`), `campaign-validation.ts`, `campaigns/validate|launch|confirm`, migration `009`
+
+**Manual (Supabase SQL — required once)**
+```sql
+ALTER TABLE ad_accounts
+  ADD COLUMN IF NOT EXISTS page_id TEXT,
+  ADD COLUMN IF NOT EXISTS page_name TEXT;
+```
+Then redeploy Hostinger → **Reconnect Facebook** once → Create on Meta / Confirm again.  
+`META_PAGE_ID` env is optional override only.
+
 ### Ops: Meta “Can't load URL” / App Domains on connect
 **What / why**  
 Connect with Facebook failed: *“The domain of this URL isn't included in the app's domains”* → `/campaigns?error=meta_invalid`. Redirect URI in use: `https://adforge.arhamtechnology.com/api/oauth/meta/callback` (App ID `927571939897794`).

@@ -5,6 +5,7 @@ import {
   createCampaign,
   createAdSet,
   createAd,
+  ensureFacebookPageId,
 } from '@/lib/meta';
 import type { PlacementToggles } from '@/lib/meta-campaign';
 import { genderToMetaGenders } from '@/lib/meta-campaign';
@@ -168,7 +169,21 @@ export async function POST(
           ads = (data || []) as GeneratedAd[];
         }
 
-        const pageId = metaConnection.page_id || process.env.META_PAGE_ID || 'me';
+        const pageResolved = await ensureFacebookPageId({
+          accessToken: token,
+          storedPageId: metaConnection.page_id,
+        });
+        const pageId = pageResolved.pageId;
+        if (pageResolved.source === 'live' && !sessionUser.isDemo) {
+          const supabasePages = await createClient();
+          await supabasePages
+            .from('ad_accounts')
+            .update({
+              page_id: pageResolved.pageId,
+              page_name: pageResolved.pageName || null,
+            })
+            .eq('user_id', sessionUser.id);
+        }
         const link = campaign.website_url || process.env.DEFAULT_AD_LINK || 'https://example.com';
         const ctaType = String(launchConfig.cta || audience.cta || 'SHOP_NOW');
         const linkDescription = (audience.link_description as string) || undefined;

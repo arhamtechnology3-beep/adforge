@@ -4,6 +4,7 @@ import {
   getObjectiveConfig,
   META_CTA_OPTIONS,
 } from '@/lib/meta-campaign';
+import { resolvePublicCreativeImageUrl } from '@/lib/meta';
 
 export type ValidationItem = {
   id: string;
@@ -67,9 +68,10 @@ export function validateCampaignLaunch(opts: {
       id: 'page_id',
       label: 'Facebook Page linked',
       status: 'warn',
-      message: 'Set META_PAGE_ID in env for reliable ad creation',
+      message:
+        'No Page on this Meta login yet — reconnect Facebook (we auto-pick your Page) or set META_PAGE_ID',
     });
-    warnings.push('Facebook Page ID not configured');
+    warnings.push('Facebook Page ID not linked yet');
   }
 
   // Campaign name
@@ -291,14 +293,18 @@ export function validateCampaignLaunch(opts: {
           message: 'Image URL missing',
         });
         errors.push('Creative image URL is required');
-      } else if (!/^https?:\/\//i.test(ad.image_url)) {
-        items.push({
-          id: `image_${ad.id}`,
-          label: `Creative image`,
-          status: 'warn',
-          message: 'Image must be publicly accessible via HTTPS',
-        });
-        warnings.push('Ensure creative images are publicly accessible');
+      } else {
+        const publicImage = resolvePublicCreativeImageUrl(ad.image_url);
+        if (!publicImage || !/^https:\/\//i.test(publicImage)) {
+          items.push({
+            id: `image_${ad.id}`,
+            label: `Creative image`,
+            status: 'warn',
+            message:
+              'Image must resolve to a public HTTPS URL (Shopify/CDN). Re-generate or pick another creative.',
+          });
+          warnings.push('Ensure creative images are publicly accessible via HTTPS');
+        }
       }
     }
   }

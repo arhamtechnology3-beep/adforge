@@ -96,6 +96,8 @@ export async function GET(request: Request) {
         access_token_encrypted: encrypted,
         token_expires_at: expiresAt,
         connected_at: new Date().toISOString(),
+        page_id: pageId,
+        page_name: primaryPage?.name || null,
       },
       { onConflict: 'user_id' }
     );

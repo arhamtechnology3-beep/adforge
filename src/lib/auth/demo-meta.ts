@@ -12,6 +12,7 @@ export type MetaConnection = {
   token_expires_at: string | null;
   connected_at: string;
   page_id?: string | null;
+  page_name?: string | null;
   source: 'demo' | 'supabase';
 };
 
@@ -62,7 +63,7 @@ export async function resolveMetaConnection(
   const { data } = await supabase
     .from('ad_accounts')
     .select(
-      'user_id, meta_ad_account_id, access_token_encrypted, token_expires_at, connected_at'
+      'user_id, meta_ad_account_id, access_token_encrypted, token_expires_at, connected_at, page_id, page_name'
     )
     .eq('user_id', user.id)
     .maybeSingle();
@@ -74,6 +75,8 @@ export async function resolveMetaConnection(
     access_token_encrypted: data.access_token_encrypted,
     token_expires_at: data.token_expires_at,
     connected_at: data.connected_at || new Date().toISOString(),
+    page_id: (data as { page_id?: string | null }).page_id || null,
+    page_name: (data as { page_name?: string | null }).page_name || null,
     source: 'supabase',
   };
 }

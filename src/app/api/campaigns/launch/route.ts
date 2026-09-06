@@ -4,6 +4,7 @@ import {
   createCampaign,
   createAdSet,
   createAd,
+  ensureFacebookPageId,
 } from '@/lib/meta';
 import { genderToMetaGenders } from '@/lib/meta-campaign';
 import { getSessionUser } from '@/lib/auth/session';
@@ -145,7 +146,20 @@ export async function POST(request: Request) {
       );
       metaAdSetId = adSet.id;
 
-      const pageId = metaConnection.page_id || process.env.META_PAGE_ID || 'me';
+      const pageResolved = await ensureFacebookPageId({
+        accessToken: token,
+        storedPageId: metaConnection.page_id,
+      });
+      const pageId = pageResolved.pageId;
+      if (pageResolved.source === 'live' && !user.isDemo) {
+        await supabase
+          .from('ad_accounts')
+          .update({
+            page_id: pageResolved.pageId,
+            page_name: pageResolved.pageName || null,
+          })
+          .eq('user_id', user.id);
+      }
       const link = destination || website_url || 'https://example.com';
       const ctaType = String(cta || audience?.cta || 'SHOP_NOW');
       const linkDescription = audience?.link_description || undefined;

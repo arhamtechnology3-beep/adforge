@@ -50,6 +50,32 @@ export async function getFacebookPages(accessToken: string) {
   return (data.data || []) as Array<{ id: string; name?: string }>;
 }
 
+/**
+ * Resolve a real Facebook Page ID for ad creatives.
+ * Prefer stored/env ID; otherwise fetch pages from the user token.
+ */
+export async function ensureFacebookPageId(opts: {
+  accessToken: string;
+  storedPageId?: string | null;
+}): Promise<{ pageId: string; pageName?: string | null; source: 'stored' | 'env' | 'live' }> {
+  const stored = String(opts.storedPageId || '').trim();
+  if (stored && stored !== 'me' && /^\d{5,}$/.test(stored)) {
+    return { pageId: stored, source: 'stored' };
+  }
+  const fromEnv = String(process.env.META_PAGE_ID || '').trim();
+  if (fromEnv && fromEnv !== 'me' && /^\d{5,}$/.test(fromEnv)) {
+    return { pageId: fromEnv, source: 'env' };
+  }
+  const pages = await getFacebookPages(opts.accessToken);
+  const primary = pages.find((p) => p?.id && /^\d{5,}$/.test(p.id));
+  if (!primary?.id) {
+    throw new Error(
+      'No Facebook Page found on this Meta login. Open Meta Business Suite, make sure your user manages a Page, reconnect Facebook in AdForge, or set META_PAGE_ID.'
+    );
+  }
+  return { pageId: primary.id, pageName: primary.name || null, source: 'live' };
+}
+
 export async function createCampaign(
   accessToken: string,
   adAccountId: string,

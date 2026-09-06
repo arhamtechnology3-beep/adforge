@@ -93,6 +93,8 @@ export interface AdAccount {
   access_token_encrypted: string | null;
   token_expires_at: string | null;
   connected_at: string;
+  page_id?: string | null;
+  page_name?: string | null;
 }
 
 export interface CompetitorEntry {
