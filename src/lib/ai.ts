@@ -334,7 +334,7 @@ export async function scrapeCompetitorIntel(
       country: opts.country || 'IN',
       publisherPlatform: 'instagram',
       sortByImpressions: true,
-      limit: 20,
+      limit: 10,
     });
 
     return {

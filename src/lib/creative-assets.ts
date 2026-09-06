@@ -235,14 +235,30 @@ export async function normalizePackshotBuffer(input: Buffer): Promise<{
   backgroundRemoved: boolean;
   provider?: 'remove-bg' | 'local';
 }> {
-  const prepared = await sharp(input)
+  let prepared = await sharp(input)
     .rotate()
     .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
-  const { width, height, channels } = prepared.info;
-  if (width < 300 || height < 300) throw new Error('Packshot must be at least 300×300 pixels');
+  let { width, height, channels } = prepared.info;
+
+  // Upscale tiny PDP thumbnails so import doesn't fail the 300×300 gate.
+  if (width < 300 || height < 300) {
+    prepared = await sharp(input)
+      .rotate()
+      .resize(Math.max(300, width), Math.max(300, height), {
+        fit: 'inside',
+        withoutEnlargement: false,
+      })
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    ({ width, height, channels } = prepared.info);
+  }
+  if (width < 300 || height < 300) {
+    throw new Error('Packshot must be at least 300×300 pixels');
+  }
 
   const pixels = Buffer.from(prepared.data);
   const total = width * height;

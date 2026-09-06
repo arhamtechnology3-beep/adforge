@@ -141,7 +141,8 @@ export function resolveMetaPageId(opts: {
 export function buildAdLibraryUrl(input: AdLibraryFetchInput): string {
   const country = input.country || 'IN';
   const params = new URLSearchParams();
-  params.set('active_status', 'active');
+  // Include inactive/historical creatives — many competitors have paused ads that still teach winning patterns.
+  params.set('active_status', 'all');
   params.set('ad_type', 'all');
   params.set('country', country);
   params.set('is_targeted_country', 'false');
@@ -227,7 +228,7 @@ export async function fetchAdLibraryOfficialApi(
     access_token: token,
     ad_reached_countries: `['${input.country || 'IN'}']`,
     ad_type: 'ALL',
-    ad_active_status: 'ACTIVE',
+    ad_active_status: 'ALL',
     fields,
     limit: String(input.limit || 25),
   });
@@ -255,7 +256,10 @@ export async function fetchAdLibraryOfficialApi(
     }
     const data = (json.data || []) as Record<string, unknown>[];
     const { rankLibraryAds } = await import('@/lib/ad-performance');
-    const mapped = rankLibraryAds(data.map(mapOfficialAd).slice(0, input.limit || 25));
+    const mapped = rankLibraryAds(data.map(mapOfficialAd).slice(0, input.limit || 25)).slice(
+      0,
+      Math.min(input.limit || 25, 10)
+    );
     return {
       ads: mapped,
       method: 'official_api',
@@ -468,20 +472,43 @@ export async function fetchAdLibraryViaWeb(
   return {
     ...subprocess,
     libraryUrl,
-    note:
+    note: sanitizeLibraryNote(
       (subprocess.note ? `${subprocess.note} ` : '') +
-      'Start the Ad Library worker in another terminal: npm run ad-library-worker',
+        (process.env.NODE_ENV === 'production'
+          ? 'Could not load Ad Library creatives right now. Open Meta Ad Library manually, or generate from your product with Meta-style patterns.'
+          : 'Start the Ad Library worker in another terminal: npm run ad-library-worker')
+    ),
   };
+}
+
+function sanitizeLibraryNote(note: string): string {
+  if (process.env.NODE_ENV !== 'production') return note;
+  return note
+    .replace(/Run:\s*npm run build:ad-library[^.!]*/gi, '')
+    .replace(/Start the Ad Library worker[^.!]*/gi, '')
+    .replace(/npm run ad-library-worker/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
 }
 
 export async function fetchCompetitorLiveAds(
   input: AdLibraryFetchInput
 ): Promise<AdLibraryFetchResult> {
   const libraryUrl = buildAdLibraryUrl(input);
+  const limit = Math.min(input.limit || 20, 10);
 
   // 1) Official API (may be empty for IN commercial)
-  const official = await fetchAdLibraryOfficialApi(input);
-  if (official.ads.length > 0) return official;
+  const official = await fetchAdLibraryOfficialApi({ ...input, limit });
+  if (official.ads.length > 0) {
+    return {
+      ...official,
+      ads: official.ads.slice(0, limit),
+      note: sanitizeLibraryNote(
+        official.note ||
+          `Loaded ${Math.min(official.ads.length, limit)} Ad Library creatives (active + inactive).`
+      ),
+    };
+  }
 
   // 2) Web Library via Playwright (India commercial)
   if (process.env.META_AD_LIBRARY_WEB_FETCH === 'false') {
@@ -489,23 +516,34 @@ export async function fetchCompetitorLiveAds(
       ...official,
       libraryUrl,
       method: 'none',
-      note:
+      note: sanitizeLibraryNote(
         (official.note || official.error || '') +
-        ' Web fetch disabled (META_AD_LIBRARY_WEB_FETCH=false).',
+          ' Web fetch disabled (META_AD_LIBRARY_WEB_FETCH=false).'
+      ),
     };
   }
 
-  const web = await fetchAdLibraryViaWeb(input);
-  if (web.ads.length > 0) return web;
+  const web = await fetchAdLibraryViaWeb({ ...input, limit });
+  if (web.ads.length > 0) {
+    return {
+      ...web,
+      ads: web.ads.slice(0, limit),
+      note: sanitizeLibraryNote(
+        web.note ||
+          `Loaded top ${Math.min(web.ads.length, limit)} Ad Library creatives (includes paused/historical when available).`
+      ),
+    };
+  }
 
   return {
     ads: [],
     method: web.method === 'web_library' ? 'web_library' : official.method,
     libraryUrl,
     error: web.error || official.error,
-    note:
+    note: sanitizeLibraryNote(
       web.note ||
-      official.note ||
-      'No live Meta ads fetched. Set competitor Meta Page ID and ensure Playwright Chromium is installed.',
+        official.note ||
+        'No Meta Ad Library creatives loaded yet. You can still generate ads from your product using Meta-style patterns.'
+    ),
   };
 }

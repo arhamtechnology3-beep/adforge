@@ -35,15 +35,103 @@ function splitDescriptionLines(description: string, max = 6): string[] {
 }
 
 function extractIngredientsFromText(text: string): string[] {
-  const match = text.match(
-    /(?:ingredients?|materials?|contains?)\s*[:\-–]\s*([^\n.!?]{8,400})/i
+  if (!text?.trim()) return [];
+  const labeled = text.match(
+    /(?:ingredients?|materials?|contains?|composition)\s*[:\-–]\s*([^\n]{8,500})/i
   );
-  if (!match?.[1]) return [];
-  return match[1]
-    .split(/[,;|•]/)
-    .map((item) => item.trim())
-    .filter((item) => item.length >= 2 && item.length <= 80)
-    .slice(0, 30);
+  if (labeled?.[1]) {
+    const parts = labeled[1]
+      .split(/[,;|•\n]/)
+      .map((item) => item.replace(/^[•\-\d.)\s]+/, '').trim())
+      .filter((item) => item.length >= 2 && item.length <= 80);
+    if (parts.length) return parts.slice(0, 30);
+  }
+
+  // Multi-line "Ingredients" section (Shopify body HTML stripped to text)
+  const section = text.match(
+    /ingredients?\s*(?:\/\s*materials?)?\s*[\n\r]+([\s\S]{8,600}?)(?:\n\s*\n|directions?|how to|nutrition|storage|benefits?|$)/i
+  );
+  if (section?.[1]) {
+    const parts = section[1]
+      .split(/[,;|•\n]/)
+      .map((item) => item.replace(/^[•\-\d.)\s]+/, '').trim())
+      .filter((item) => item.length >= 2 && item.length <= 80);
+    if (parts.length >= 2) return parts.slice(0, 30);
+  }
+
+  // "Made with X, Y and Z" style phrases
+  const madeWith = text.match(
+    /(?:made with|prepared with|crafted with|using)\s+([^.!?\n]{10,220})/i
+  );
+  if (madeWith?.[1]) {
+    const parts = madeWith[1]
+      .split(/,| and | & /i)
+      .map((item) => item.trim())
+      .filter((item) => item.length >= 2 && item.length <= 80);
+    if (parts.length >= 2) return parts.slice(0, 20);
+  }
+
+  return [];
+}
+
+/** When the PDP has no ingredients list, invent reviewable starter lines from product context. */
+function inferIngredientsFallback(input: {
+  description: string;
+  product_name: string;
+  category: string;
+  benefits: string[];
+}): string[] {
+  const blob = `${input.product_name} ${input.category} ${input.description} ${input.benefits.join(' ')}`.toLowerCase();
+  const found: string[] = [];
+  const push = (label: string, test: RegExp) => {
+    if (test.test(blob) && !found.includes(label)) found.push(label);
+  };
+
+  push('Raw mango / aam', /\bmango|aam\b/);
+  push('Mustard oil', /mustard\s*oil|sarson/);
+  push('Jaggery / gur', /\bjaggery|gur\b|gor\b/);
+  push('Red chilli / mirchi', /chill?i|mirch/);
+  push('Fenugreek / methi', /fenugreek|methi/);
+  push('Fennel / saunf', /fennel|saunf/);
+  push('Turmeric / haldi', /turmeric|haldi/);
+  push('Asafoetida / hing', /asafoetida|hing\b/);
+  push('Salt', /\bsalt\b|namak/);
+  push('Spices & masala blend', /spice|masala|pickle|achar/);
+  push('Cold-pressed oil', /cold[\s-]?pressed|wood[\s-]?pressed/);
+  push('Natural preservatives only (as listed on pack)', /preservative|homemade|handcraft/);
+
+  if (found.length >= 2) return found.slice(0, 10);
+
+  // Generic category-aware starters the user can edit/approve
+  if (/pickle|achar|condiment/i.test(blob)) {
+    return [
+      'Seasonal fruit / vegetable base',
+      'Edible oil',
+      'Spice blend (as per recipe)',
+      'Salt',
+      'Natural acidity regulators',
+    ];
+  }
+  if (/spice|masala/i.test(blob)) {
+    return ['Whole / ground spices', 'Salt (if listed on pack)', 'No artificial colours (verify on label)'];
+  }
+  if (/beauty|serum|cream|skin/i.test(blob)) {
+    return [
+      'Key actives (see product page INCI list)',
+      'Base / carrier ingredients as listed on pack',
+      'Fragrance (if disclosed)',
+    ];
+  }
+
+  const fromBenefits = input.benefits
+    .map((line) => line.replace(/^[•\-\d.)\s]+/, '').trim())
+    .filter((line) => line.length >= 8 && line.length <= 80)
+    .slice(0, 4);
+  if (fromBenefits.length) return fromBenefits;
+
+  return splitDescriptionLines(input.description, 4).map((line) =>
+    line.length > 80 ? `${line.slice(0, 77)}…` : line
+  );
 }
 
 /** Fill gaps and derive reviewable claims so users mostly approve, not type. */
@@ -55,10 +143,19 @@ export function enrichProductSuggestions(
     suggestions.benefits?.length > 0
       ? suggestions.benefits
       : splitDescriptionLines(suggestions.description, 5);
-  const ingredients =
+  const extracted =
     suggestions.ingredients?.length > 0
       ? suggestions.ingredients
       : extractIngredientsFromText(suggestions.description);
+  const ingredients =
+    extracted.length > 0
+      ? extracted
+      : inferIngredientsFallback({
+          description: suggestions.description || '',
+          product_name: suggestions.product_name || '',
+          category: suggestions.category || '',
+          benefits,
+        });
 
   const approved =
     suggestions.approved_claims?.length

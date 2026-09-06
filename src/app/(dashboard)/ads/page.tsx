@@ -39,11 +39,6 @@ import { normalizeCreativeUrl } from '@/lib/app-url';
 import { META_AD_FORMATS, type MetaAdFormat } from '@/lib/creatives';
 import type { AdFormat, GeneratedAd } from '@/types/database';
 import { Step2Studio } from '@/components/ads/Step2Studio';
-import {
-  CreativeDirections,
-  type CreativeDirectionCard,
-  type CompetitorPatternCard,
-} from '@/components/ads/CreativeDirections';
 
 const FORMAT_FILTERS: { id: 'all' | MetaAdFormat; label: string; icon: typeof ImageIcon }[] = [
   { id: 'all', label: 'All formats', icon: LayoutGrid },
@@ -363,10 +358,7 @@ export default function AdsPage() {
   const [qualityFilter, setQualityFilter] = useState<'all' | 'valid' | 'flagged'>('all');
   const [productFilter, setProductFilter] = useState('all');
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
-  const [creativeDirections, setCreativeDirections] = useState<CreativeDirectionCard[]>([]);
-  const [competitorPatterns, setCompetitorPatterns] = useState<CompetitorPatternCard[]>([]);
-  const [selectedDirectionIds, setSelectedDirectionIds] = useState<string[]>([]);
-  const [planningDirections, setPlanningDirections] = useState(false);
+  const [generatingProgress, setGeneratingProgress] = useState({ step: 0, total: 4, label: '' });
 
   function goToCampaignLaunch(adsList: MetaAdLibraryAd[] = selectedLibraryAds) {
     const platforms = new Set(
@@ -588,88 +580,10 @@ export default function AdsPage() {
     });
   }
 
-  async function handlePlanDirections() {
-    if (!campaignInputId || !selectedProductId) return;
-    if (selectedLibraryAds.length === 0 && selectedCompetitorAdIds.length === 0) {
-      alert('Select at least one competitor ad in Step 1 first.');
-      return;
-    }
-    setPlanningDirections(true);
-    const selected_ads = selectedLibraryAds.map((ad) => {
-      const hostBrand =
-        competitorIntel.find((c) => (c.live_meta_ads || []).some((x) => x.id === ad.id))?.brand ||
-        null;
-      return {
-        id: ad.id,
-        library_id: ad.library_id,
-        primary_text: ad.primary_text,
-        headline: ad.headline,
-        cta: ad.cta,
-        ad_format: ad.ad_format,
-        media_url: ad.media_url,
-        performance_rating: ad.performance_rating,
-        performance_label: ad.performance_label,
-        brand: hostBrand,
-      };
-    });
-    const res = await fetch('/api/ads/directions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        campaign_input_id: campaignInputId,
-        product_id: selectedProductId,
-        selected_ads,
-        generation_brief: { language, tone },
-        max_directions: Math.max(3, variantCount),
-      }),
-    });
-    const data = await res.json();
-    setPlanningDirections(false);
-    if (!res.ok) {
-      alert(data.error || 'Could not plan creative directions');
-      return;
-    }
-    setCreativeDirections(data.directions || []);
-    setCompetitorPatterns(data.patterns || []);
-    setSelectedDirectionIds((data.directions || []).slice(0, 3).map((d: CreativeDirectionCard) => d.conceptId));
-    setActiveStep('step2_our_counter_ads');
-  }
-
-  function toggleDirection(conceptId: string) {
-    setSelectedDirectionIds((prev) => {
-      if (prev.includes(conceptId)) return prev.filter((id) => id !== conceptId);
-      if (prev.length >= 3) return prev;
-      return [...prev, conceptId];
-    });
-  }
-
   async function handleGenerate() {
     if (!campaignInputId) return;
     if (!selectedProductId) {
       alert('Select an approved product first. Add and approve a packshot in Brand Setup.');
-      return;
-    }
-    const carouselOnly =
-      desiredFormats.length === 1 &&
-      desiredFormats[0] === 'carousel' &&
-      carouselProductUrls
-        .split(/[\n,]+/)
-        .map((u) => u.trim())
-        .filter(Boolean).length >= 2;
-    if (
-      !carouselOnly &&
-      selectedLibraryAds.length === 0 &&
-      selectedCompetitorAdIds.length === 0
-    ) {
-      alert('Select at least one competitor ad in Step 1 (prefer ads with Best performer / Strong runner badges).');
-      return;
-    }
-    if (
-      !carouselOnly &&
-      selectedDirectionIds.length === 0 &&
-      creativeDirections.length > 0
-    ) {
-      alert('Select at least one creative direction before generating.');
       return;
     }
     if (
@@ -683,7 +597,27 @@ export default function AdsPage() {
       alert('For a product-URL carousel, paste at least 2 product page URLs (one per line).');
       return;
     }
+
+    const totalSteps = Math.max(desiredFormats.length, variantCount, 3);
     setGenerating(true);
+    setGeneratingProgress({ step: 1, total: totalSteps, label: 'Preparing Meta-style creatives…' });
+    setActiveStep('step2_our_counter_ads');
+    const progressTimer = window.setInterval(() => {
+      setGeneratingProgress((prev) => {
+        const next = Math.min(prev.total, prev.step + 1);
+        const labels = [
+          'Writing offer & benefit hooks…',
+          'Composing packshot scenes…',
+          'Building feed / Stories / video variants…',
+          'Running quality checks…',
+        ];
+        return {
+          step: next,
+          total: prev.total,
+          label: labels[Math.min(next - 1, labels.length - 1)] || 'Finishing creatives…',
+        };
+      });
+    }, 2200);
 
     const selected_ads = selectedLibraryAds.map((ad) => {
       const hostBrand =
@@ -703,46 +637,52 @@ export default function AdsPage() {
       };
     });
 
-    const res = await fetch('/api/ads/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        campaign_input_id: campaignInputId,
-        product_id: selectedProductId,
-        generation_brief: {
-          language,
-          tone,
-          variant_count: variantCount,
-          formats: desiredFormats,
-        },
-        selected_ads,
-        selected_competitor_ad_ids: selectedCompetitorAdIds,
-        selected_direction_ids: selectedDirectionIds,
-        selected_directions: creativeDirections.filter((direction) =>
-          selectedDirectionIds.includes(direction.conceptId)
-        ),
-        carousel_product_urls: carouselProductUrls,
-        use_creative_engine: true,
-      }),
-    });
+    try {
+      const res = await fetch('/api/ads/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          campaign_input_id: campaignInputId,
+          product_id: selectedProductId,
+          generation_brief: {
+            language,
+            tone,
+            variant_count: variantCount,
+            formats: desiredFormats,
+          },
+          selected_ads,
+          selected_competitor_ad_ids: selectedCompetitorAdIds,
+          carousel_product_urls: carouselProductUrls,
+          use_creative_engine: true,
+        }),
+      });
 
-    const data = await res.json();
-    if (!res.ok) {
-      alert(data.error || 'Failed to generate ads');
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to generate ads');
+        return;
+      }
+      if (data.ads) {
+        setAds(data.ads.map(normalizeLoadedAd));
+      }
+      if (data.competitor_intel) setCompetitorIntel(data.competitor_intel);
+      setFormatFilter('all');
+      setGeneratingProgress({
+        step: totalSteps,
+        total: totalSteps,
+        label: 'Creatives ready',
+      });
+      setToastMessage(
+        data.note ||
+          (selected_ads.length
+            ? `Created ${data.count || 0} creatives from your selection`
+            : `Created ${data.count || 0} Meta-style creatives from your product`)
+      );
+      setTimeout(() => setToastMessage(null), 4000);
+    } finally {
+      window.clearInterval(progressTimer);
       setGenerating(false);
-      return;
     }
-    if (data.ads) {
-      setAds(data.ads.map(normalizeLoadedAd));
-    }
-    if (data.competitor_intel) setCompetitorIntel(data.competitor_intel);
-    setFormatFilter('all');
-    setActiveStep('step2_our_counter_ads');
-    setGenerating(false);
-    setToastMessage(
-      data.note || `Created ${data.count || 0} original creatives from your selected directions`
-    );
-    setTimeout(() => setToastMessage(null), 4000);
   }
 
   async function handlePreviewCarouselUrls() {
@@ -1194,7 +1134,7 @@ export default function AdsPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
-                          {adsList.length} live ads
+                          {adsList.length} library ads
                         </span>
                         <a
                           href={comp.meta_ad_library_url}
@@ -1209,10 +1149,10 @@ export default function AdsPage() {
 
                     {adsList.length === 0 ? (
                       <div className="rounded-xl border border-dashed border-indigo-200 bg-white/80 p-4 text-sm text-slate-700">
-                        <p className="font-semibold text-slate-900 mb-1">No live ads ingested yet</p>
+                        <p className="font-semibold text-slate-900 mb-1">No Ad Library creatives loaded yet</p>
                         <p className="text-xs text-muted leading-relaxed mb-3">
                           {comp.library_fetch_note ||
-                            'Add Meta Page ID in onboarding (from Ad Library URL), then refresh. farmdidi.com resolves automatically to Page 108788791719221.'}
+                            'We look for active and paused Meta ads (top performers by impressions). Refresh, or generate Meta-style creatives from your approved product.'}
                         </p>
                         <div className="flex flex-wrap gap-2">
                           <a
@@ -1226,9 +1166,18 @@ export default function AdsPage() {
                           <button
                             type="button"
                             className="text-xs font-bold py-2 px-3 rounded-lg border bg-purple-50 text-purple-900 border-purple-200"
-                            onClick={() => toggleCompetitorAdSelection(`competitor:${comp.url}`)}
+                            onClick={() => void fetchLiveMetaAds(true)}
+                            disabled={loadingLiveMeta}
                           >
-                            Select competitor anyway
+                            {loadingLiveMeta ? 'Refreshing…' : 'Refresh Library ads'}
+                          </button>
+                          <button
+                            type="button"
+                            className="text-xs font-bold py-2 px-3 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 text-white"
+                            onClick={handleGenerate}
+                            disabled={generating || !selectedProductId}
+                          >
+                            Generate from my product →
                           </button>
                         </div>
                       </div>
@@ -1347,15 +1296,17 @@ export default function AdsPage() {
         </div>
       )}
 
-      {/* Floating Action Bar for Step 1 Competitor Ad Selection */}
-      {activeStep === 'step1_select_competitor' && selectedCompetitorAdIds.length > 0 && (
+      {/* Floating Action Bar for Step 1 */}
+      {activeStep === 'step1_select_competitor' && selectedProductId && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-purple-950/95 backdrop-blur text-white border border-purple-500/40 px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-5 duration-200">
           <div className="flex items-center gap-2">
             <span className="w-6 h-6 rounded-full bg-emerald-500 text-white text-xs font-bold flex items-center justify-center shadow">
-              {selectedLibraryAds.length || selectedCompetitorAdIds.length}
+              {selectedLibraryAds.length || selectedCompetitorAdIds.length || '•'}
             </span>
-            <p className="text-xs font-semibold">
-              Selected — we&apos;ll replicate these with your products
+            <p className="text-xs font-semibold max-w-[220px]">
+              {selectedLibraryAds.length || selectedCompetitorAdIds.length
+                ? 'Selected — we will replicate these with your product'
+                : 'No Library ads selected — generate Meta-style creatives from your product'}
             </p>
           </div>
 
@@ -1377,16 +1328,6 @@ export default function AdsPage() {
               Add an approved product
             </a>
           )}
-
-          <button
-            type="button"
-            className="btn-secondary text-xs py-2.5 px-4 font-semibold"
-            onClick={handlePlanDirections}
-            disabled={planningDirections || !selectedProductId}
-          >
-            {planningDirections ? <Loader2 className="w-4 h-4 animate-spin inline" /> : null}
-            Plan directions
-          </button>
 
           <button
             type="button"
@@ -1422,18 +1363,6 @@ export default function AdsPage() {
           onPreviewCarouselUrls={handlePreviewCarouselUrls}
           onGenerate={handleGenerate}
         >
-
-          {creativeDirections.length > 0 && (
-            <CreativeDirections
-              patterns={competitorPatterns}
-              directions={creativeDirections}
-              selectedIds={selectedDirectionIds}
-              loading={planningDirections}
-              generating={generating}
-              onToggle={toggleDirection}
-              onGenerate={handleGenerate}
-            />
-          )}
 
           {selectedLibraryAds.length > 0 && (
             <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 space-y-3">
@@ -1641,27 +1570,60 @@ export default function AdsPage() {
           {ads.length === 0 && !generating && (
             <div className="card text-center py-12">
               <Sparkles className="w-10 h-10 text-primary mx-auto mb-3" />
-              <p className="font-medium">No replicated ads yet</p>
-              <p className="text-muted text-sm mt-1">
-                Select best-performing competitor ads in Step 1, then Generate &amp; Replicate — or add your own ad manually.
+              <p className="font-medium">No creatives yet</p>
+              <p className="text-muted text-sm mt-1 max-w-md mx-auto">
+                Pick competitor Library ads when available, or generate Meta-style creatives directly from your approved product.
               </p>
               <button
                 type="button"
                 className="btn-primary mt-4 inline-flex items-center gap-2 text-xs py-2 px-4"
-                onClick={() => setActiveStep('step1_select_competitor')}
+                onClick={handleGenerate}
+                disabled={!selectedProductId || generating}
               >
-                ← Back to Step 1
+                <Sparkles className="w-4 h-4" /> Generate creative pack
               </button>
             </div>
           )}
 
           {generating && (
-            <div className="card text-center py-12">
-              <Loader2 className="w-10 h-10 text-primary animate-spin mx-auto mb-3" />
-              <p className="font-medium">Replicating selected ads with your products…</p>
-              <p className="text-sm text-muted mt-1">
-                Matching competitor format + Stories variants using your store images
-              </p>
+            <div className="card text-center py-12 relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-purple-50 via-white to-indigo-50 animate-pulse" />
+              <div className="relative">
+                <Loader2 className="w-12 h-12 text-purple-600 animate-spin mx-auto mb-4" />
+                <p className="font-semibold text-lg text-slate-900">Generating your Meta ads…</p>
+                <p className="text-sm text-muted mt-2">{generatingProgress.label || 'Working on creatives'}</p>
+                <div className="mt-5 max-w-sm mx-auto">
+                  <div className="flex justify-between text-xs font-semibold text-purple-800 mb-1.5">
+                    <span>
+                      Step {Math.min(generatingProgress.step, generatingProgress.total)} of{' '}
+                      {generatingProgress.total}
+                    </span>
+                    <span>
+                      {Math.round(
+                        (Math.min(generatingProgress.step, generatingProgress.total) /
+                          Math.max(generatingProgress.total, 1)) *
+                          100
+                      )}
+                      %
+                    </span>
+                  </div>
+                  <div className="h-2.5 rounded-full bg-purple-100 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 transition-all duration-700 ease-out"
+                      style={{
+                        width: `${Math.round(
+                          (Math.min(generatingProgress.step, generatingProgress.total) /
+                            Math.max(generatingProgress.total, 1)) *
+                            100
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted mt-4">
+                  Please wait — images and copy are being composed for your packshot.
+                </p>
+              </div>
             </div>
           )}
 

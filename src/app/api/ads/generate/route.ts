@@ -386,8 +386,27 @@ export async function POST(request: Request) {
     wantsProductUrlCarousel && engineFormats.length === 0;
 
   if (resolvedSelected.length === 0 && !carouselOnlyFromUrls) {
+    const { buildAlgorithmSeedAds } = await import('@/lib/algorithm-seed-ads');
+    const seeds = buildAlgorithmSeedAds(product);
+    for (const ad of seeds) {
+      resolvedSelected.push({
+        id: ad.id,
+        library_id: ad.library_id,
+        primary_text: ad.primary_text,
+        headline: ad.headline,
+        cta: ad.cta,
+        ad_format: ad.ad_format,
+        media_url: ad.media_url,
+        performance_rating: ad.performance_rating,
+        performance_label: ad.performance_label,
+        brand: product.brand_name,
+      });
+    }
+  }
+
+  if (resolvedSelected.length === 0 && !carouselOnlyFromUrls) {
     return NextResponse.json(
-      { error: 'Select at least one competitor ad in Step 1' },
+      { error: 'Could not build Meta-style creatives for this product. Approve a packshot and try again.' },
       { status: 400 }
     );
   }

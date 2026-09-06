@@ -231,6 +231,9 @@ export default function OnboardingClient() {
     setUploadingProduct(true);
     setErrorMsg('');
     setSelectedSuggestedImage(imageUrl);
+    // Instant preview from the PDP image while we normalize/upload.
+    setPrimaryPackshot(imageUrl);
+    setPackshotNotice(notice || 'Importing packshot from the product page…');
     try {
       const response = await fetch('/api/products/upload', {
         method: 'POST',
@@ -239,7 +242,7 @@ export default function OnboardingClient() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not import product image');
-      setPrimaryPackshot(data.url);
+      setPrimaryPackshot(data.url || imageUrl);
       setPackshotNotice(
         notice ||
           (data.background_removed
@@ -247,6 +250,11 @@ export default function OnboardingClient() {
             : 'Imported from product page. Confirm it looks exact, or upload a cleaner packshot.')
       );
     } catch (uploadError) {
+      // Keep the product-page image as preview so approval still works if cutout fails.
+      setPrimaryPackshot(imageUrl);
+      setPackshotNotice(
+        'Using the product-page image as packshot (cleanup skipped). Replace with upload if you need a cleaner cutout.'
+      );
       setErrorMsg(uploadError instanceof Error ? uploadError.message : 'Could not import product image');
     } finally {
       setUploadingProduct(false);
@@ -545,9 +553,18 @@ export default function OnboardingClient() {
                 Packshot {primaryPackshot ? '(imported — optional replace)' : '(import or upload)'}
               </label>
               {primaryPackshot ? (
-                <div className="mt-1 w-40 h-40 rounded-xl border bg-white flex items-center justify-center p-2">
+                <div className="mt-1 w-40 h-40 rounded-xl border bg-[repeating-conic-gradient(#e8eaed_0%_25%,#ffffff_0%_50%)] bg-[length:14px_14px] flex items-center justify-center p-2">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={primaryPackshot} alt="Approved packshot" className="max-w-full max-h-full object-contain" />
+                  <img
+                    src={primaryPackshot}
+                    alt="Approved packshot"
+                    className="max-w-full max-h-full object-contain"
+                    onError={() => {
+                      if (selectedSuggestedImage && primaryPackshot !== selectedSuggestedImage) {
+                        setPrimaryPackshot(selectedSuggestedImage);
+                      }
+                    }}
+                  />
                 </div>
               ) : (
                 <p className="text-xs text-amber-800 mt-1">

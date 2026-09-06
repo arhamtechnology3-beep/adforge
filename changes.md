@@ -8,6 +8,18 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-06
 
+### Fix: Onboarding packshot preview + ingredients; ads flow without Library dead-end
+**What / why**
+- Packshot preview: instant PDP image, checkerboard bg for transparent cutouts, upscale tiny images, keep PDP URL if normalize fails
+- Ingredients: stronger extraction + category/product fallbacks so the box auto-fills for approval
+- Ad Library: fetch `active_status=all` (incl. paused/historical), top 10; softer production notes; website-intel fallback cards when fetch is empty
+- Generate without selecting competitor ads (Meta-style algorithm seeds from product)
+- Removed dual **Plan directions** from Step 1 bar; progress counter while generating
+
+**Paths:** `OnboardingClient.tsx`, `product-page-suggestions.ts`, `creative-assets.ts`, `meta-ad-library.ts`, `algorithm-seed-ads.ts`, `demo-competitor-ads.ts`, `ads/page.tsx`, `api/ads/generate/route.ts`
+
+**Manual:** Redeploy Hostinger. Optional: run Ad Library worker on the server for real Meta scrapes.
+
 ### Fix: Hostinger build — client bundle pulled Node `product-page-suggestions`
 **What / why**  
 `OnboardingClient` / ads page imported `CAROUSEL_URL_*` from `carousel-from-urls`, which imports Node-only `product-page-suggestions` (`node:dns`, `node:http`, …) → Webpack `UnhandledSchemeError`.
