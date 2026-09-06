@@ -1,4 +1,4 @@
-import { CAROUSEL_URL_MAX } from '@/lib/carousel-from-urls';
+import { CAROUSEL_URL_MAX } from '@/lib/carousel-limits';
 
 export const CAROUSEL_URL_PREFILL_KEY = 'adforge_carousel_product_urls';
 

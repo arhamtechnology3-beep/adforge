@@ -8,6 +8,14 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-06
 
+### Fix: Hostinger build — client bundle pulled Node `product-page-suggestions`
+**What / why**  
+`OnboardingClient` / ads page imported `CAROUSEL_URL_*` from `carousel-from-urls`, which imports Node-only `product-page-suggestions` (`node:dns`, `node:http`, …) → Webpack `UnhandledSchemeError`.
+
+**Fix:** Move limits to client-safe `src/lib/carousel-limits.ts`; client code imports that only.
+
+**Manual:** Redeploy `main` on Hostinger after push.
+
 ### Onboarding: 3 steps, auto import claims/packshot, carousel URLs
 **What / why**
 - Removed **Connect Meta** from onboarding (was step 4). Finish after Competitors → `/ads`. Connect Meta later at campaign launch.

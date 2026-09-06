@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { detectCompetitorType } from '@/lib/utils';
 import { WizardStepper } from '@/components/campaign-wizard/WizardStepper';
-import { CAROUSEL_URL_MAX, CAROUSEL_URL_MIN } from '@/lib/carousel-from-urls';
+import { CAROUSEL_URL_MAX, CAROUSEL_URL_MIN } from '@/lib/carousel-limits';
 import { saveCarouselUrlPrefill } from '@/lib/carousel-url-prefill';
 
 const STEPS = [

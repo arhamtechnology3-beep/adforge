@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { saveCampaignPrefill } from '@/lib/campaign-prefill';
 import { loadCarouselUrlPrefill } from '@/lib/carousel-url-prefill';
-import { CAROUSEL_URL_MIN } from '@/lib/carousel-from-urls';
+import { CAROUSEL_URL_MIN } from '@/lib/carousel-limits';
 import {
   Sparkles,
   Check,

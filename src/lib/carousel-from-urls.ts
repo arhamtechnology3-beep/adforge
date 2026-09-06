@@ -1,9 +1,9 @@
 import { META_AD_FORMATS } from '@/lib/creatives';
+import { CAROUSEL_URL_MAX, CAROUSEL_URL_MIN } from '@/lib/carousel-limits';
 import { suggestProductFromPage, parseProductPageHtml } from '@/lib/product-page-suggestions';
 import type { CarouselCard } from '@/types/database';
 
-export const CAROUSEL_URL_MIN = 2;
-export const CAROUSEL_URL_MAX = 10;
+export { CAROUSEL_URL_MAX, CAROUSEL_URL_MIN } from '@/lib/carousel-limits';
 
 export type ResolvedCarouselProduct = {
   product_url: string;
