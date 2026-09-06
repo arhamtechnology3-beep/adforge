@@ -275,23 +275,27 @@ async function uploadAdImageHash(
   const buf = Buffer.from(await imgRes.arrayBuffer());
   const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
   const ext = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg';
+  const uploadBody = new URLSearchParams();
+  uploadBody.set('bytes', buf.toString('base64'));
+  uploadBody.set('name', `adforge-${Date.now()}.${ext}`);
+  uploadBody.set('access_token', accessToken);
   const uploadRes = await fetch(`${META_BASE}/${adAccountId}/adimages`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      bytes: buf.toString('base64'),
-      name: `adforge-${Date.now()}.${ext}`,
-      access_token: accessToken,
-    }),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: uploadBody.toString(),
   });
   if (!uploadRes.ok) {
     const err = await uploadRes.text();
-    throw new Error(`Meta image upload failed: ${err}`);
+    throw new Error(formatMetaApiError('Meta image upload failed', err));
   }
   const json = (await uploadRes.json()) as {
     images?: Record<string, { hash?: string }>;
     hash?: string;
+    error?: unknown;
   };
+  if (json.error) {
+    throw new Error(formatMetaApiError('Meta image upload failed', JSON.stringify(json)));
+  }
   const hash =
     json.hash ||
     Object.values(json.images || {}).find((v) => v?.hash)?.hash ||
@@ -332,6 +336,49 @@ export type PublishableAd = {
   media_payload?: { cards?: MetaCreateAdCard[] } | null;
 };
 
+function extractMetaObjectId(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const row = payload as Record<string, unknown>;
+  const raw = row.id ?? row.ad_id ?? row.creative_id;
+  if (raw == null) return null;
+  const id = String(raw).trim();
+  return id.length > 0 ? id : null;
+}
+
+async function readMetaJson(res: Response): Promise<unknown> {
+  const text = await res.text();
+  if (!text.trim()) return null;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return { raw: text.slice(0, 400) };
+  }
+}
+
+function assertMetaMutationOk(prefix: string, res: Response, payload: unknown): string {
+  if (payload && typeof payload === 'object' && 'error' in (payload as object)) {
+    throw new Error(formatMetaApiError(prefix, JSON.stringify(payload)));
+  }
+  if (!res.ok) {
+    throw new Error(
+      formatMetaApiError(prefix, typeof payload === 'string' ? payload : JSON.stringify(payload || {}))
+    );
+  }
+  const id = extractMetaObjectId(payload);
+  if (id) return id;
+  const preview = JSON.stringify(payload ?? null).slice(0, 280);
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    (payload as { success?: boolean }).success === true
+  ) {
+    throw new Error(
+      `${prefix}: Meta returned success without an id (validation-only response). Retry Confirm, or check Ads Manager for a draft ad.`
+    );
+  }
+  throw new Error(`${prefix}: Meta returned no id. Response: ${preview || '(empty)'}`);
+}
+
 /** Create Meta ads under an ad set; continues on per-ad failures and returns ids + errors. */
 export async function publishAdsToMeta(opts: {
   accessToken: string;
@@ -367,8 +414,7 @@ export async function publishAdsToMeta(opts: {
         opts.linkDescription,
         ad.media_payload?.cards || undefined
       );
-      if (created?.id) metaAdIds.push(created.id);
-      else errors.push(`Ad ${index + 1}: Meta returned no ad id`);
+      metaAdIds.push(created.id);
     } catch (error) {
       errors.push(
         `Ad ${index + 1}: ${error instanceof Error ? error.message : 'create failed'}`
@@ -398,7 +444,7 @@ export async function createAd(
   ctaType?: string,
   linkDescription?: string,
   cards?: MetaCreateAdCard[]
-) {
+): Promise<{ id: string; creative_id: string }> {
   const destination = link || process.env.DEFAULT_AD_LINK || 'https://example.com';
   const cta = (ctaType || 'SHOP_NOW').toUpperCase().replace(/\s+/g, '_');
 
@@ -440,40 +486,42 @@ export async function createAd(
     Object.assign(linkData, ref);
   }
 
+  // Form-encoded body is the most reliable for Marketing API nested fields
+  // (JSON posts sometimes drop `creative` / `object_story_spec` and return success without an id).
+  const creativeBody = new URLSearchParams();
+  creativeBody.set('name', `Creative ${Date.now()}`);
+  creativeBody.set(
+    'object_story_spec',
+    JSON.stringify({
+      page_id: pageId,
+      link_data: linkData,
+    })
+  );
+  creativeBody.set('access_token', accessToken);
+
   const creativeRes = await fetch(`${META_BASE}/${adAccountId}/adcreatives`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      name: `Creative ${Date.now()}`,
-      object_story_spec: {
-        page_id: pageId,
-        link_data: linkData,
-      },
-      access_token: accessToken,
-    }),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: creativeBody.toString(),
   });
-  if (!creativeRes.ok) {
-    const err = await creativeRes.text();
-    throw new Error(formatMetaApiError('Creative creation failed', err));
-  }
-  const creative = await creativeRes.json();
+  const creativePayload = await readMetaJson(creativeRes);
+  const creativeId = assertMetaMutationOk('Creative creation failed', creativeRes, creativePayload);
+
+  const adBody = new URLSearchParams();
+  adBody.set('name', `Ad ${Date.now()}`);
+  adBody.set('adset_id', adSetId);
+  adBody.set('creative', JSON.stringify({ creative_id: creativeId }));
+  adBody.set('status', 'PAUSED');
+  adBody.set('access_token', accessToken);
 
   const adRes = await fetch(`${META_BASE}/${adAccountId}/ads`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      name: `Ad ${Date.now()}`,
-      adset_id: adSetId,
-      creative: { creative_id: creative.id },
-      status: 'PAUSED',
-      access_token: accessToken,
-    }),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: adBody.toString(),
   });
-  if (!adRes.ok) {
-    const err = await adRes.text();
-    throw new Error(formatMetaApiError('Ad creation failed', err));
-  }
-  return adRes.json();
+  const adPayload = await readMetaJson(adRes);
+  const adId = assertMetaMutationOk('Ad creation failed', adRes, adPayload);
+  return { id: adId, creative_id: creativeId };
 }
 
 export async function activateCampaign(accessToken: string, campaignId: string) {

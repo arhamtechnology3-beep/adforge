@@ -8,6 +8,19 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-06
 
+### Fix: “Ad 1: Meta returned no ad id”
+**What / why**  
+Launch/Confirm reached Meta ad create but Graph returned HTTP 200 without an `id` (often empty/`success`-only when nested JSON fields are dropped). UI showed a vague “Meta returned no ad id”.
+
+**Fix**
+- Create creatives + ads via `application/x-www-form-urlencoded` with JSON-string nested fields (Meta’s reliable Marketing API style)
+- Require a real id from creative and ad responses; surface Meta `error` / response preview when missing
+- Same form encoding for ad image upload
+
+**Paths:** `src/lib/meta.ts` (`createAd`, `publishAdsToMeta`, `uploadAdImageHash`)
+
+**Manual:** Redeploy Hostinger → open draft → **Confirm & Launch** again.
+
 ### Fix: Campaign/ad set created but Ads tab empty + clearer Payment error
 **What / why**  
 Ads Manager showed Campaign + Ad set, **no ads**, and Delivery **Payment error**. Confirm previously activated Meta when `meta_campaign_id` already existed **without creating ads**. Launch could also leave an empty ad set if ad create failed.
