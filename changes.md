@@ -8,6 +8,19 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-06
 
+### Fix: Carousel card 1 “Creative failed”
+**What / why**  
+First carousel slide showed the fail state while cards 2–4 worked. Light product photos were mis-flagged as blank, and a broken card 1 had no fallback to sibling slides.
+
+**Fix**
+- Blank detection only for invisible or flat uniform-white frames (not light product shots)
+- Carousel auto-skips a broken first card to the next usable slide
+- Fallback chain: card image → packshot → other card image
+
+**Paths:** `ads/page.tsx`
+
+**Manual:** Redeploy; hard refresh `/ads`.
+
 ### Fix: Rendering spinner + white Image/Stories previews
 **What / why**  
 Previews showed a static “Rendering creative…” then a blank white box. Approved packshots were fully transparent cutouts; direct Supabase URLs also blocked canvas repair (CORS).

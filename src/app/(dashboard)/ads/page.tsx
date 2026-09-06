@@ -114,27 +114,51 @@ function CreativePreview({
   variant,
   aspect = 'square',
   fallbackUrl,
+  fallbackUrls,
+  onHardFail,
 }: {
   url: string;
   variant: number;
   aspect?: 'square' | 'story';
   fallbackUrl?: string | null;
+  fallbackUrls?: string[];
+  onHardFail?: () => void;
 }) {
-  const primary = sameOriginPreviewUrl(url || fallbackUrl || '');
-  const fallback = fallbackUrl ? sameOriginPreviewUrl(fallbackUrl) : null;
+  const candidates = [
+    url,
+    fallbackUrl || '',
+    ...(fallbackUrls || []),
+  ]
+    .map((value) => sameOriginPreviewUrl(value))
+    .filter(Boolean)
+    .filter((value, index, all) => all.indexOf(value) === index);
+
+  const primary = candidates[0] || '';
+  const [candidateIndex, setCandidateIndex] = useState(0);
   const [activeUrl, setActiveUrl] = useState(primary);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [usedFallback, setUsedFallback] = useState(false);
 
   useEffect(() => {
-    setActiveUrl(primary);
+    setCandidateIndex(0);
+    setActiveUrl(candidates[0] || '');
     setStatus('loading');
-    setUsedFallback(false);
     const t = window.setTimeout(() => {
       setStatus((s) => (s === 'loading' ? 'error' : s));
     }, 25000);
     return () => window.clearTimeout(t);
-  }, [primary, fallback]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset when source list identity changes
+  }, [candidates.join('|')]);
+
+  const tryNextCandidate = () => {
+    const next = candidateIndex + 1;
+    if (next < candidates.length) {
+      setCandidateIndex(next);
+      setActiveUrl(candidates[next]!);
+      setStatus('loading');
+      return true;
+    }
+    return false;
+  };
 
   return (
     <div
@@ -149,10 +173,10 @@ function CreativePreview({
         backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0',
       }}
     >
-      {fallback && fallback !== activeUrl ? (
+      {candidates[1] && candidates[1] !== activeUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={fallback}
+          src={candidates[1]}
           alt=""
           className="absolute inset-0 z-0 h-full w-full object-contain p-2 opacity-70"
           aria-hidden
@@ -184,6 +208,7 @@ function CreativePreview({
       {activeUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
+          key={activeUrl}
           src={activeUrl}
           alt={`Meta creative ${variant}`}
           className={`relative z-[1] w-full h-full object-contain transition-opacity duration-300 ${
@@ -201,69 +226,70 @@ function CreativePreview({
                 setStatus('ready');
                 return;
               }
-              probeCtx.fillStyle = '#ffffff';
+              // Dark probe bg so transparent images don't look "loaded".
+              probeCtx.fillStyle = '#111111';
               probeCtx.fillRect(0, 0, 32, 32);
               probeCtx.drawImage(img, 0, 0, 32, 32);
               const sample = probeCtx.getImageData(0, 0, 32, 32).data;
               let opaque = 0;
               let lumaSum = 0;
-              let samples = 0;
+              let lumaSq = 0;
               for (let i = 0; i < sample.length; i += 4) {
                 const a = sample[i + 3];
-                if (a > 24) {
+                // Against dark fill, transparent pixels stay near black — count vivid pixels.
+                const luma = (sample[i] + sample[i + 1] + sample[i + 2]) / 3;
+                if (a > 24 && luma > 18) {
                   opaque += 1;
-                  lumaSum += (sample[i] + sample[i + 1] + sample[i + 2]) / 3;
-                  samples += 1;
+                  lumaSum += luma;
+                  lumaSq += luma * luma;
                 }
               }
-              const meanLuma = samples ? lumaSum / samples : 255;
-              const blank =
-                opaque < 12 || (opaque >= 12 && meanLuma > 248 && samples > 20);
-
-              if (blank) {
-                if (!usedFallback && fallback && fallback !== activeUrl) {
-                  setUsedFallback(true);
-                  setActiveUrl(fallback);
-                  setStatus('loading');
-                  return;
-                }
-                // Restore RGB under wiped alpha (same-origin proxy makes canvas readable).
-                const full = document.createElement('canvas');
-                full.width = img.naturalWidth || 512;
-                full.height = img.naturalHeight || 512;
-                const fullCtx = full.getContext('2d');
-                if (fullCtx && opaque < 12) {
-                  fullCtx.drawImage(img, 0, 0);
-                  const pixels = fullCtx.getImageData(0, 0, full.width, full.height);
-                  let colorful = 0;
-                  for (let i = 0; i < pixels.data.length; i += 4) {
-                    const luma = (pixels.data[i] + pixels.data[i + 1] + pixels.data[i + 2]) / 3;
-                    if (luma > 8 && luma < 252) colorful += 1;
-                    pixels.data[i + 3] = 255;
+              const meanLuma = opaque ? lumaSum / opaque : 0;
+              const variance = opaque
+                ? Math.max(0, lumaSq / opaque - meanLuma * meanLuma)
+                : 0;
+              const stdev = Math.sqrt(variance);
+              // Only treat as blank when nearly invisible OR uniform near-white (no product texture).
+              const invisible = opaque < 10;
+              const flatWhite = opaque >= 10 && meanLuma > 252 && stdev < 4;
+              if (invisible || flatWhite) {
+                if (invisible) {
+                  const full = document.createElement('canvas');
+                  full.width = img.naturalWidth || 512;
+                  full.height = img.naturalHeight || 512;
+                  const fullCtx = full.getContext('2d');
+                  if (fullCtx) {
+                    fullCtx.drawImage(img, 0, 0);
+                    const pixels = fullCtx.getImageData(0, 0, full.width, full.height);
+                    let colorful = 0;
+                    for (let i = 0; i < pixels.data.length; i += 4) {
+                      const luma =
+                        (pixels.data[i] + pixels.data[i + 1] + pixels.data[i + 2]) / 3;
+                      if (luma > 8 && luma < 252) colorful += 1;
+                      pixels.data[i + 3] = 255;
+                    }
+                    if (colorful > full.width * full.height * 0.02) {
+                      fullCtx.putImageData(pixels, 0, 0);
+                      setActiveUrl(full.toDataURL('image/png'));
+                      setStatus('ready');
+                      return;
+                    }
                   }
-                  if (colorful > full.width * full.height * 0.02) {
-                    fullCtx.putImageData(pixels, 0, 0);
-                    setUsedFallback(true);
-                    setActiveUrl(full.toDataURL('image/png'));
-                    setStatus('ready');
-                    return;
-                  }
                 }
-                setStatus(fallback ? 'ready' : 'error');
+                if (tryNextCandidate()) return;
+                onHardFail?.();
+                // Prefer showing something over a hard fail when bytes did load.
+                setStatus(flatWhite ? 'ready' : 'error');
                 return;
               }
             } catch {
-              /* ignore canvas issues — proxy already repaired most cases */
+              /* proxy already repairs most cases */
             }
             setStatus('ready');
           }}
           onError={() => {
-            if (!usedFallback && fallback && fallback !== activeUrl) {
-              setUsedFallback(true);
-              setActiveUrl(fallback);
-              setStatus('loading');
-              return;
-            }
+            if (tryNextCandidate()) return;
+            onHardFail?.();
             setStatus('error');
           }}
         />
@@ -276,6 +302,11 @@ function CarouselPreview({ ad }: { ad: GeneratedAd }) {
   const cards = ad.media_payload?.cards || [];
   const packshot = ad.media_payload?.primary_packshot || null;
   const [idx, setIdx] = useState(0);
+
+  useEffect(() => {
+    setIdx(0);
+  }, [ad.id]);
+
   if (cards.length === 0 && (ad.image_url || packshot)) {
     return (
       <CreativePreview
@@ -288,13 +319,39 @@ function CarouselPreview({ ad }: { ad: GeneratedAd }) {
 
   const card = cards[idx];
   const cardLink = card?.link || card?.product_url;
+
   return (
     <div className="relative">
       {card && (
         <CreativePreview
-          url={card.image_url || packshot || ''}
-          fallbackUrl={packshot}
+          key={`${ad.id}-${idx}-${card.image_url || 'none'}`}
+          url={card.image_url || packshot || ad.image_url || ''}
+          fallbackUrl={
+            packshot && packshot !== card.image_url
+              ? packshot
+              : cards.find((item, index) => index !== idx && item.image_url)?.image_url ||
+                ad.image_url ||
+                null
+          }
           variant={ad.variant_number}
+          onHardFail={() => {
+            const nextGood = cards.findIndex(
+              (item, index) =>
+                index > idx &&
+                Boolean(item.image_url) &&
+                item.image_url !== card.image_url
+            );
+            const wrapGood =
+              nextGood >= 0
+                ? nextGood
+                : cards.findIndex(
+                    (item, index) =>
+                      index < idx &&
+                      Boolean(item.image_url) &&
+                      item.image_url !== card.image_url
+                  );
+            if (wrapGood >= 0) setIdx(wrapGood);
+          }}
         />
       )}
       <div className="absolute bottom-3 left-0 right-0 flex items-center justify-center gap-2 z-10">
