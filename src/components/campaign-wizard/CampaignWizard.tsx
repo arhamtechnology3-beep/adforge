@@ -751,14 +751,33 @@ export function CampaignWizard({
         {/* Preview sidebar */}
         <div className="lg:col-span-2">
           <div className="meta-card p-5 sticky top-24">
-            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wide mb-4">
+            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wide mb-1">
               Live preview
+            </p>
+            <p className="text-[11px] text-[var(--muted)] mb-4">
+              Same layout as Facebook Ads Manager / Ad Library feed
             </p>
             <FacebookAdPreview
               headline={previewAd?.headline || undefined}
               primaryText={previewAd?.copy_text}
-              imageUrl={previewAd?.image_url || undefined}
+              imageUrl={
+                previewAd?.image_url
+                  ? /^https?:\/\//i.test(previewAd.image_url)
+                    ? `/api/ads/product-image?src=${encodeURIComponent(previewAd.image_url)}`
+                    : previewAd.image_url
+                  : undefined
+              }
               cta={cta}
+              pageName={
+                (typeof previewAd?.headline === 'string' &&
+                (previewAd.headline.includes('·') || previewAd.headline.includes('-'))
+                  ? previewAd.headline.split(/[·\-]/)[0]?.trim()
+                  : null) ||
+                (previewAd?.media_payload as { product_name?: string } | undefined)?.product_name
+                  ?.split('|')[0]
+                  ?.trim() ||
+                'Your Brand'
+              }
               linkDisplay={
                 websiteUrl
                   ? (() => {

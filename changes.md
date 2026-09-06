@@ -8,6 +8,19 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-06
 
+### UX: Campaign live preview matches Facebook Ads Manager feed
+**What / why**  
+Preview truncated primary text and headline with ellipsis mid-word; didn’t feel like Ad Library / Ads Manager.
+
+**Fix**
+- Facebook-style primary text with “… See more” / “See less” (no harsh CSS clamp)
+- Headline wraps up to 2 lines in the link strip
+- Meta colors, type sizes, CTA strip, Like/Comment/Share row; Stories/Reels closer to native
+
+**Paths:** `FacebookAdPreview.tsx`, `CampaignWizard.tsx`
+
+**Manual:** Redeploy; open Campaigns wizard → Goal (or any step with Live preview).
+
 ### Fix: Carousel card 1 + multi-photo video from storefront URLs
 **What / why**  
 Card 1 / Image / Stories / Video used the broken transparent packshot cutout. Carousel cards 2–4 looked fine because they used other Shopify PDP photos. Video repeated one empty frame instead of multiple product photos.

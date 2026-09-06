@@ -1,11 +1,50 @@
 'use client';
 
-import { useState } from 'react';
-import { Globe, MoreHorizontal } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Globe, MoreHorizontal, ThumbsUp, MessageCircle, Share2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { META_CTA_OPTIONS } from '@/lib/meta-campaign';
 
 type PreviewFormat = 'feed' | 'stories' | 'reels';
+
+/** Meta feed usually shows ~125 chars then “See more”. */
+const FEED_PRIMARY_COLLAPSE_AT = 125;
+
+function FeedPrimaryText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const needsCollapse = text.length > FEED_PRIMARY_COLLAPSE_AT;
+  const visible = !needsCollapse || expanded ? text : `${text.slice(0, FEED_PRIMARY_COLLAPSE_AT).trimEnd()}`;
+
+  return (
+    <p className="px-3 pt-1 pb-2 text-[15px] leading-[20px] text-[#050505] whitespace-pre-wrap break-words">
+      {visible}
+      {needsCollapse && !expanded && (
+        <>
+          {' '}
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="inline text-[15px] leading-[20px] text-[#65676B] font-normal hover:underline"
+          >
+            … See more
+          </button>
+        </>
+      )}
+      {needsCollapse && expanded && (
+        <>
+          {' '}
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className="inline text-[15px] leading-[20px] text-[#65676B] font-normal hover:underline"
+          >
+            See less
+          </button>
+        </>
+      )}
+    </p>
+  );
+}
 
 export function FacebookAdPreview({
   headline,
@@ -26,6 +65,11 @@ export function FacebookAdPreview({
   const ctaLabel =
     META_CTA_OPTIONS.find((c) => c.value === cta)?.label || 'Shop Now';
 
+  const domain = useMemo(() => {
+    const raw = (linkDisplay || 'yourstore.com').replace(/^https?:\/\//i, '').replace(/\/$/, '');
+    return raw.toUpperCase();
+  }, [linkDisplay]);
+
   const formats: { id: PreviewFormat; label: string }[] = [
     { id: 'feed', label: 'Feed' },
     { id: 'stories', label: 'Stories' },
@@ -33,8 +77,8 @@ export function FacebookAdPreview({
   ];
 
   return (
-    <div className="w-full max-w-[320px] mx-auto">
-      <div className="flex gap-1 mb-3 bg-gray-100 rounded-lg p-1">
+    <div className="w-full max-w-[360px] mx-auto">
+      <div className="flex gap-1 mb-3 bg-[#F0F2F5] rounded-lg p-1">
         {formats.map((f) => (
           <button
             key={f.id}
@@ -43,8 +87,8 @@ export function FacebookAdPreview({
             className={cn(
               'flex-1 text-xs font-semibold py-1.5 rounded-md transition-colors',
               format === f.id
-                ? 'bg-white text-[var(--meta-blue)] shadow-sm'
-                : 'text-[var(--muted)] hover:text-[var(--foreground)]'
+                ? 'bg-white text-[#0866FF] shadow-sm'
+                : 'text-[#65676B] hover:text-[#050505]'
             )}
           >
             {f.label}
@@ -52,108 +96,152 @@ export function FacebookAdPreview({
         ))}
       </div>
 
+      {/* Phone chrome */}
       <div
         className={cn(
-          'bg-white border border-[var(--border)] shadow-lg overflow-hidden',
-          format === 'feed' && 'rounded-xl',
-          format === 'stories' && 'rounded-3xl aspect-[9/16]',
-          format === 'reels' && 'rounded-3xl aspect-[9/16]'
+          'bg-[#F0F2F5] border border-[#CCD0D5] shadow-[0_2px_12px_rgba(0,0,0,0.12)] overflow-hidden',
+          format === 'feed' && 'rounded-2xl',
+          (format === 'stories' || format === 'reels') && 'rounded-[28px] aspect-[9/16] bg-black'
         )}
       >
-        {/* Feed preview */}
         {format === 'feed' && (
-          <>
-            <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-100">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[var(--meta-blue)] to-blue-400 flex items-center justify-center text-white text-xs font-bold">
-                {pageName.charAt(0)}
+          <div className="bg-white">
+            {/* Page header — matches Meta feed */}
+            <div className="flex items-start gap-2 px-3 pt-3 pb-2">
+              <div className="w-10 h-10 rounded-full bg-[#0866FF] flex items-center justify-center text-white text-base font-bold shrink-0">
+                {(pageName || 'Y').charAt(0).toUpperCase()}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold truncate">{pageName}</p>
-                <p className="text-[10px] text-[var(--muted)] flex items-center gap-1">
-                  Sponsored · <Globe className="w-2.5 h-2.5" />
+              <div className="flex-1 min-w-0 pt-0.5">
+                <p className="text-[15px] font-semibold text-[#050505] leading-5 hover:underline cursor-default truncate">
+                  {pageName}
+                </p>
+                <p className="text-[13px] text-[#65676B] leading-4 flex items-center gap-1">
+                  Sponsored
+                  <span className="text-[#65676B]">·</span>
+                  <Globe className="w-3 h-3" strokeWidth={2} />
                 </p>
               </div>
-              <MoreHorizontal className="w-4 h-4 text-[var(--muted)]" />
+              <button type="button" className="p-1 text-[#65676B]" aria-label="More">
+                <MoreHorizontal className="w-5 h-5" />
+              </button>
             </div>
 
-            {primaryText && (
-              <p className="px-3 py-2 text-xs text-[var(--foreground)] leading-relaxed line-clamp-3">
-                {primaryText}
-              </p>
-            )}
+            {/* Primary text — Facebook-style wrap + See more (no mid-word CSS clamp) */}
+            {primaryText ? <FeedPrimaryText text={primaryText} /> : null}
 
-            <div className="aspect-square bg-gray-100 relative">
+            {/* Creative — edge-to-edge */}
+            <div className="aspect-square bg-[#E4E6EB] relative">
               {imageUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={imageUrl} alt="" className="w-full h-full object-cover" />
               ) : (
-                <div className="absolute inset-0 flex items-center justify-center text-xs text-[var(--muted)]">
+                <div className="absolute inset-0 flex items-center justify-center text-sm text-[#65676B]">
                   Creative preview
                 </div>
               )}
             </div>
 
-            <div className="px-3 py-2.5 flex items-center justify-between gap-2 bg-gray-50">
+            {/* Link / CTA strip — Ads Manager style */}
+            <div className="bg-[#F0F2F5] px-3 py-2.5 flex items-center gap-3 border-t border-[#E4E6EB]">
               <div className="min-w-0 flex-1">
-                <p className="text-[10px] text-[var(--muted)] uppercase truncate">
-                  {linkDisplay || 'yourstore.com'}
-                </p>
-                <p className="text-xs font-semibold truncate">
+                <p className="text-[12px] text-[#65676B] tracking-wide truncate">{domain}</p>
+                <p className="text-[17px] font-semibold text-[#050505] leading-[22px] line-clamp-2 break-words">
                   {headline || 'Your headline here'}
                 </p>
               </div>
               <button
                 type="button"
-                className="shrink-0 text-xs font-semibold bg-gray-200 hover:bg-gray-300 px-3 py-1.5 rounded-md transition-colors"
+                className="shrink-0 text-[15px] font-semibold text-[#050505] bg-[#E4E6EB] hover:bg-[#D8DADF] px-3.5 py-2 rounded-md transition-colors"
               >
                 {ctaLabel}
               </button>
             </div>
-          </>
+
+            {/* Social row — makes it feel like a real feed unit */}
+            <div className="flex items-center justify-between px-1 py-1 border-t border-[#E4E6EB]">
+              {[
+                { icon: ThumbsUp, label: 'Like' },
+                { icon: MessageCircle, label: 'Comment' },
+                { icon: Share2, label: 'Share' },
+              ].map((action) => (
+                <button
+                  key={action.label}
+                  type="button"
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-[13px] font-semibold text-[#65676B] hover:bg-[#F0F2F5] rounded-md"
+                >
+                  <action.icon className="w-4 h-4" />
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          </div>
         )}
 
-        {/* Stories / Reels preview */}
         {(format === 'stories' || format === 'reels') && (
-          <div className="relative h-full bg-black">
+          <div className="relative h-full min-h-[520px] bg-black">
             {imageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={imageUrl} alt="" className="w-full h-full object-cover opacity-90" />
+              <img src={imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
             ) : (
-              <div className="absolute inset-0 bg-gradient-to-b from-purple-900 to-black" />
+              <div className="absolute inset-0 bg-gradient-to-b from-[#1c2b4a] to-black" />
             )}
-            <div className="absolute top-3 left-3 right-3">
-              <div className="h-0.5 bg-white/30 rounded-full">
-                <div className="h-full w-1/3 bg-white rounded-full" />
+            <div className="absolute top-3 left-3 right-3 flex gap-1">
+              <div className="h-[2px] flex-1 bg-white/35 rounded-full overflow-hidden">
+                <div className="h-full w-2/5 bg-white rounded-full" />
+              </div>
+              <div className="h-[2px] flex-1 bg-white/35 rounded-full" />
+            </div>
+            <div className="absolute top-6 left-3 flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-[#0866FF] flex items-center justify-center text-white text-xs font-bold">
+                {(pageName || 'Y').charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <p className="text-white text-[13px] font-semibold leading-tight">{pageName}</p>
+                <p className="text-white/70 text-[11px]">Sponsored</p>
               </div>
             </div>
-            <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
-              <p className="text-white text-xs font-semibold mb-1">{pageName}</p>
+            <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/85 via-black/40 to-transparent pt-16">
+              {headline && (
+                <p className="text-white text-[17px] font-semibold leading-snug mb-1 break-words">
+                  {headline}
+                </p>
+              )}
               {primaryText && (
-                <p className="text-white/90 text-[11px] line-clamp-2 mb-2">{primaryText}</p>
+                <p className="text-white/90 text-[13px] leading-snug mb-3 line-clamp-3 break-words">
+                  {primaryText}
+                </p>
               )}
               <button
                 type="button"
-                className="w-full text-xs font-semibold bg-white text-black py-2 rounded-lg"
+                className="w-full text-[15px] font-semibold bg-white text-[#050505] py-2.5 rounded-full"
               >
                 {ctaLabel}
               </button>
             </div>
             {format === 'reels' && (
-              <p className="absolute right-3 bottom-24 text-white text-[10px] font-medium rotate-0">
-                ♥ Like
-              </p>
+              <div className="absolute right-3 bottom-36 flex flex-col items-center gap-4 text-white text-[11px] font-semibold">
+                <span className="flex flex-col items-center gap-1">
+                  <ThumbsUp className="w-6 h-6" /> Like
+                </span>
+                <span className="flex flex-col items-center gap-1">
+                  <MessageCircle className="w-6 h-6" /> Comment
+                </span>
+                <span className="flex flex-col items-center gap-1">
+                  <Share2 className="w-6 h-6" /> Share
+                </span>
+              </div>
             )}
           </div>
         )}
       </div>
 
-      {/* Character counters */}
-      <div className="mt-3 space-y-1 text-[10px] text-[var(--muted)]">
-        <p className={cn((headline?.length || 0) > 40 && 'text-[var(--danger)]')}>
+      <div className="mt-3 space-y-1 text-[11px] text-[#65676B]">
+        <p className={cn((headline?.length || 0) > 40 && 'text-red-600 font-medium')}>
           Headline: {headline?.length || 0}/40
+          {(headline?.length || 0) > 40 ? ' — Meta may truncate' : ''}
         </p>
-        <p className={cn((primaryText?.length || 0) > 125 && 'text-amber-600')}>
-          Primary text: {primaryText?.length || 0}/125 ideal · 2200 max
+        <p className={cn((primaryText?.length || 0) > 125 && 'text-amber-700')}>
+          Primary text: {primaryText?.length || 0}/125 shown before “See more” · 2,200 max
         </p>
       </div>
     </div>
