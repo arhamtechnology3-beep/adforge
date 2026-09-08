@@ -5,6 +5,8 @@ import {
   createCampaign,
   createAdSet,
   ensureFacebookPageId,
+  metaObjectBelongsToAdAccount,
+  normalizeMetaAdAccountId,
   publishAdsToMeta,
 } from '@/lib/meta';
 import type { PlacementToggles } from '@/lib/meta-campaign';
@@ -109,7 +111,7 @@ export async function POST(
 
   try {
     const token = metaAccessToken(metaConnection);
-    const adAccountId = metaConnection.meta_ad_account_id!;
+    const adAccountId = normalizeMetaAdAccountId(metaConnection.meta_ad_account_id!);
     let metaCampaignId = campaign.meta_campaign_id;
     let metaAdSetId = campaign.ad_set_id;
     const launchConfig = (campaign.launch_config || {}) as Record<string, unknown>;
@@ -120,6 +122,40 @@ export async function POST(
       : [];
 
     const name = campaign.name || `Campaign ${Date.now()}`;
+
+    // Drop stale Meta IDs if this draft was synced under a different ad account
+    // (reconnect / Page+account switch) — otherwise Meta returns account mismatch on ads.
+    const storedAccount = normalizeMetaAdAccountId(
+      String(launchConfig.meta_ad_account_id || '')
+    );
+    const accountChanged =
+      Boolean(storedAccount) && storedAccount !== adAccountId;
+    if (accountChanged) {
+      console.warn('[Campaign Confirm] ad account changed; recreating Meta tree', {
+        storedAccount,
+        adAccountId,
+      });
+      metaCampaignId = null;
+      metaAdSetId = null;
+      metaAdIds = [];
+    } else {
+      if (
+        metaCampaignId &&
+        !(await metaObjectBelongsToAdAccount(token, metaCampaignId, adAccountId))
+      ) {
+        console.warn('[Campaign Confirm] campaign id not on current ad account; recreating');
+        metaCampaignId = null;
+        metaAdSetId = null;
+        metaAdIds = [];
+      } else if (
+        metaAdSetId &&
+        !(await metaObjectBelongsToAdAccount(token, metaAdSetId, adAccountId))
+      ) {
+        console.warn('[Campaign Confirm] ad set id not on current ad account; recreating ad set');
+        metaAdSetId = null;
+        metaAdIds = [];
+      }
+    }
 
     if (!metaCampaignId) {
       const created = await createCampaign(
@@ -255,6 +291,7 @@ export async function POST(
       ...launchConfig,
       meta_live: true,
       meta_synced: true,
+      meta_ad_account_id: adAccountId,
       meta_ad_ids: metaAdIds,
       activated_at: new Date().toISOString(),
     };

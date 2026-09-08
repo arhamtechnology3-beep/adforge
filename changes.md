@@ -6,6 +6,23 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+## 2026-09-08
+
+### Fix: Confirm launch “same account Id as the adgroup” Meta error
+**What / why**  
+Confirming **Traffic · 7/9/2026 - Jazz** failed with Meta: campaign/ad set must share the same ad account. Happens when draft keeps stale `meta_campaign_id` / `ad_set_id` after reconnect or account switch (e.g. Divyaprabha Foods vs older Arham act).
+
+**Fix**
+- Normalize all Marketing API paths to `act_…`
+- On Confirm: verify campaign/ad set `account_id` matches connected account; if not, recreate tree then create ads
+- Persist `launch_config.meta_ad_account_id` on launch/confirm
+
+**Paths:** `src/lib/meta.ts`, `api/campaigns/[id]/confirm`, `api/campaigns/launch`
+
+**Manual:** Redeploy → Confirm & Launch **Jazz** again (no need to recreate draft). If it still fails, Reconnect Facebook once, then Confirm.
+
+---
+
 ## 2026-09-07
 
 ### Fix: Campaign live preview matches Meta Feed/Stories/Reels

@@ -4,6 +4,7 @@ import {
   createCampaign,
   createAdSet,
   ensureFacebookPageId,
+  normalizeMetaAdAccountId,
   publishAdsToMeta,
 } from '@/lib/meta';
 import { genderToMetaGenders, isHttpsWebsiteUrl, normalizeWebsiteCta } from '@/lib/meta-campaign';
@@ -120,11 +121,13 @@ export async function POST(request: Request) {
   let metaAdSetId: string | null = null;
   let metaSyncError: string | null = null;
   const metaAdIds: string[] = [];
+  let syncedAdAccountId: string | null = null;
 
   if (metaReady && metaConnection) {
     try {
       const token = metaAccessToken(metaConnection);
-      const adAccountId = metaConnection.meta_ad_account_id!;
+      const adAccountId = normalizeMetaAdAccountId(metaConnection.meta_ad_account_id!);
+      syncedAdAccountId = adAccountId;
 
       const campaign = await createCampaign(token, adAccountId, campaignName, objective);
       metaCampaignId = campaign.id;
@@ -211,6 +214,7 @@ export async function POST(request: Request) {
     format_mix: formatMix,
     meta_synced: !!metaCampaignId && adsSynced && !metaSyncError,
     meta_sync_error: metaSyncError,
+    meta_ad_account_id: syncedAdAccountId,
     meta_ad_ids: metaAdIds,
     ad_count: ads.length,
   };

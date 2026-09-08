@@ -3,6 +3,43 @@ import { encrypt, decrypt } from './encryption';
 const META_API_VERSION = 'v21.0';
 const META_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
 
+/** Meta always expects act_… on Marketing API paths. */
+export function normalizeMetaAdAccountId(adAccountId: string): string {
+  const raw = String(adAccountId || '').trim();
+  if (!raw) return raw;
+  return raw.startsWith('act_') ? raw : `act_${raw}`;
+}
+
+function stripActPrefix(adAccountId: string): string {
+  return normalizeMetaAdAccountId(adAccountId).replace(/^act_/, '');
+}
+
+/**
+ * True when a campaign/ad set still belongs to the connected ad account.
+ * Stale IDs (reconnect / switched account) cause:
+ * "Your campaign must have the same account Id as the adgroup you're creating."
+ */
+export async function metaObjectBelongsToAdAccount(
+  accessToken: string,
+  objectId: string,
+  adAccountId: string
+): Promise<boolean> {
+  const id = String(objectId || '').trim();
+  if (!id) return false;
+  const expected = stripActPrefix(adAccountId);
+  try {
+    const res = await fetch(
+      `${META_BASE}/${id}?fields=account_id&access_token=${encodeURIComponent(accessToken)}`
+    );
+    if (!res.ok) return false;
+    const data = (await res.json()) as { account_id?: string };
+    const actual = String(data.account_id || '').replace(/^act_/, '');
+    return Boolean(actual) && actual === expected;
+  } catch {
+    return false;
+  }
+}
+
 /** Turn Meta Graph error JSON into a short, actionable message for the UI. */
 export function formatMetaApiError(prefix: string, raw: string): string {
   try {
@@ -37,6 +74,15 @@ export function formatMetaApiError(prefix: string, raw: string): string {
       );
     }
     const human = err?.error_user_msg || err?.error_user_title || err?.message;
+    if (
+      human &&
+      /same account id as the adgroup|same account id as the ad set|account_id/i.test(human)
+    ) {
+      return (
+        `${prefix}: Meta campaign/ad set belongs to a different ad account than the one connected in AdForge. ` +
+        'Reconnect Facebook (correct ad account), then Confirm again — AdForge will recreate the campaign tree.'
+      );
+    }
     if (human) return `${prefix}: ${human}`;
   } catch {
     // not JSON
@@ -240,7 +286,8 @@ export async function createCampaign(
   name: string,
   objective: string
 ) {
-  const res = await fetch(`${META_BASE}/${adAccountId}/campaigns`, {
+  const actId = normalizeMetaAdAccountId(adAccountId);
+  const res = await fetch(`${META_BASE}/${actId}/campaigns`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -368,7 +415,8 @@ export async function createAdSet(
     };
   }
 
-  const res = await fetch(`${META_BASE}/${adAccountId}/adsets`, {
+  const actId = normalizeMetaAdAccountId(adAccountId);
+  const res = await fetch(`${META_BASE}/${actId}/adsets`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -440,7 +488,8 @@ async function uploadAdImageHash(
   uploadBody.set('bytes', buf.toString('base64'));
   uploadBody.set('name', `adforge-${Date.now()}.${ext}`);
   uploadBody.set('access_token', accessToken);
-  const uploadRes = await fetch(`${META_BASE}/${adAccountId}/adimages`, {
+  const actId = normalizeMetaAdAccountId(adAccountId);
+  const uploadRes = await fetch(`${META_BASE}/${actId}/adimages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: uploadBody.toString(),
@@ -680,6 +729,8 @@ export async function createAd(
     Object.assign(linkData, ref);
   }
 
+  const actId = normalizeMetaAdAccountId(adAccountId);
+
   // Form-encoded body is the most reliable for Marketing API nested fields
   // (JSON posts sometimes drop `creative` / `object_story_spec` and return success without an id).
   const creativeBody = new URLSearchParams();
@@ -693,7 +744,7 @@ export async function createAd(
   );
   creativeBody.set('access_token', accessToken);
 
-  const creativeRes = await fetch(`${META_BASE}/${adAccountId}/adcreatives`, {
+  const creativeRes = await fetch(`${META_BASE}/${actId}/adcreatives`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: creativeBody.toString(),
@@ -708,7 +759,7 @@ export async function createAd(
   adBody.set('status', 'PAUSED');
   adBody.set('access_token', accessToken);
 
-  const adRes = await fetch(`${META_BASE}/${adAccountId}/ads`, {
+  const adRes = await fetch(`${META_BASE}/${actId}/ads`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: adBody.toString(),
