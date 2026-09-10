@@ -68,7 +68,7 @@ export function formatMetaApiError(prefix: string, raw: string): string {
     ) {
       return (
         `${prefix}: Meta locked ad edits until you verify this ad account. ` +
-        'Open Ads Manager (same Divyaprabha account) → complete the security / authenticate prompt Meta shows → then Create again in AdForge. ' +
+        'Open Ads Manager for the same ad account ID shown in AdForge → complete any security / authenticate / Review and publish prompt → then Create again. ' +
         'This is Meta account protection, not an AdForge bug. Existing ads keep running.'
       );
     }

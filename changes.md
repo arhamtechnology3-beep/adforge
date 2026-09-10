@@ -8,6 +8,19 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-11
 
+### Test: Live Meta create probe for connected ad account
+**What / why**  
+User saw auth-lock error on Vidhi Panchal (`10213649183959119`) despite payment UI. Probe against live Marketing API:
+
+- Account status **ACTIVE (1)**, no status blocker  
+- Funding: prepaid balance **₹0.00** (type 20) — create still allowed  
+- **PASS:** Campaign → Ad set → Ad (PAUSED) created, then deleted  
+- Earlier “authenticate” lock was intermittent Meta protection, not AdForge  
+
+**Paths:** `scripts/probe-meta-ad-create.ts`, `meta.ts` (error copy no longer hardcodes Divyaprabha)
+
+**Manual:** In AdForge keep **Vidhi Panchal · 10213649183959119**, Page+Pixel Divyaprabha matching → **Create on Meta** again. In Ads Manager click **Review and publish** if badge shows. Do not use old Divyaprabha account `1611587846992444` (pending closure).
+
 ### UX: Show Meta Ad Account ID next to name in picker
 **What / why**  
 Dropdown showed name + timezone only; hard to tell accounts apart. Now shows numeric ad account ID (without `act_`) in the list and under “Currently publishing to”.
