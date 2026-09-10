@@ -3,8 +3,16 @@ import { rankLibraryAds } from '@/lib/ad-performance';
 import { productSceneUrl } from '@/lib/creatives';
 
 function demoMediaUrl(comp: CompetitorIntel, index: number): string {
-  if (comp.image) return comp.image;
-  return productSceneUrl('pickles', 'competitor-beat', index + 1);
+  // Prefer competitor site OG image for the first card only so the rest stay distinct.
+  if (index === 0 && comp.image) return comp.image;
+  const scenes = [
+    'competitor-beat',
+    'festive-spread',
+    'kitchen-ugc',
+    'gift-hamper',
+    'dining-table',
+  ];
+  return productSceneUrl('pickles', scenes[index % scenes.length], index + 11);
 }
 
 /**
@@ -73,15 +81,15 @@ export function withDemoLibraryFallback(
       };
     }
     const demoAds = buildDemoLibraryAdsFromIntel(comp);
+    const prior = (comp.library_fetch_note || '').trim();
+    const fallback = opts.isDemo
+      ? 'Showing sample ads (preview placeholders). Click Refresh from Ad Library for live Meta creatives.'
+      : 'Live Ad Library fetch returned none — showing estimated patterns (not real Meta creatives). On production this usually means Chromium is missing (SKIP_PLAYWRIGHT=1) or AD_LIBRARY_WORKER_URL is unset. Open Meta Ad Library manually, or Refresh after the worker/Chrome is available.';
     return {
       ...comp,
       live_meta_ads: demoAds,
       meta_ads_count: demoAds.length,
-      library_fetch_note:
-        (comp.library_fetch_note ? `${comp.library_fetch_note} ` : '') +
-        (opts.isDemo
-          ? 'Showing sample ads (preview placeholders). Click Refresh from Ad Library for live Meta creatives.'
-          : 'Live Ad Library fetch returned none — showing top estimated patterns from competitor site intel (active + historical style). Open Meta Ad Library for exact creatives, or Refresh again.'),
+      library_fetch_note: [prior, fallback].filter(Boolean).join(' '),
     };
   });
 }

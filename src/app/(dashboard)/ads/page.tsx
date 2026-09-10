@@ -1441,7 +1441,7 @@ export default function AdsPage() {
                           return `${liveCount} live Library ads loaded`;
                         }
                         if (sampleCount > 0) {
-                          return `${sampleCount} sample ads shown (live fetch pending)`;
+                          return `${sampleCount} sample ads shown (live Library unavailable on this server)`;
                         }
                         return 'No Library ads loaded yet';
                       })()}
@@ -1558,6 +1558,11 @@ export default function AdsPage() {
                                   </div>
                                 )}
                                 <div className="absolute top-2 left-2 flex flex-wrap gap-1">
+                                  {ad.source === 'manual' && (
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-white shadow">
+                                      SAMPLE · not live Library
+                                    </span>
+                                  )}
                                   {ad.performance_label && (
                                     <span
                                       className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${performanceBadgeClass(

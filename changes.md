@@ -8,6 +8,23 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-10
 
+### Fix: Clarify Ad Library sample fallback (not a recent Optimize regression)
+**What / why**  
+`/ads` showed identical pickle-jar “competitor” cards with “live fetch returned none.” Optimize/timezone commits did **not** change Ad Library code. Live creatives need Playwright/Chromium or `AD_LIBRARY_WORKER_URL`; Hostinger often sets `SKIP_PLAYWRIGHT=1`, so fetch returns 0 and demo fallback fills Step 1.
+
+**Fix**
+- Linux system Chrome/Chromium path resolution for VPS hosts
+- Clearer production notes when Chromium/worker is missing
+- SAMPLE badge on fallback cards; diversify placeholder scenes
+- Document `AD_LIBRARY_WORKER_URL` in `.env.example`
+
+**Paths:** `playwright-browser.ts`, `meta-ad-library.ts`, `demo-competitor-ads.ts`, `ads/page.tsx`, `.env.example`
+
+**Manual (to get real Library creatives on live)**
+1. Preferred: run `npm run ad-library-worker` on a machine with Chromium, set Hostinger env `AD_LIBRARY_WORKER_URL=https://…:3021`, redeploy  
+2. Or install Chrome on Hostinger and unset `SKIP_PLAYWRIGHT` / set `PLAYWRIGHT_CHROMIUM_EXECUTABLE`  
+3. Then **/ads** → **Refresh from Ad Library**
+
 ### Fix: Detect Meta ad account timezone (LA vs Asia/Kolkata) + IST start date
 **What / why**  
 Ads Manager showed America/Los_Angeles because the **ad account** timezone is immutable and often defaults to LA — not because launch API set it. AdForge now reads timezone on Connect, prefers an India account when several exist, warns on Campaigns if not Asia/Kolkata, and uses IST for the wizard “today” date.

@@ -317,7 +317,10 @@ function runAdLibrarySubprocess(
       method: 'web_library',
       libraryUrl,
       error: 'Chromium executable not found',
-      note: 'Run: npx playwright install chromium && npm run build:ad-library — then restart the dev server.',
+      note:
+        process.env.NODE_ENV === 'production'
+          ? 'Server has no Chromium (Hostinger often sets SKIP_PLAYWRIGHT=1). Install Chrome/Chromium on the host, or set AD_LIBRARY_WORKER_URL to a machine running npm run ad-library-worker.'
+          : 'Run: npx playwright install chromium && npm run build:ad-library — then restart the dev server.',
     });
   }
 
@@ -483,10 +486,11 @@ export async function fetchAdLibraryViaWeb(
 
 function sanitizeLibraryNote(note: string): string {
   if (process.env.NODE_ENV !== 'production') return note;
+  // Keep actionable Hostinger guidance; strip only local-dev npm recipe noise.
   return note
     .replace(/Run:\s*npm run build:ad-library[^.!]*/gi, '')
-    .replace(/Start the Ad Library worker[^.!]*/gi, '')
-    .replace(/npm run ad-library-worker/gi, '')
+    .replace(/Start the Ad Library worker in another terminal:\s*/gi, '')
+    .replace(/npm run ad-library-worker/gi, 'ad-library-worker')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }

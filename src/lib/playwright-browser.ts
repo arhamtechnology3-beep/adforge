@@ -8,6 +8,15 @@ const MAC_SYSTEM_CHROME = [
   '/Applications/Chromium.app/Contents/MacOS/Chromium',
 ];
 
+/** Hostinger / Linux VPS — install google-chrome-stable or chromium if Playwright browsers were skipped. */
+const LINUX_SYSTEM_CHROME = [
+  '/usr/bin/google-chrome-stable',
+  '/usr/bin/google-chrome',
+  '/usr/bin/chromium-browser',
+  '/usr/bin/chromium',
+  '/snap/bin/chromium',
+];
+
 export function resolveChromiumExecutable(root?: string): string | undefined {
   if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE) {
     const fromEnv = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE.trim();
@@ -34,6 +43,12 @@ export function resolveChromiumExecutable(root?: string): string | undefined {
 
   if (process.platform === 'darwin') {
     for (const candidate of MAC_SYSTEM_CHROME) {
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+
+  if (process.platform === 'linux') {
+    for (const candidate of LINUX_SYSTEM_CHROME) {
       if (existsSync(candidate)) return candidate;
     }
   }
