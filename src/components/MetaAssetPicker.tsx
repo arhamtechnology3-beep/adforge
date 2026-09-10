@@ -1,9 +1,47 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Loader2, Check, RefreshCw } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Loader2, Check, RefreshCw, AlertTriangle } from 'lucide-react';
 
 type AssetOption = { id: string; name: string; kind?: string };
+
+/** True when Page vs Pixel names look like different brands (e.g. Arham vs Divyaprabha). */
+export function pagePixelLikelyMismatch(
+  pageName?: string | null,
+  pixelName?: string | null
+): boolean {
+  if (!pageName?.trim() || !pixelName?.trim()) return false;
+  const stop = new Set([
+    'the',
+    'and',
+    'for',
+    'ads',
+    'page',
+    'pixel',
+    'inc',
+    'ltd',
+    'pvt',
+    'co',
+    'meta',
+    'facebook',
+    'instagram',
+  ]);
+  const tokens = (s: string) =>
+    new Set(
+      s
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .split(' ')
+        .filter((w) => w.length > 2 && !stop.has(w))
+    );
+  const a = tokens(pageName);
+  const b = tokens(pixelName);
+  if (!a.size || !b.size) return false;
+  for (const t of a) {
+    if (b.has(t)) return false;
+  }
+  return true;
+}
 
 /**
  * Per-client Page + Pixel picker (multi-tenant SaaS).
@@ -33,6 +71,9 @@ export default function MetaAssetPicker({
   const [manualPixelId, setManualPixelId] = useState('');
   const [useManualPixel, setUseManualPixel] = useState(false);
   const [loadKey, setLoadKey] = useState(0);
+  const [adAccountId, setAdAccountId] = useState<string | null>(null);
+  const [adAccountName, setAdAccountName] = useState<string | null>(null);
+  const [suggestedPageId, setSuggestedPageId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
@@ -47,6 +88,9 @@ export default function MetaAssetPicker({
         setPages(data.pages || []);
         setPixels(data.pixels || []);
         setOtherPixels(data.skipped_pixels || []);
+        setAdAccountId(data.meta_ad_account_id || null);
+        setAdAccountName(data.meta_ad_account_name || null);
+        setSuggestedPageId(data.suggested?.page?.id || null);
         const selPage = data.selected?.page_id || data.suggested?.page?.id || '';
         const selPixel = data.selected?.pixel_id || data.suggested?.pixel?.id || '';
         setPageId(selPage);
@@ -73,14 +117,23 @@ export default function MetaAssetPicker({
     };
   }, [enabled, loadKey]);
 
+  const pageName = pages.find((p) => p.id === pageId)?.name || null;
+  const resolvedPixelId = useManualPixel ? manualPixelId.trim() : pixelId.trim();
+  const pixelName =
+    pixels.find((p) => p.id === resolvedPixelId)?.name ||
+    otherPixels.find((p) => p.id === resolvedPixelId)?.name ||
+    (useManualPixel && resolvedPixelId ? 'Custom Pixel' : null);
+
+  const mismatch = useMemo(
+    () => pagePixelLikelyMismatch(pageName, pixelName),
+    [pageName, pixelName]
+  );
+
   async function save() {
     setSaving(true);
     setError(null);
     setSavedMsg(null);
     const page = pages.find((p) => p.id === pageId);
-    const resolvedPixelId = useManualPixel
-      ? manualPixelId.trim()
-      : pixelId.trim();
     const fromList =
       pixels.find((p) => p.id === resolvedPixelId) ||
       otherPixels.find((p) => p.id === resolvedPixelId);
@@ -88,6 +141,14 @@ export default function MetaAssetPicker({
 
     if (resolvedPixelId && !/^\d{5,}$/.test(resolvedPixelId)) {
       setError('Pixel ID must be numbers only (from Events Manager).');
+      setSaving(false);
+      return;
+    }
+
+    if (pagePixelLikelyMismatch(page?.name, resolvedPixelName)) {
+      setError(
+        `Page “${page?.name}” and Pixel “${resolvedPixelName}” look like different brands. Pick the matching Page for this store (e.g. both Divyaprabha Foods), then Save.`
+      );
       setSaving(false);
       return;
     }
@@ -129,9 +190,23 @@ export default function MetaAssetPicker({
             Select your Meta Page &amp; Pixel
           </p>
           <p className="text-xs text-[var(--muted)] mt-0.5">
-            Required per client (SaaS). Pick the Facebook Page that should appear on ads, and your
-            Shopify/website Pixel for Sales tracking.
+            Page = who appears on the ad. Pixel = tracking for the connected ad account. Use the
+            same brand for both (do not mix Arham Advertising page with Divyaprabha pixel).
           </p>
+          {(adAccountName || adAccountId) && (
+            <p className="text-[11px] text-slate-700 mt-1.5 font-medium">
+              Ads publish to ad account:{' '}
+              <span className="text-[var(--meta-blue)]">
+                {adAccountName || adAccountId}
+              </span>
+              {adAccountName && adAccountId ? (
+                <span className="text-[var(--muted)] font-normal">
+                  {' '}
+                  ({String(adAccountId).replace(/^act_/, '')})
+                </span>
+              ) : null}
+            </p>
+          )}
         </div>
         <button
           type="button"
@@ -162,6 +237,7 @@ export default function MetaAssetPicker({
                 {pages.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
+                    {suggestedPageId === p.id ? ' · suggested' : ''}
                   </option>
                 ))}
               </select>
@@ -225,6 +301,17 @@ export default function MetaAssetPicker({
         </div>
       )}
 
+      {mismatch && (
+        <p className="text-xs text-amber-950 bg-amber-50 border border-amber-300 rounded-lg px-2.5 py-2 inline-flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>
+            Mismatch: Page <strong>{pageName}</strong> vs Pixel <strong>{pixelName}</strong>. For
+            Divyaprabha launches pick Page <strong>Divyaprabha Foods</strong> and the matching
+            pixel, then Save. Preview uses the Page name — mixing brands confuses Ads Manager.
+          </span>
+        </p>
+      )}
+
       {error && (
         <p className="text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg px-2.5 py-1.5">
           {error}
@@ -240,7 +327,7 @@ export default function MetaAssetPicker({
         type="button"
         className="btn-primary text-sm"
         onClick={save}
-        disabled={loading || saving || !pageId}
+        disabled={loading || saving || !pageId || mismatch}
       >
         {saving ? <Loader2 className="w-4 h-4 animate-spin inline mr-1" /> : null}
         Save Page &amp; Pixel

@@ -8,6 +8,19 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-11
 
+### Fix: Warn on Page vs Pixel brand mismatch in campaign picker
+**What / why**  
+AdForge listed all Facebook Pages the user manages, but Pixels only from the connected ad account — so users could save Page “Arham Advertising” with Pixel “Divyaprabha Foods”. Preview then showed the wrong Page identity.
+
+**Fix**
+- Show connected ad account name in the picker
+- Detect Page/Pixel name mismatch and block Save until aligned
+- Suggest Page using pixel/account brand hints
+
+**Paths:** `MetaAssetPicker.tsx`, `api/meta/assets`
+
+**Manual:** On Campaigns → set Page **Divyaprabha Foods** + Pixel **Divyaprabha Foods** → Save Page & Pixel. Reconnect Facebook if the wrong ad account is linked.
+
 ### Fix: Clearer Meta “authenticate account” error on launch
 **What / why**  
 Meta can block create/edit ads after a security flag (“someone may have tried to access…”). AdForge already rolled back empty trees; message now points users to Ads Manager authentication.

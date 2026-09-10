@@ -10,6 +10,7 @@ import {
 import {
   getFacebookPages,
   getAdAccountPixels,
+  getAdAccountStatus,
   isWebsiteMetaPixel,
   pickBestFacebookPage,
   pickBestWebsitePixel,
@@ -28,9 +29,10 @@ export async function GET() {
   try {
     const token = metaAccessToken(connection);
     const adAccountId = connection.meta_ad_account_id!;
-    const [pages, pixels] = await Promise.all([
+    const [pages, pixels, accountInfo] = await Promise.all([
       getFacebookPages(token),
       getAdAccountPixels(token, adAccountId),
+      getAdAccountStatus(token, adAccountId).catch(() => null),
     ]);
 
     const websitePixels = pixels.filter(isWebsiteMetaPixel);
@@ -50,8 +52,12 @@ export async function GET() {
       selectedPixelName = null;
     }
 
+    const accountName =
+      accountInfo?.name || connection.meta_ad_account_name || null;
+
     return NextResponse.json({
       meta_ad_account_id: adAccountId,
+      meta_ad_account_name: accountName,
       selected: {
         page_id: selectedPageId,
         page_name: selectedPageName,
@@ -59,7 +65,13 @@ export async function GET() {
         pixel_name: selectedPixelName,
       },
       suggested: {
-        page: pickBestFacebookPage(pages),
+        page: pickBestFacebookPage(pages, {
+          brandHints: [
+            selectedPixelName,
+            accountName,
+            selectedPageName,
+          ].filter(Boolean) as string[],
+        }),
         pixel: pickBestWebsitePixel(pixels),
       },
       pages: pages.map((p) => ({ id: p.id, name: p.name || p.id })),
