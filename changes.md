@@ -8,6 +8,18 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-11
 
+### Fix: Use Page access token for Meta creatives + clearer auth-lock steps
+**What / why**  
+Live probe on Vidhi Panchal (`10213649183959119`) can create Campaign→Ad set→Ad from this Mac, but Hostinger Create still hit Meta’s “verify / locked ad edits” on Ad create. Prefer Page token for `adcreatives`; improve error steps (Review and publish → authenticate → Reconnect → retry).
+
+**Paths:** `src/lib/meta.ts`, `api/campaigns/launch`, `api/campaigns/[id]/confirm`
+
+**Manual**
+1. Ads Manager (same account ID) → **Review and publish** if badge shows  
+2. Clear any security prompt  
+3. AdForge → **Reconnect Facebook**  
+4. Create on Meta again right after  
+
 ### Test: Live Meta create probe for connected ad account
 **What / why**  
 User saw auth-lock error on Vidhi Panchal (`10213649183959119`) despite payment UI. Probe against live Marketing API:

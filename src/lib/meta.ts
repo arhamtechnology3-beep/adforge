@@ -68,8 +68,10 @@ export function formatMetaApiError(prefix: string, raw: string): string {
     ) {
       return (
         `${prefix}: Meta locked ad edits until you verify this ad account. ` +
-        'Open Ads Manager for the same ad account ID shown in AdForge → complete any security / authenticate / Review and publish prompt → then Create again. ' +
-        'This is Meta account protection, not an AdForge bug. Existing ads keep running.'
+        '1) Open Ads Manager for the same ad account ID → click Review and publish if shown. ' +
+        '2) Complete any security / authenticate prompt. ' +
+        '3) Reconnect Facebook in AdForge, then Create again within a few minutes. ' +
+        'Meta often flags API creates from hosting servers until that checkpoint is cleared. Existing ads keep running.'
       );
     }
     if (
@@ -108,7 +110,7 @@ export type MetaPixelRow = {
   is_unavailable?: boolean;
 };
 
-export type MetaPageRow = { id: string; name?: string };
+export type MetaPageRow = { id: string; name?: string; access_token?: string };
 
 /** Skip WhatsApp / messaging datasets — AdForge optimizes website/Shopify traffic. */
 export function isWebsiteMetaPixel(pixel: MetaPixelRow): boolean {
@@ -354,16 +356,33 @@ export async function ensureFacebookPageId(opts: {
   accessToken: string;
   storedPageId?: string | null;
   brandHints?: string[];
-}): Promise<{ pageId: string; pageName?: string | null; source: 'stored' | 'env' | 'live' }> {
+}): Promise<{
+  pageId: string;
+  pageName?: string | null;
+  pageAccessToken?: string | null;
+  source: 'stored' | 'env' | 'live';
+}> {
+  const pages = await getFacebookPages(opts.accessToken);
   const stored = String(opts.storedPageId || '').trim();
   if (stored && stored !== 'me' && /^\d{5,}$/.test(stored)) {
-    return { pageId: stored, source: 'stored' };
+    const hit = pages.find((p) => p.id === stored);
+    return {
+      pageId: stored,
+      pageName: hit?.name || null,
+      pageAccessToken: hit?.access_token || null,
+      source: 'stored',
+    };
   }
   const fromEnv = String(process.env.META_PAGE_ID || '').trim();
   if (fromEnv && fromEnv !== 'me' && /^\d{5,}$/.test(fromEnv)) {
-    return { pageId: fromEnv, source: 'env' };
+    const hit = pages.find((p) => p.id === fromEnv);
+    return {
+      pageId: fromEnv,
+      pageName: hit?.name || null,
+      pageAccessToken: hit?.access_token || null,
+      source: 'env',
+    };
   }
-  const pages = await getFacebookPages(opts.accessToken);
   const primary = pickBestFacebookPage(pages, {
     brandHints: opts.brandHints,
   });
@@ -372,7 +391,12 @@ export async function ensureFacebookPageId(opts: {
       'No Facebook Page found on this Meta login. Open Meta Business Suite, make sure your user manages a Page, reconnect Facebook in AdForge, or set META_PAGE_ID.'
     );
   }
-  return { pageId: primary.id, pageName: primary.name || null, source: 'live' };
+  return {
+    pageId: primary.id,
+    pageName: primary.name || null,
+    pageAccessToken: primary.access_token || null,
+    source: 'live',
+  };
 }
 
 export async function createCampaign(
@@ -690,6 +714,8 @@ export async function publishAdsToMeta(opts: {
   adAccountId: string;
   adSetId: string;
   pageId: string;
+  /** Page token preferred for creatives (reduces Meta security locks vs user token alone). */
+  pageAccessToken?: string | null;
   link: string;
   ctaType?: string;
   linkDescription?: string;
@@ -699,6 +725,7 @@ export async function publishAdsToMeta(opts: {
   const errors: string[] = [];
   const ctaType = normalizeWebsiteCta(opts.ctaType);
   const link = String(opts.link || '').trim();
+  const creativeToken = String(opts.pageAccessToken || '').trim() || opts.accessToken;
 
   if (!isHttpsWebsiteUrl(link)) {
     return {
@@ -737,7 +764,8 @@ export async function publishAdsToMeta(opts: {
         headline.slice(0, 40),
         ctaType,
         opts.linkDescription,
-        ad.media_payload?.cards || undefined
+        ad.media_payload?.cards || undefined,
+        creativeToken
       );
       metaAdIds.push(created.id);
     } catch (error) {
@@ -768,7 +796,9 @@ export async function createAd(
   headline?: string,
   ctaType?: string,
   linkDescription?: string,
-  cards?: MetaCreateAdCard[]
+  cards?: MetaCreateAdCard[],
+  /** Prefer Page token for object_story_spec creatives when available. */
+  creativeAccessToken?: string
 ): Promise<{ id: string; creative_id: string }> {
   const destination = String(link || '').trim();
   if (!isHttpsWebsiteUrl(destination)) {
@@ -785,6 +815,8 @@ export async function createAd(
   if (!adHeadline) {
     throw new Error('Ad creation needs a headline.');
   }
+
+  const tokenForCreative = String(creativeAccessToken || accessToken).trim() || accessToken;
 
   const linkData: Record<string, unknown> = {
     message: primaryText.slice(0, 2200),
@@ -837,7 +869,7 @@ export async function createAd(
       link_data: linkData,
     })
   );
-  creativeBody.set('access_token', accessToken);
+  creativeBody.set('access_token', tokenForCreative);
 
   const creativeRes = await fetch(`${META_BASE}/${actId}/adcreatives`, {
     method: 'POST',

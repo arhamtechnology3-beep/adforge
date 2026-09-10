@@ -189,6 +189,7 @@ export async function POST(request: Request) {
         adAccountId,
         adSetId: adSet.id,
         pageId,
+        pageAccessToken: pageResolved.pageAccessToken,
         link,
         ctaType,
         linkDescription,

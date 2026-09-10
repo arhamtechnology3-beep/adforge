@@ -270,6 +270,7 @@ export async function POST(
         adAccountId,
         adSetId: metaAdSetId!,
         pageId: pageResolved.pageId,
+        pageAccessToken: pageResolved.pageAccessToken,
         link: websiteLink,
         ctaType: normalizeWebsiteCta(String(launchConfig.cta || audience.cta || 'SHOP_NOW')),
         linkDescription: (audience.link_description as string) || undefined,
