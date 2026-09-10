@@ -97,7 +97,7 @@ export function scoreLandingPage(s: LandingSignals): LandingScoreReport {
     speed = 95;
   }
 
-  let mobile = s.mobileFriendly === false ? 30 : s.mobileFriendly ? 95 : 60;
+  const mobile = s.mobileFriendly === false ? 30 : s.mobileFriendly ? 95 : 60;
   if (s.mobileFriendly === false) {
     issues.push('Not mobile-friendly');
     quickWins.push('Fix viewport + tap targets for IG/FB traffic');

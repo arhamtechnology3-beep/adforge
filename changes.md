@@ -8,6 +8,13 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-10
 
+### Fix: Hostinger build prefer-const on landing-score
+**What / why**  
+Production build failed ESLint: `'mobile' is never reassigned. Use 'const'`.
+
+**Paths:** `src/lib/meta-optimize/landing-score.ts`  
+**Manual:** Auto-redeploy after push; npm deprecation / bullmq valkey warnings are non-blocking.
+
 ### Feature: Meta Optimize suite (P0–P2) + deep tests
 **What / why**  
 Product gaps vs Meta audit skills are now in AdForge so subscriptions can measure, track, and optimize — not only create/launch.
