@@ -80,11 +80,13 @@ export function withDemoLibraryFallback(
         meta_ads_count: Math.min(comp.meta_ads_count || comp.live_meta_ads?.length || 0, 10),
       };
     }
+
+    // Soft last resort only (after live + per-competitor cache). Not brand-specific seeds.
     const demoAds = buildDemoLibraryAdsFromIntel(comp);
     const prior = (comp.library_fetch_note || '').trim();
     const fallback = opts.isDemo
       ? 'Showing sample ads (preview placeholders). Click Refresh from Ad Library for live Meta creatives.'
-      : 'Live Ad Library fetch returned none — showing estimated patterns (not real Meta creatives). On production this usually means Chromium is missing (SKIP_PLAYWRIGHT=1) or AD_LIBRARY_WORKER_URL is unset. Open Meta Ad Library manually, or Refresh after the worker/Chrome is available.';
+      : 'Live Ad Library fetch returned none and no previous ads are saved for this competitor URL yet — showing estimated patterns (not real Meta creatives). After one successful live fetch, Refresh will reuse those ads when live is down.';
     return {
       ...comp,
       live_meta_ads: demoAds,

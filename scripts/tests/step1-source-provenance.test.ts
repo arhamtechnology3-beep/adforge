@@ -5,6 +5,10 @@ import {
   withDemoLibraryFallback,
 } from '../../src/lib/demo-competitor-ads';
 import { extractAdsFromGraphqlPayload } from '../../src/lib/meta-ad-library-parse';
+import {
+  applyCompetitorLibraryCache,
+  competitorLibraryKey,
+} from '../../src/lib/competitor-library-cache';
 
 function competitor(liveMetaAds: MetaAdLibraryAd[] = []): CompetitorIntel {
   return {
@@ -25,6 +29,15 @@ function competitor(liveMetaAds: MetaAdLibraryAd[] = []): CompetitorIntel {
     meta_page_id: '123456789',
   };
 }
+
+assert.equal(
+  competitorLibraryKey({ meta_page_id: '108788791719221', domain: 'farmdidi.com' }),
+  'page:108788791719221'
+);
+assert.equal(
+  competitorLibraryKey({ domain: 'www.acme.in', url: 'https://acme.in' }),
+  'domain:acme.in'
+);
 
 const parsedLiveAds = extractAdsFromGraphqlPayload({
   data: {
@@ -66,16 +79,17 @@ cachedIntel.library_fetch_note =
   'Showing cached live Meta ads from 1/9/2026, 10:00:00 am.';
 
 const preservedCached = withDemoLibraryFallback([cachedIntel], { isDemo: true });
-assert.strictEqual(
-  preservedCached[0],
-  cachedIntel,
+assert.equal(
+  preservedCached[0].live_meta_ads.length,
+  1,
   'cached live Library ads should not be replaced by demo fallback'
 );
 assert.equal(preservedCached[0].live_meta_ads[0].source, 'web_library');
 assert.match(preservedCached[0].library_fetch_note || '', /cached live Meta ads/);
+assert.equal(preservedCached[0].live_meta_ads[0].id, 'cached-live');
 
 const demoAds = buildDemoLibraryAdsFromIntel(competitor());
-assert.equal(demoAds.length, 3);
+assert.equal(demoAds.length, 5);
 assert.ok(
   demoAds.every(
     (item) =>
@@ -102,16 +116,59 @@ const manualOnly = competitor([demoAds[0]]);
 const replacedManualOnly = withDemoLibraryFallback([manualOnly], { isDemo: true });
 assert.equal(
   replacedManualOnly[0].live_meta_ads.length,
-  3,
+  5,
   'manual-only data should not satisfy the live-data guard'
 );
 assert.ok(replacedManualOnly[0].live_meta_ads.every((item) => item.source === 'manual'));
 
-const productionInput = [competitor()];
-assert.strictEqual(
-  withDemoLibraryFallback(productionInput, { isDemo: false }),
-  productionInput,
-  'demo fallback must be inert outside demo mode'
+const productionSoft = withDemoLibraryFallback([competitor()], { isDemo: false });
+assert.equal(productionSoft[0].live_meta_ads.length, 5);
+assert.ok(productionSoft[0].live_meta_ads.every((item) => item.source === 'manual'));
+assert.match(
+  productionSoft[0].library_fetch_note || '',
+  /no previous ads are saved/,
+  'production soft fallback must disclose placeholders after empty live+cache'
 );
 
-console.log('Step 1 source provenance and fallback contracts passed.');
+// Persist live → empty live restores previous (demo file cache)
+async function assertLibraryCacheRoundTrip() {
+  const demoUser = `test-provenance-${Date.now()}`;
+  const liveOnce = await applyCompetitorLibraryCache(
+    demoUser,
+    [
+      {
+        ...competitor(parsedLiveAds),
+        library_fetch_note: 'Loaded 1 live Ad Library creatives.',
+      },
+    ],
+    { isDemo: true }
+  );
+  assert.equal(liveOnce[0].live_meta_ads[0].source, 'web_library');
+
+  const restorePrevious = await applyCompetitorLibraryCache(
+    demoUser,
+    [
+      {
+        ...competitor([]),
+        library_fetch_note: 'Live Ad Library fetch returned none.',
+      },
+    ],
+    { isDemo: true }
+  );
+  assert.equal(restorePrevious[0].live_meta_ads.length, 1);
+  assert.equal(restorePrevious[0].live_meta_ads[0].source, 'web_library');
+  assert.match(
+    restorePrevious[0].library_fetch_note || '',
+    /previous Ad Library ads saved/,
+    'empty live must restore previous ads for that competitor URL'
+  );
+}
+
+assertLibraryCacheRoundTrip()
+  .then(() => {
+    console.log('Step 1 source provenance and fallback contracts passed.');
+  })
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

@@ -1563,6 +1563,14 @@ export default function AdsPage() {
                                       SAMPLE · not live Library
                                     </span>
                                   )}
+                                  {ad.source !== 'manual' &&
+                                    /previous Ad Library ads saved/i.test(
+                                      comp.library_fetch_note || ''
+                                    ) && (
+                                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-600 text-white shadow">
+                                        PREVIOUS · saved Library
+                                      </span>
+                                    )}
                                   {ad.performance_label && (
                                     <span
                                       className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${performanceBadgeClass(

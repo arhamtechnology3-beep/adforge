@@ -8,6 +8,28 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-10
 
+### Feature: Competitor Ad Library cache (live → previous → soft fallback)
+**What / why**  
+Whatever competitor URL the user saves should drive Meta Ad Library search. On success we persist those creatives; if live fetch fails later (e.g. Hostinger without Chromium), we show the **previous ads for that same competitor**, not FarmDidi-only seeds.
+
+**Order**
+1. Live Ad Library (API / Playwright / worker)
+2. Per-user `competitor_library_cache` for that page ID / domain / URL
+3. Soft website-intel SAMPLE placeholders (last resort)
+
+**Also**
+- Best-effort copy of Library media into `creative-assets` so previous ads keep images when fbcdn expires
+- Removed FarmDidi hardcoded library seeds
+- UI badge: PREVIOUS · saved Library
+
+**Paths:** `013_competitor_library_cache.sql`, `competitor-library-cache.ts`, `api/competitors/meta-library`, `demo-competitor-ads.ts`, `meta-ad-library.ts`, `ads/page.tsx`, `scripts/tests/step1-source-provenance.test.ts`
+
+**Manual**
+1. Run SQL `supabase/migrations/013_competitor_library_cache.sql` in Supabase  
+2. Redeploy  
+3. For **first** live fetch on production: set `AD_LIBRARY_WORKER_URL` or Chromium (see prior note)  
+4. **/ads** → **Refresh from Ad Library** once successfully → later Refresh can reuse previous ads when live is down  
+
 ### Fix: Clarify Ad Library sample fallback (not a recent Optimize regression)
 **What / why**  
 `/ads` showed identical pickle-jar “competitor” cards with “live fetch returned none.” Optimize/timezone commits did **not** change Ad Library code. Live creatives need Playwright/Chromium or `AD_LIBRARY_WORKER_URL`; Hostinger often sets `SKIP_PLAYWRIGHT=1`, so fetch returns 0 and demo fallback fills Step 1.
