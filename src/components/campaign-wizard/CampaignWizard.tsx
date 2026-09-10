@@ -851,26 +851,32 @@ export function CampaignWizard({
                   Continue <ChevronRight className="w-4 h-4" />
                 </button>
               ) : (
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
                   <button
                     type="button"
                     className="btn-secondary"
                     onClick={() => handleLaunch(true)}
                     disabled={launching}
+                    title="Saves in AdForge only — does not call Meta (no billing needed)"
                   >
-                    Save draft
+                    Save draft (local test)
                   </button>
                   <button
                     type="button"
                     className="btn-primary flex items-center gap-2"
                     onClick={() => handleLaunch(false)}
                     disabled={launching || (validation !== null && !validation.can_launch)}
+                    title="Creates Campaign → Ad set → Ad on Meta (requires Billing + Account Overview)"
                   >
                     {launching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
                     Create on Meta
                   </button>
                 </div>
-              )}
+                <p className="text-[11px] text-[var(--muted)] mt-2 max-w-md text-right sm:text-left sm:ml-auto">
+                  Meta will reject Create on Meta until Ads Manager Billing + Account Overview are
+                  complete — that is Meta, not AdForge. Use <strong>Save draft (local test)</strong>{' '}
+                  to test your flow first.
+                </p>
             </div>
           )}
         </div>

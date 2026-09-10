@@ -8,6 +8,18 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-11
 
+### Fix: Save draft skips Meta so testing works before Billing
+**What / why**  
+Meta blocks ad creation without a payment method — AdForge cannot bypass that for a real Ads Manager push. `is_draft` was sent from the UI but ignored, so “Save draft” still hit Meta and failed on billing.
+
+**Fix**
+- `is_draft` / `skip_meta` → local-only campaign draft (no Meta API)
+- UI: “Save draft (local test)” vs “Create on Meta” + note about Billing
+
+**Paths:** `api/campaigns/launch`, `CampaignWizard.tsx`
+
+**Manual:** Use **Save draft (local test)** until Ads Manager → Billing + Account Overview are done; then **Create on Meta**. Also fix Page/Pixel mismatch (same brand).
+
 ### Feature: Switch Meta Ad Account in Campaigns picker
 **What / why**  
 New ad accounts (e.g. DP Foods under Arham Technologi) did not appear in AdForge — Connect only stored one auto-picked account. Users can now choose any ad account visible to their Facebook login.

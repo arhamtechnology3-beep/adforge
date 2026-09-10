@@ -50,7 +50,12 @@ export async function POST(request: Request) {
     cta,
     audience = { countries: ['IN'], age_min: 18, age_max: 65 },
     budget_type = 'daily',
+    is_draft = false,
+    skip_meta = false,
   } = body;
+
+  /** Local-only draft: test AdForge without publishing to Meta (billing not required). */
+  const localOnly = Boolean(is_draft || skip_meta);
 
   if (!ad_ids?.length || !budget || !objective) {
     return NextResponse.json(
@@ -125,7 +130,7 @@ export async function POST(request: Request) {
   const metaAdIds: string[] = [];
   let syncedAdAccountId: string | null = null;
 
-  if (metaReady && metaConnection) {
+  if (metaReady && metaConnection && !localOnly) {
     try {
       const token = metaAccessToken(metaConnection);
       const adAccountId = normalizeMetaAdAccountId(metaConnection.meta_ad_account_id!);
@@ -245,11 +250,17 @@ export async function POST(request: Request) {
     website_url: destination,
     format_mix: formatMix,
     meta_synced: !!metaCampaignId && adsSynced && !metaSyncError,
-    meta_sync_error: metaSyncError,
+    meta_sync_error: localOnly
+      ? null
+      : metaSyncError,
     meta_ad_account_id: syncedAdAccountId,
     meta_ad_ids: metaAdIds,
     ad_count: ads.length,
+    local_only: localOnly,
   };
+
+  const localOnlyMessage =
+    'Local draft saved for testing (not sent to Meta). Add a payment method in Ads Manager Billing, fix Page/Pixel match, then use Create on Meta.';
 
   // Demo session: ads use non-UUID ids (demo-ad-…) and user_id is not in auth.users.
   // Persist locally — never insert into Postgres UUID columns.
@@ -273,14 +284,16 @@ export async function POST(request: Request) {
       campaign: metaCampaign,
       meta_connected: metaReady,
       meta_synced: !!metaCampaignId && adsSynced && !metaSyncError,
-      meta_sync_error: metaSyncError,
-      message: metaCampaignId && adsSynced
-        ? metaSyncError
-          ? `Draft on Meta with ${metaAdIds.length} ad(s). Warning: ${metaSyncError.slice(0, 160)}`
-          : 'Draft created on Meta (PAUSED). Confirm to go live.'
-        : metaReady
-          ? `Local draft saved. Meta sync failed${metaSyncError ? `: ${metaSyncError.slice(0, 180)}` : ''} — fix the Meta issue, then Create again (we do not leave empty campaign/ad sets on Meta).`
-          : 'Local draft saved. Connect Meta, then Confirm & Launch to go live.',
+      meta_sync_error: localOnly ? null : metaSyncError,
+      message: localOnly
+        ? localOnlyMessage
+        : metaCampaignId && adsSynced
+          ? metaSyncError
+            ? `Draft on Meta with ${metaAdIds.length} ad(s). Warning: ${metaSyncError.slice(0, 160)}`
+            : 'Draft created on Meta (PAUSED). Confirm to go live.'
+          : metaReady
+            ? `Local draft saved. Meta sync failed${metaSyncError ? `: ${metaSyncError.slice(0, 180)}` : ''} — fix the Meta issue, then Create again (we do not leave empty campaign/ad sets on Meta).`
+            : 'Local draft saved. Connect Meta, then Confirm & Launch to go live.',
     });
   }
 
@@ -337,14 +350,16 @@ export async function POST(request: Request) {
     campaign: metaCampaign,
     meta_connected: metaReady,
     meta_synced: !!metaCampaignId && adsSynced && !metaSyncError,
-    meta_sync_error: metaSyncError,
-    message: metaCampaignId && adsSynced
-      ? metaSyncError
-        ? `Draft on Meta with ${metaAdIds.length} ad(s). Warning: ${metaSyncError.slice(0, 160)}`
-        : 'Draft created on Meta (PAUSED). Confirm to go live.'
-      : metaReady
-        ? `Local draft saved. Meta sync failed${metaSyncError ? `: ${metaSyncError.slice(0, 180)}` : ''} — fix the Meta issue, then Create again (empty Meta campaign/ad sets are rolled back).`
-        : 'Local draft saved. Connect Meta, then Confirm & Launch to go live.',
+    meta_sync_error: localOnly ? null : metaSyncError,
+    message: localOnly
+      ? localOnlyMessage
+      : metaCampaignId && adsSynced
+        ? metaSyncError
+          ? `Draft on Meta with ${metaAdIds.length} ad(s). Warning: ${metaSyncError.slice(0, 160)}`
+          : 'Draft created on Meta (PAUSED). Confirm to go live.'
+        : metaReady
+          ? `Local draft saved. Meta sync failed${metaSyncError ? `: ${metaSyncError.slice(0, 180)}` : ''} — fix the Meta issue, then Create again (empty Meta campaign/ad sets are rolled back).`
+          : 'Local draft saved. Connect Meta, then Confirm & Launch to go live.',
   });
 }
 
