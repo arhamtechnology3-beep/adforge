@@ -8,6 +8,12 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-11
 
+### UX: Show Meta Ad Account ID next to name in picker
+**What / why**  
+Dropdown showed name + timezone only; hard to tell accounts apart. Now shows numeric ad account ID (without `act_`) in the list and under “Currently publishing to”.
+
+**Paths:** `MetaAssetPicker.tsx`
+
 ### Fix: Always push to Meta on launch (no skip-Meta draft)
 **What / why**  
 Reverted local-only draft — Save draft / Create both sync to Meta when connected. Testing real Ads Manager push still requires Meta Billing + Account Overview.

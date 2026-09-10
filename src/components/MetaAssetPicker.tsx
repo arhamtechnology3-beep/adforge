@@ -276,18 +276,28 @@ export default function MetaAssetPicker({
               {adAccounts.length === 0 ? (
                 <option value="">No ad accounts found — Reconnect Facebook</option>
               ) : (
-                adAccounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                    {a.timezone_name ? ` · ${a.timezone_name}` : ''}
-                    {a.blocked ? ' · restricted' : ''}
-                  </option>
-                ))
+                adAccounts.map((a) => {
+                  const idLabel = String(a.id || '').replace(/^act_/, '');
+                  return (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                      {idLabel ? ` · ${idLabel}` : ''}
+                      {a.timezone_name ? ` · ${a.timezone_name}` : ''}
+                      {a.blocked ? ' · restricted' : ''}
+                    </option>
+                  );
+                })
               )}
             </select>
             <p className="text-[10px] text-[var(--muted)] mt-1">
               Currently publishing to:{' '}
-              <strong>{adAccountName || adAccountId || '—'}</strong>
+              <strong>{adAccountName || '—'}</strong>
+              {adAccountId ? (
+                <span className="font-mono">
+                  {' '}
+                  · ID {String(adAccountId).replace(/^act_/, '')}
+                </span>
+              ) : null}
               {adAccounts.length <= 1
                 ? ' · If your new account is missing, open it in Ads Manager, then Refresh or Reconnect.'
                 : null}
