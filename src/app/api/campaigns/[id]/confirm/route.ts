@@ -6,6 +6,7 @@ import {
   createCampaign,
   createAdSet,
   ensureFacebookPageId,
+  isMetaAuthLockError,
   metaObjectBelongsToAdAccount,
   normalizeMetaAdAccountId,
   publishAdsToMeta,
@@ -282,7 +283,8 @@ export async function POST(
           published.errors[0] ||
           'Meta could not create ads. Fix Page access / creatives / account status, then Confirm again.';
 
-        if (createdEmptyTreeThisRequest) {
+        // Keep campaign/ad set on Meta auth lock so the next Confirm only retries ads.
+        if (createdEmptyTreeThisRequest && !isMetaAuthLockError(errMsg)) {
           await rollbackEmptyCampaignTree({
             accessToken: token,
             campaignId: metaCampaignId,
@@ -295,7 +297,9 @@ export async function POST(
         const failedLaunchConfig = {
           ...launchConfig,
           meta_synced: false,
-          meta_sync_error: errMsg,
+          meta_sync_error: isMetaAuthLockError(errMsg)
+            ? `${errMsg} Campaign + ad set kept — after Ads Manager verification, Confirm again.`
+            : errMsg,
           meta_ad_account_id: adAccountId,
           meta_ad_ids: metaAdIds,
         };
@@ -324,9 +328,11 @@ export async function POST(
 
         return NextResponse.json(
           {
-            error: createdEmptyTreeThisRequest
-              ? `${errMsg} Empty campaign/ad set was removed so Ads Manager stays clean.`
-              : errMsg,
+            error: isMetaAuthLockError(errMsg)
+              ? failedLaunchConfig.meta_sync_error
+              : createdEmptyTreeThisRequest && !metaCampaignId
+                ? `${errMsg} Empty campaign/ad set was removed so Ads Manager stays clean.`
+                : errMsg,
             meta_ad_errors: published.errors,
           },
           { status: 502 }

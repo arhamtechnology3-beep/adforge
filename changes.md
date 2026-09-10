@@ -8,6 +8,17 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-11
 
+### Fix: Keep Meta campaign/ad set on auth-lock so Confirm retries ads only
+**What / why**  
+Hostinger Create hit Meta “locked ad edits” after campaign+ad set succeeded. Rolling back and recreating the tree on every retry increased Meta security flags. Now auth-lock failures **keep** the PAUSED campaign/ad set; user verifies in Ads Manager then **Confirm & Launch** creates ads only.
+
+**Paths:** `meta.ts` (`isMetaAuthLockError`), `api/campaigns/launch`, `api/campaigns/[id]/confirm`
+
+**Manual**
+1. Ads Manager → Review and publish / security prompt for Vidhi Panchal  
+2. Reconnect Facebook  
+3. Use **Confirm & Launch** on the draft (not a brand-new Create)  
+
 ### Fix: Use Page access token for Meta creatives + clearer auth-lock steps
 **What / why**  
 Live probe on Vidhi Panchal (`10213649183959119`) can create Campaign→Ad set→Ad from this Mac, but Hostinger Create still hit Meta’s “verify / locked ad edits” on Ad create. Prefer Page token for `adcreatives`; improve error steps (Review and publish → authenticate → Reconnect → retry).

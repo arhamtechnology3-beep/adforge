@@ -5,6 +5,7 @@ import {
   createCampaign,
   createAdSet,
   ensureFacebookPageId,
+  isMetaAuthLockError,
   normalizeMetaAdAccountId,
   publishAdsToMeta,
   rollbackEmptyCampaignTree,
@@ -197,29 +198,41 @@ export async function POST(request: Request) {
       });
       metaAdIds.push(...published.metaAdIds);
       if (!published.metaAdIds.length) {
-        const rolledBack = await rollbackEmptyCampaignTree({
-          accessToken: token,
-          campaignId: metaCampaignId,
-          adIds: metaAdIds,
-        });
-        if (rolledBack) {
-          metaCampaignId = null;
-          metaAdSetId = null;
-        }
-        throw new Error(
+        const firstErr =
           published.errors[0] ||
-            'No ads were created on Meta. Empty campaign/ad set was removed so Ads Manager stays clean. Fix the error (Page access, images, or account status), then Create again.'
-        );
-      }
-      if (published.errors.length) {
+          'No ads were created on Meta. Check Page access, creative images, and account status.';
+        // Keep campaign/ad set when Meta only blocked ad create (auth lock) so Confirm can retry ads.
+        if (!isMetaAuthLockError(firstErr)) {
+          const rolledBack = await rollbackEmptyCampaignTree({
+            accessToken: token,
+            campaignId: metaCampaignId,
+            adIds: metaAdIds,
+          });
+          if (rolledBack) {
+            metaCampaignId = null;
+            metaAdSetId = null;
+          }
+          throw new Error(
+            rolledBack
+              ? `${firstErr} Empty campaign/ad set was removed so Ads Manager stays clean.`
+              : firstErr
+          );
+        }
+        metaSyncError = `${firstErr} Campaign + ad set were kept on Meta — after verifying in Ads Manager, click Confirm & Launch to create ads only.`;
+      } else if (published.errors.length) {
         console.warn('[Campaign Launch Meta] partial ad errors', published.errors);
         metaSyncError = `Some ads failed: ${published.errors.slice(0, 2).join(' | ')}`;
       }
     } catch (err) {
       console.error('[Campaign Launch Meta]', err);
       metaSyncError = err instanceof Error ? err.message : 'Meta API sync failed';
-      // If we created a campaign but never got ads (thrown before rollback path), clean up.
-      if (metaCampaignId && metaAdIds.length === 0 && metaConnection) {
+      // Keep tree on auth lock; otherwise remove empty campaign/ad set.
+      if (
+        metaCampaignId &&
+        metaAdIds.length === 0 &&
+        metaConnection &&
+        !isMetaAuthLockError(metaSyncError)
+      ) {
         try {
           const token = metaAccessToken(metaConnection);
           const rolledBack = await rollbackEmptyCampaignTree({

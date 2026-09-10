@@ -70,7 +70,7 @@ export function formatMetaApiError(prefix: string, raw: string): string {
         `${prefix}: Meta locked ad edits until you verify this ad account. ` +
         '1) Open Ads Manager for the same ad account ID → click Review and publish if shown. ' +
         '2) Complete any security / authenticate prompt. ' +
-        '3) Reconnect Facebook in AdForge, then Create again within a few minutes. ' +
+        '3) Reconnect Facebook in AdForge, then use Confirm & Launch (do not Create again from scratch). ' +
         'Meta often flags API creates from hosting servers until that checkpoint is cleared. Existing ads keep running.'
       );
     }
@@ -102,6 +102,17 @@ export function formatMetaApiError(prefix: string, raw: string): string {
   }
   const trimmed = raw.replace(/\s+/g, ' ').trim();
   return `${prefix}: ${trimmed.slice(0, 240)}`;
+}
+
+/** True when Meta is asking for account verification (Hostinger IP checkpoints are common). */
+export function isMetaAuthLockError(message: string | null | undefined): boolean {
+  const m = String(message || '').toLowerCase();
+  return (
+    m.includes('locked ad edits') ||
+    m.includes('authenticate your account') ||
+    m.includes('tried to access your account without permission') ||
+    m.includes('for your protection, you won')
+  );
 }
 
 export type MetaPixelRow = {
