@@ -36,32 +36,32 @@ export function competitorLibraryKey(comp: {
   return `url:${String(comp.url || 'unknown').slice(0, 180)}`;
 }
 
-function demoCachePath(userId: string): string {
+function demoUserCachePath(userId: string): string {
   return path.join(process.cwd(), '.data', `competitor-library-cache-${userId}.json`);
 }
 
-async function readDemoCache(userId: string): Promise<Record<string, LibraryCacheRow>> {
+function demoPageCachePath(): string {
+  return path.join(process.cwd(), '.data', 'meta-library-page-cache.json');
+}
+
+async function readJsonFile<T>(file: string, fallback: T): Promise<T> {
   try {
-    const raw = await readFile(demoCachePath(userId), 'utf8');
-    const parsed = JSON.parse(raw) as Record<string, LibraryCacheRow>;
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    const raw = await readFile(file, 'utf8');
+    const parsed = JSON.parse(raw) as T;
+    return parsed ?? fallback;
   } catch {
-    return {};
+    return fallback;
   }
 }
 
-async function writeDemoCache(
-  userId: string,
-  all: Record<string, LibraryCacheRow>
-): Promise<void> {
-  const file = demoCachePath(userId);
+async function writeJsonFile(file: string, data: unknown): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, JSON.stringify(all, null, 2), 'utf8');
+  await writeFile(file, JSON.stringify(data, null, 2), 'utf8');
 }
 
-/** Best-effort: copy remote Library media into our storage so “previous ads” keep images. */
-async function archiveLibraryMedia(
-  userId: string,
+/** Best-effort: copy remote Library media into our storage so previous ads keep images. */
+export async function archiveLibraryMedia(
+  scope: string,
   ads: MetaAdLibraryAd[]
 ): Promise<MetaAdLibraryAd[]> {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -75,7 +75,9 @@ async function archiveLibraryMedia(
     return ads;
   }
 
-  const archived = await Promise.all(
+  const safeScope = scope.replace(/[^a-zA-Z0-9:_-]/g, '_').slice(0, 80);
+
+  return Promise.all(
     ads.map(async (ad) => {
       const media = String(ad.media_url || '').trim();
       if (!media || media.startsWith('/') || media.includes('supabase.co/storage')) {
@@ -91,7 +93,7 @@ async function archiveLibraryMedia(
             Referer: 'https://www.facebook.com/ads/library/',
             Accept: 'image/*,video/*,*/*;q=0.8',
           },
-          signal: AbortSignal.timeout(12000),
+          signal: AbortSignal.timeout(15000),
         });
         if (!res.ok) return ad;
         const buf = Buffer.from(await res.arrayBuffer());
@@ -104,7 +106,7 @@ async function archiveLibraryMedia(
             : contentType.includes('png')
               ? 'png'
               : 'jpg';
-        const objectPath = `competitor-library/${userId}/${ad.library_id || ad.id}.${ext}`;
+        const objectPath = `competitor-library/${safeScope}/${ad.library_id || ad.id}.${ext}`;
         const { error } = await admin.storage.from('creative-assets').upload(objectPath, buf, {
           contentType,
           upsert: true,
@@ -117,86 +119,82 @@ async function archiveLibraryMedia(
       }
     })
   );
-  return archived;
 }
 
-export async function saveCompetitorLibraryCache(opts: {
-  userId: string;
-  isDemo?: boolean;
-  intel: CompetitorIntel;
-}): Promise<void> {
-  const ads = (opts.intel.live_meta_ads || []).filter((a) => a.source !== 'manual');
-  if (!ads.length) return;
-
-  const archived = await archiveLibraryMedia(opts.userId, ads);
-  const key = competitorLibraryKey(opts.intel);
-  const row: LibraryCacheRow = {
+function rowFromIntel(
+  key: string,
+  intel: CompetitorIntel,
+  ads: MetaAdLibraryAd[]
+): LibraryCacheRow {
+  return {
     competitor_key: key,
-    competitor_url: opts.intel.url,
-    domain: opts.intel.domain,
-    meta_page_id: opts.intel.meta_page_id || null,
-    brand: opts.intel.brand,
-    library_url: opts.intel.meta_ad_library_url,
-    ads: archived.slice(0, 10),
-    fetch_method: archived[0]?.source || 'web_library',
+    competitor_url: intel.url,
+    domain: intel.domain,
+    meta_page_id: intel.meta_page_id || null,
+    brand: intel.brand,
+    library_url: intel.meta_ad_library_url,
+    ads: ads.slice(0, 10),
+    fetch_method: ads[0]?.source || 'web_library',
     fetched_at: new Date().toISOString(),
   };
+}
 
-  if (opts.isDemo) {
-    const all = await readDemoCache(opts.userId);
-    all[key] = row;
-    await writeDemoCache(opts.userId, all);
+/** Shared Library creatives by Meta page/domain (migration 014). */
+export async function savePageLibraryCache(
+  row: LibraryCacheRow,
+  isDemo?: boolean
+): Promise<void> {
+  if (!row.ads.length) return;
+
+  if (isDemo) {
+    const all = await readJsonFile<Record<string, LibraryCacheRow>>(demoPageCachePath(), {});
+    all[row.competitor_key] = row;
+    await writeJsonFile(demoPageCachePath(), all);
     return;
   }
 
-  try {
-    const supabase = await createServiceClient();
-    await supabase.from('competitor_library_cache').upsert(
-      {
-        user_id: opts.userId,
-        competitor_key: key,
-        competitor_url: row.competitor_url,
-        domain: row.domain,
-        meta_page_id: row.meta_page_id,
-        brand: row.brand,
-        library_url: row.library_url,
-        ads: row.ads,
-        fetch_method: row.fetch_method,
-        fetched_at: row.fetched_at,
-        updated_at: row.fetched_at,
-      },
-      { onConflict: 'user_id,competitor_key' }
-    );
-  } catch (err) {
-    console.warn(
-      '[competitor-library-cache] save failed',
-      err instanceof Error ? err.message : err
-    );
+  const supabase = await createServiceClient();
+  const { error } = await supabase.from('meta_library_page_cache').upsert(
+    {
+      competitor_key: row.competitor_key,
+      competitor_url: row.competitor_url,
+      domain: row.domain,
+      meta_page_id: row.meta_page_id,
+      brand: row.brand,
+      library_url: row.library_url,
+      ads: row.ads,
+      fetch_method: row.fetch_method,
+      fetched_at: row.fetched_at,
+      updated_at: row.fetched_at,
+    },
+    { onConflict: 'competitor_key' }
+  );
+  if (error) {
+    throw new Error(error.message);
   }
 }
 
-export async function loadCompetitorLibraryCache(opts: {
-  userId: string;
+export async function loadPageLibraryCache(opts: {
   isDemo?: boolean;
   intel: CompetitorIntel;
 }): Promise<LibraryCacheRow | null> {
   const key = competitorLibraryKey(opts.intel);
 
   if (opts.isDemo) {
-    const all = await readDemoCache(opts.userId);
+    const all = await readJsonFile<Record<string, LibraryCacheRow>>(demoPageCachePath(), {});
     return all[key] || null;
   }
 
   try {
     const supabase = await createServiceClient();
-    const { data } = await supabase
-      .from('competitor_library_cache')
+    const { data, error } = await supabase
+      .from('meta_library_page_cache')
       .select('*')
-      .eq('user_id', opts.userId)
       .eq('competitor_key', key)
       .maybeSingle();
-
-    if (!data?.ads || !Array.isArray(data.ads) || data.ads.length === 0) return null;
+    if (error || !data?.ads || !Array.isArray(data.ads) || data.ads.length === 0) {
+      return null;
+    }
     return {
       competitor_key: data.competitor_key,
       competitor_url: data.competitor_url,
@@ -213,9 +211,114 @@ export async function loadCompetitorLibraryCache(opts: {
   }
 }
 
+export async function saveCompetitorLibraryCache(opts: {
+  userId: string;
+  isDemo?: boolean;
+  intel: CompetitorIntel;
+}): Promise<void> {
+  const ads = (opts.intel.live_meta_ads || []).filter((a) => a.source !== 'manual');
+  if (!ads.length) return;
+
+  const key = competitorLibraryKey(opts.intel);
+  const archived = await archiveLibraryMedia(key, ads);
+  const row = rowFromIntel(key, opts.intel, archived);
+
+  try {
+    await savePageLibraryCache(row, opts.isDemo);
+  } catch (err) {
+    console.warn(
+      '[meta-library-page-cache] save failed (run migration 014?)',
+      err instanceof Error ? err.message : err
+    );
+  }
+
+  if (opts.isDemo) {
+    const all = await readJsonFile<Record<string, LibraryCacheRow>>(
+      demoUserCachePath(opts.userId),
+      {}
+    );
+    all[key] = row;
+    await writeJsonFile(demoUserCachePath(opts.userId), all);
+    return;
+  }
+
+  try {
+    const supabase = await createServiceClient();
+    const { error } = await supabase.from('competitor_library_cache').upsert(
+      {
+        user_id: opts.userId,
+        competitor_key: key,
+        competitor_url: row.competitor_url,
+        domain: row.domain,
+        meta_page_id: row.meta_page_id,
+        brand: row.brand,
+        library_url: row.library_url,
+        ads: row.ads,
+        fetch_method: row.fetch_method,
+        fetched_at: row.fetched_at,
+        updated_at: row.fetched_at,
+      },
+      { onConflict: 'user_id,competitor_key' }
+    );
+    if (error) {
+      console.warn('[competitor-library-cache] save failed', error.message);
+    }
+  } catch (err) {
+    console.warn(
+      '[competitor-library-cache] save failed',
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+export async function loadCompetitorLibraryCache(opts: {
+  userId: string;
+  isDemo?: boolean;
+  intel: CompetitorIntel;
+}): Promise<LibraryCacheRow | null> {
+  const key = competitorLibraryKey(opts.intel);
+
+  if (opts.isDemo) {
+    const all = await readJsonFile<Record<string, LibraryCacheRow>>(
+      demoUserCachePath(opts.userId),
+      {}
+    );
+    if (all[key]) return all[key];
+    return loadPageLibraryCache({ isDemo: true, intel: opts.intel });
+  }
+
+  try {
+    const supabase = await createServiceClient();
+    const { data } = await supabase
+      .from('competitor_library_cache')
+      .select('*')
+      .eq('user_id', opts.userId)
+      .eq('competitor_key', key)
+      .maybeSingle();
+
+    if (data?.ads && Array.isArray(data.ads) && data.ads.length > 0) {
+      return {
+        competitor_key: data.competitor_key,
+        competitor_url: data.competitor_url,
+        domain: data.domain,
+        meta_page_id: data.meta_page_id,
+        brand: data.brand,
+        library_url: data.library_url,
+        ads: data.ads as MetaAdLibraryAd[],
+        fetch_method: data.fetch_method,
+        fetched_at: data.fetched_at,
+      };
+    }
+  } catch {
+    /* fall through */
+  }
+
+  return loadPageLibraryCache({ isDemo: false, intel: opts.intel });
+}
+
 /**
- * 1) Keep live Library ads and persist them.
- * 2) If live empty → restore previous ads for that competitor URL/page.
+ * 1) Keep live Library ads and persist them (user + shared page).
+ * 2) If live empty → user previous → shared page previous.
  * 3) Leave empty for caller’s soft website-intel fallback.
  */
 export async function applyCompetitorLibraryCache(
@@ -236,7 +339,6 @@ export async function applyCompetitorLibraryCache(
         isDemo: opts?.isDemo,
         intel: comp,
       });
-      // Reload so media_url may be archived public URLs
       const saved = await loadCompetitorLibraryCache({
         userId,
         isDemo: opts?.isDemo,
@@ -273,7 +375,7 @@ export async function applyCompetitorLibraryCache(
         meta_page_id: prev.meta_page_id || comp.meta_page_id,
         library_fetch_note: [
           (comp.library_fetch_note || '').trim(),
-          `Live fetch unavailable — showing previous Ad Library ads saved ${when} for this competitor.`,
+          `Live fetch unavailable on this server — showing previous Ad Library ads saved ${when} for this competitor.`,
         ]
           .filter(Boolean)
           .join(' '),

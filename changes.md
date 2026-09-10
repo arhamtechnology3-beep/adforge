@@ -6,6 +6,25 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+## 2026-09-11
+
+### Fix: Shared Meta page Library cache so Hostinger can show real Library ads
+**What / why**  
+Meta Ad Library in the browser shows FarmDidi (and other) live ads correctly. Hostinger cannot open that page (no Chromium / no `AD_LIBRARY_WORKER_URL`), so AdForge returned SAMPLE placeholders. Cache alone was empty until a successful fetch existed.
+
+**Fix**
+- Shared `meta_library_page_cache` by Meta page ID / domain (all users)
+- Order: live → per-user previous → shared page previous → SAMPLE
+- Seed script fetches via local worker, archives images to Supabase storage, upserts shared cache
+- Media URLs stored on our CDN so cards don’t break when fbcdn expires
+
+**Paths:** `014_meta_library_page_cache.sql`, `competitor-library-cache.ts`, `scripts/seed-library-page-cache.ts`
+
+**Manual (required for FarmDidi to show on live now)**
+1. Run SQL below in Supabase (`014_meta_library_page_cache.sql`)
+2. Tell agent “014 done” → seed FarmDidi + push  
+3. For **any new competitor** ongoing: set Hostinger env `AD_LIBRARY_WORKER_URL` to a machine running `npm run ad-library-worker` (Mac/VPS with Chrome)
+
 ## 2026-09-10
 
 ### Feature: Competitor Ad Library cache (live → previous → soft fallback)

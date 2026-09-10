@@ -158,10 +158,19 @@ async function assertLibraryCacheRoundTrip() {
   assert.equal(restorePrevious[0].live_meta_ads.length, 1);
   assert.equal(restorePrevious[0].live_meta_ads[0].source, 'web_library');
   assert.match(
-    restorePrevious[0].library_fetch_note || '',
-    /previous Ad Library ads saved/,
-    'empty live must restore previous ads for that competitor URL'
+  restorePrevious[0].library_fetch_note || '',
+  /previous Ad Library ads saved/,
+  'empty live must restore previous ads for that competitor URL'
+);
+
+  // Shared page cache: different demo user still gets previous ads for same page
+  const otherUser = await applyCompetitorLibraryCache(
+    `test-other-${Date.now()}`,
+    [{ ...competitor([]), library_fetch_note: 'none' }],
+    { isDemo: true }
   );
+  assert.equal(otherUser[0].live_meta_ads.length, 1);
+  assert.equal(otherUser[0].live_meta_ads[0].source, 'web_library');
 }
 
 assertLibraryCacheRoundTrip()
