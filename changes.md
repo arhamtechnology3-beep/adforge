@@ -8,6 +8,12 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-11
 
+### Fix: Clearer Meta “authenticate account” error on launch
+**What / why**  
+Meta can block create/edit ads after a security flag (“someone may have tried to access…”). AdForge already rolled back empty trees; message now points users to Ads Manager authentication.
+
+**Paths:** `src/lib/meta.ts` (`formatMetaApiError`)
+
 ### Fix: Do not leave incomplete Meta campaign/ad set shells
 **What / why**  
 Launch created Campaign + Ad set PAUSED, then creative failed (e.g. account pending closure) → Ads Manager showed empty “Create ad” trees.

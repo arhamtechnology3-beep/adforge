@@ -62,6 +62,17 @@ export function formatMetaApiError(prefix: string, raw: string): string {
     }
     const blob = `${err?.error_user_msg || ''} ${err?.error_user_title || ''} ${err?.message || ''} ${raw}`.toLowerCase();
     if (
+      blob.includes('authenticate your account') ||
+      blob.includes('tried to access your account without permission') ||
+      blob.includes('for your protection, you won')
+    ) {
+      return (
+        `${prefix}: Meta locked ad edits until you verify this ad account. ` +
+        'Open Ads Manager (same Divyaprabha account) → complete the security / authenticate prompt Meta shows → then Create again in AdForge. ' +
+        'This is Meta account protection, not an AdForge bug. Existing ads keep running.'
+      );
+    }
+    if (
       blob.includes('payment') ||
       blob.includes('billing') ||
       blob.includes('funding') ||
