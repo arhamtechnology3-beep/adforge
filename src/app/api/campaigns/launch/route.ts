@@ -337,6 +337,9 @@ export async function GET() {
       page_name: metaConnection?.page_name || null,
       pixel_id: metaConnection?.pixel_id || null,
       pixel_name: metaConnection?.pixel_name || null,
+      timezone_id: metaConnection?.timezone_id ?? null,
+      timezone_name: metaConnection?.timezone_name ?? null,
+      timezone_offset_hours_utc: metaConnection?.timezone_offset_hours_utc ?? null,
     });
   }
 
@@ -355,5 +358,8 @@ export async function GET() {
     page_name: metaConnection?.page_name || null,
     pixel_id: metaConnection?.pixel_id || null,
     pixel_name: metaConnection?.pixel_name || null,
+    timezone_id: metaConnection?.timezone_id ?? null,
+    timezone_name: metaConnection?.timezone_name ?? null,
+    timezone_offset_hours_utc: metaConnection?.timezone_offset_hours_utc ?? null,
   });
 }

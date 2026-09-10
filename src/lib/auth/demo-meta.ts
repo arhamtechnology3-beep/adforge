@@ -15,6 +15,9 @@ export type MetaConnection = {
   page_name?: string | null;
   pixel_id?: string | null;
   pixel_name?: string | null;
+  timezone_id?: number | null;
+  timezone_name?: string | null;
+  timezone_offset_hours_utc?: number | null;
   source: 'demo' | 'supabase';
 };
 
@@ -65,7 +68,7 @@ export async function resolveMetaConnection(
   const { data } = await supabase
     .from('ad_accounts')
     .select(
-      'user_id, meta_ad_account_id, access_token_encrypted, token_expires_at, connected_at, page_id, page_name, pixel_id, pixel_name'
+      'user_id, meta_ad_account_id, access_token_encrypted, token_expires_at, connected_at, page_id, page_name, pixel_id, pixel_name, timezone_id, timezone_name, timezone_offset_hours_utc'
     )
     .eq('user_id', user.id)
     .maybeSingle();
@@ -81,6 +84,13 @@ export async function resolveMetaConnection(
     page_name: (data as { page_name?: string | null }).page_name || null,
     pixel_id: (data as { pixel_id?: string | null }).pixel_id || null,
     pixel_name: (data as { pixel_name?: string | null }).pixel_name || null,
+    timezone_id:
+      (data as { timezone_id?: number | null }).timezone_id ?? null,
+    timezone_name:
+      (data as { timezone_name?: string | null }).timezone_name ?? null,
+    timezone_offset_hours_utc:
+      (data as { timezone_offset_hours_utc?: number | null }).timezone_offset_hours_utc ??
+      null,
     source: 'supabase',
   };
 }

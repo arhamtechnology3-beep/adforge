@@ -40,6 +40,11 @@ import { WizardStepper } from './WizardStepper';
 import { ValidationChecklist } from './ValidationChecklist';
 import { FacebookAdPreview, previewFormatFromAdFormat } from '@/components/ad-preview/FacebookAdPreview';
 import MetaAssetPicker from '@/components/MetaAssetPicker';
+import {
+  todayInIndia,
+  timezoneWarningMessage,
+  isIndiaTimezone,
+} from '@/lib/meta-timezone';
 
 const WIZARD_STEPS = [
   { id: 'goal', label: 'Campaign Goal', shortLabel: 'Goal' },
@@ -81,6 +86,8 @@ export function CampaignWizard({
   pageName: initialPageName,
   pixelId: initialPixelId,
   pixelName: initialPixelName,
+  timezoneName: initialTimezoneName,
+  timezoneId: initialTimezoneId,
 }: {
   campaigns: MetaCampaign[];
   approvedAds: GeneratedAd[];
@@ -91,6 +98,8 @@ export function CampaignWizard({
   pageName?: string | null;
   pixelId?: string | null;
   pixelName?: string | null;
+  timezoneName?: string | null;
+  timezoneId?: number | null;
 }) {
   const searchParams = useSearchParams();
   const [step, setStep] = useState(0);
@@ -99,13 +108,17 @@ export function CampaignWizard({
   const [metaPageName, setMetaPageName] = useState(initialPageName || null);
   const [metaPixelName, setMetaPixelName] = useState(initialPixelName || null);
   const [metaPixelId, setMetaPixelId] = useState(initialPixelId || null);
+  const [timezoneName, setTimezoneName] = useState(initialTimezoneName || null);
+  const [timezoneId, setTimezoneId] = useState<number | null>(
+    initialTimezoneId ?? null
+  );
 
   // Form state
   const [name, setName] = useState('');
   const [objective, setObjective] = useState('OUTCOME_TRAFFIC');
   const [budgetType, setBudgetType] = useState<'daily' | 'lifetime'>('daily');
   const [budget, setBudget] = useState('500');
-  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(todayInIndia());
   const [endDate, setEndDate] = useState('');
   const [ageMin, setAgeMin] = useState('18');
   const [ageMax, setAgeMax] = useState('65');
@@ -142,6 +155,14 @@ export function CampaignWizard({
   );
 
   const approvedAds = initialAds;
+  const tzInfo = { timezone_id: timezoneId, timezone_name: timezoneName };
+  const tzWarning = metaConnected ? timezoneWarningMessage(tzInfo) : null;
+  const tzIsIndia = isIndiaTimezone(tzInfo);
+
+  useEffect(() => {
+    setTimezoneName(initialTimezoneName || null);
+    setTimezoneId(initialTimezoneId ?? null);
+  }, [initialTimezoneName, initialTimezoneId]);
 
   useEffect(() => {
     const code = searchParams.get('error');
@@ -149,13 +170,14 @@ export function CampaignWizard({
       setError(META_CONNECT_ERRORS[code]);
     }
     if (searchParams.get('connected') === 'true') {
+      const tzNote = timezoneName ? ` · Timezone: ${timezoneName}` : '';
       setToast(
         metaPixelId
-          ? `Meta connected — Page${metaPageName ? ` (${metaPageName})` : ''} + Pixel linked.`
-          : 'Meta connected — Page linked. Pixel not found on this ad account yet (create a Pixel in Events Manager, then Reconnect).'
+          ? `Meta connected — Page${metaPageName ? ` (${metaPageName})` : ''} + Pixel linked${tzNote}.`
+          : `Meta connected — Page linked${tzNote}. Pixel not found on this ad account yet (create a Pixel in Events Manager, then Reconnect).`
       );
     }
-  }, [searchParams, metaPixelId, metaPageName]);
+  }, [searchParams, metaPixelId, metaPageName, timezoneName]);
 
   function applyTemplate(templateId: string) {
     const t = getCampaignTemplate(templateId);
@@ -422,10 +444,14 @@ export function CampaignWizard({
                   {metaPixelId
                     ? ` · Pixel: ${metaPixelName || metaPixelId}`
                     : ' · Pixel: not linked yet — create in Meta Events Manager, then Reconnect'}
+                  {timezoneName
+                    ? ` · Timezone: ${timezoneName}${tzIsIndia ? ' (IST ✓)' : ''}`
+                    : ''}
                 </span>
               ) : (
                 <span className="block text-xs text-[var(--muted)] mt-1">
-                  Reconnect anytime to refresh Page + Pixel.
+                  Reconnect anytime to refresh Page + Pixel
+                  {timezoneName ? ` · Timezone: ${timezoneName}` : ''}.
                 </span>
               )}
             </>
@@ -442,6 +468,11 @@ export function CampaignWizard({
         </a>
       </div>
 
+      {tzWarning && (
+        <div className="mb-4 rounded-lg bg-amber-50 border border-amber-300 text-amber-950 text-sm px-4 py-3">
+          <strong className="font-semibold">Wrong ad account timezone.</strong> {tzWarning}
+        </div>
+      )}
       {metaConnected && (
         <MetaAssetPicker
           enabled

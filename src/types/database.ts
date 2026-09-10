@@ -97,6 +97,9 @@ export interface AdAccount {
   page_name?: string | null;
   pixel_id?: string | null;
   pixel_name?: string | null;
+  timezone_id?: number | null;
+  timezone_name?: string | null;
+  timezone_offset_hours_utc?: number | null;
 }
 
 export interface CompetitorEntry {

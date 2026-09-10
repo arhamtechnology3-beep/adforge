@@ -13,6 +13,7 @@ import { saveDemoMetaConnection } from '@/lib/auth/demo-meta';
 import { readDemoOnboarding, withDemoOnboardingCookie } from '@/lib/auth/demo-onboarding';
 import { DEMO_USER } from '@/lib/auth/session';
 import { getMetaAppConfig } from '@/lib/meta-app-config';
+import { pickPreferredAdAccount } from '@/lib/meta-timezone';
 
 async function parseState(raw: string | null): Promise<{
   userId: string;
@@ -62,7 +63,8 @@ export async function GET(request: Request) {
       getAdAccounts(longToken.access_token),
       getFacebookPages(longToken.access_token),
     ]);
-    const primaryAccount = adAccounts[0];
+    // Prefer Asia/Kolkata account when several exist (avoid default LA)
+    const primaryAccount = pickPreferredAdAccount(adAccounts);
     // Prefer Advertising / brand pages — not "first Page Meta returns"
     const primaryPage = pickBestFacebookPage(pages, {
       brandHints: ['arham advertising', 'divyaprabha', 'divya', 'pickle'],
@@ -107,6 +109,9 @@ export async function GET(request: Request) {
         page_id: pageId,
         pixel_id: pixelId,
         pixel_name: pixelName,
+        timezone_id: primaryAccount?.timezone_id ?? null,
+        timezone_name: primaryAccount?.timezone_name ?? null,
+        timezone_offset_hours_utc: primaryAccount?.timezone_offset_hours_utc ?? null,
       });
 
       const onboarding = await readDemoOnboarding();
@@ -129,6 +134,9 @@ export async function GET(request: Request) {
         page_name: primaryPage?.name || null,
         pixel_id: pixelId,
         pixel_name: pixelName,
+        timezone_id: primaryAccount?.timezone_id ?? null,
+        timezone_name: primaryAccount?.timezone_name ?? null,
+        timezone_offset_hours_utc: primaryAccount?.timezone_offset_hours_utc ?? null,
       },
       { onConflict: 'user_id' }
     );

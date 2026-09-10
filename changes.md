@@ -8,6 +8,18 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-10
 
+### Fix: Detect Meta ad account timezone (LA vs Asia/Kolkata) + IST start date
+**What / why**  
+Ads Manager showed America/Los_Angeles because the **ad account** timezone is immutable and often defaults to LA — not because launch API set it. AdForge now reads timezone on Connect, prefers an India account when several exist, warns on Campaigns if not Asia/Kolkata, and uses IST for the wizard “today” date.
+
+**Paths:** `src/lib/meta-timezone.ts`, `src/lib/meta.ts` (`getAdAccounts`), `api/oauth/meta/callback`, `demo-meta`, `CampaignWizard`, `campaigns/page`, `api/campaigns/launch` GET, `012_ad_account_timezone.sql`
+
+**Manual**
+1. Run SQL `012_ad_account_timezone.sql` in Supabase  
+2. Redeploy / refresh  
+3. **Reconnect Facebook** so timezone is stored  
+4. If warning shows LA: create a new Meta ad account with **Asia/Kolkata**, then reconnect  
+
 ### Fix: Hostinger build prefer-const on landing-score
 **What / why**  
 Production build failed ESLint: `'mobile' is never reassigned. Use 'const'`.

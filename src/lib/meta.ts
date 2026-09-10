@@ -235,11 +235,18 @@ export async function ensureMetaPixelId(opts: {
 
 export async function getAdAccounts(accessToken: string) {
   const res = await fetch(
-    `${META_BASE}/me/adaccounts?fields=id,name,account_status&access_token=${accessToken}`
+    `${META_BASE}/me/adaccounts?fields=id,name,account_status,timezone_id,timezone_name,timezone_offset_hours_utc&access_token=${accessToken}`
   );
   if (!res.ok) throw new Error('Failed to fetch ad accounts');
   const data = await res.json();
-  return data.data || [];
+  return (data.data || []) as Array<{
+    id: string;
+    name?: string;
+    account_status?: number;
+    timezone_id?: number;
+    timezone_name?: string;
+    timezone_offset_hours_utc?: number;
+  }>;
 }
 
 export async function getFacebookPages(accessToken: string) {

@@ -17,6 +17,8 @@ function CampaignsPageInner() {
   const [pageName, setPageName] = useState<string | null>(null);
   const [pixelId, setPixelId] = useState<string | null>(null);
   const [pixelName, setPixelName] = useState<string | null>(null);
+  const [timezoneName, setTimezoneName] = useState<string | null>(null);
+  const [timezoneId, setTimezoneId] = useState<number | null>(null);
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -32,6 +34,10 @@ function CampaignsPageInner() {
         setPageName(campaignData.page_name || null);
         setPixelId(campaignData.pixel_id || null);
         setPixelName(campaignData.pixel_name || null);
+        setTimezoneName(campaignData.timezone_name || null);
+        setTimezoneId(
+          campaignData.timezone_id != null ? Number(campaignData.timezone_id) : null
+        );
         if (onboardingData?.website_url) setWebsiteUrl(onboardingData.website_url);
 
         if (onboardingData?.id) {
@@ -67,6 +73,8 @@ function CampaignsPageInner() {
       pageName={pageName}
       pixelId={pixelId}
       pixelName={pixelName}
+      timezoneName={timezoneName}
+      timezoneId={timezoneId}
     />
   );
 }
