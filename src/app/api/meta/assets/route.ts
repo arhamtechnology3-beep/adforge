@@ -8,15 +8,22 @@ import {
   saveDemoMetaConnection,
 } from '@/lib/auth/demo-meta';
 import {
+  getAdAccounts,
   getFacebookPages,
   getAdAccountPixels,
   getAdAccountStatus,
   isWebsiteMetaPixel,
+  normalizeMetaAdAccountId,
   pickBestFacebookPage,
   pickBestWebsitePixel,
+  describeAdAccountBlocker,
 } from '@/lib/meta';
 
-/** List Pages + Pixels for this client's Meta connection (multi-tenant). */
+function accountKey(id: string): string {
+  return normalizeMetaAdAccountId(id).replace(/^act_/, '');
+}
+
+/** List ad accounts + Pages + Pixels for this client's Meta connection. */
 export async function GET() {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -28,9 +35,30 @@ export async function GET() {
 
   try {
     const token = metaAccessToken(connection);
-    const adAccountId = connection.meta_ad_account_id!;
-    const [pages, pixels, accountInfo] = await Promise.all([
+    const storedAccountId = connection.meta_ad_account_id!;
+    const [pages, allAccounts] = await Promise.all([
       getFacebookPages(token),
+      getAdAccounts(token),
+    ]);
+
+    const accounts = allAccounts.map((a) => ({
+      id: a.id,
+      name: a.name || a.id,
+      account_status: a.account_status ?? null,
+      timezone_name: a.timezone_name || null,
+      blocked: Boolean(describeAdAccountBlocker(a.account_status)),
+    }));
+
+    // Prefer stored account; if missing from Meta list, fall back to first
+    let adAccountId = storedAccountId;
+    if (
+      accounts.length &&
+      !accounts.some((a) => accountKey(a.id) === accountKey(storedAccountId))
+    ) {
+      adAccountId = accounts[0].id;
+    }
+
+    const [pixels, accountInfo] = await Promise.all([
       getAdAccountPixels(token, adAccountId),
       getAdAccountStatus(token, adAccountId).catch(() => null),
     ]);
@@ -43,7 +71,6 @@ export async function GET() {
     let selectedPixelId = connection.pixel_id || null;
     let selectedPixelName = connection.pixel_name || null;
 
-    // If a WhatsApp dataset was wrongly stored, clear it in the response (client can Save)
     if (
       selectedPixelId &&
       !websitePixels.some((p) => p.id === selectedPixelId)
@@ -53,11 +80,15 @@ export async function GET() {
     }
 
     const accountName =
-      accountInfo?.name || connection.meta_ad_account_name || null;
+      accountInfo?.name ||
+      accounts.find((a) => accountKey(a.id) === accountKey(adAccountId))?.name ||
+      connection.meta_ad_account_name ||
+      null;
 
     return NextResponse.json({
       meta_ad_account_id: adAccountId,
       meta_ad_account_name: accountName,
+      ad_accounts: accounts,
       selected: {
         page_id: selectedPageId,
         page_name: selectedPageName,
@@ -95,7 +126,7 @@ export async function GET() {
   }
 }
 
-/** Save this client's chosen Page + Pixel (never use global env for other tenants). */
+/** Save ad account and/or Page + Pixel for this client. */
 export async function PATCH(request: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -108,8 +139,9 @@ export async function PATCH(request: Request) {
   const body = await request.json();
   const pageId = String(body.page_id || '').trim() || null;
   const pageName = String(body.page_name || '').trim() || null;
-  const pixelId = String(body.pixel_id || '').trim() || null;
-  const pixelName = String(body.pixel_name || '').trim() || null;
+  let pixelId = String(body.pixel_id || '').trim() || null;
+  let pixelName = String(body.pixel_name || '').trim() || null;
+  const requestedAccountId = String(body.meta_ad_account_id || '').trim() || null;
 
   if (pageId && !/^\d{5,}$/.test(pageId)) {
     return NextResponse.json({ error: 'Invalid Page ID' }, { status: 400 });
@@ -118,33 +150,74 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: 'Invalid Pixel ID' }, { status: 400 });
   }
 
+  const token = metaAccessToken(connection);
+  let nextAccountId = connection.meta_ad_account_id!;
+  let timezone_id = connection.timezone_id ?? null;
+  let timezone_name = connection.timezone_name ?? null;
+  let timezone_offset_hours_utc = connection.timezone_offset_hours_utc ?? null;
+  let accountName = connection.meta_ad_account_name || null;
+
+  if (requestedAccountId) {
+    const accounts = await getAdAccounts(token);
+    const match = accounts.find(
+      (a) => accountKey(a.id) === accountKey(requestedAccountId)
+    );
+    if (!match) {
+      return NextResponse.json(
+        {
+          error:
+            'That ad account is not visible to this Facebook login. In Ads Manager, open the new account once, then Reconnect Facebook in AdForge and try again.',
+        },
+        { status: 400 }
+      );
+    }
+    nextAccountId = match.id;
+    accountName = match.name || null;
+    timezone_id = match.timezone_id ?? null;
+    timezone_name = match.timezone_name ?? null;
+    timezone_offset_hours_utc = match.timezone_offset_hours_utc ?? null;
+
+    // Pixel must belong to the selected ad account
+    if (pixelId) {
+      try {
+        const pixels = await getAdAccountPixels(token, nextAccountId);
+        if (!pixels.some((p) => p.id === pixelId)) {
+          pixelId = null;
+          pixelName = null;
+        }
+      } catch {
+        pixelId = null;
+        pixelName = null;
+      }
+    }
+  }
+
+  const patch = {
+    meta_ad_account_id: nextAccountId,
+    page_id: pageId,
+    page_name: pageName,
+    pixel_id: pixelId,
+    pixel_name: pixelName,
+    timezone_id,
+    timezone_name,
+    timezone_offset_hours_utc,
+  };
+
   if (user.isDemo) {
     await saveDemoMetaConnection({
       ...connection,
-      page_id: pageId,
-      page_name: pageName,
-      pixel_id: pixelId,
-      pixel_name: pixelName,
+      ...patch,
+      meta_ad_account_name: accountName,
     });
     return NextResponse.json({
       ok: true,
-      page_id: pageId,
-      page_name: pageName,
-      pixel_id: pixelId,
-      pixel_name: pixelName,
+      ...patch,
+      meta_ad_account_name: accountName,
     });
   }
 
   const supabase = await createClient();
-  const { error } = await supabase
-    .from('ad_accounts')
-    .update({
-      page_id: pageId,
-      page_name: pageName,
-      pixel_id: pixelId,
-      pixel_name: pixelName,
-    })
-    .eq('user_id', user.id);
+  const { error } = await supabase.from('ad_accounts').update(patch).eq('user_id', user.id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -152,9 +225,7 @@ export async function PATCH(request: Request) {
 
   return NextResponse.json({
     ok: true,
-    page_id: pageId,
-    page_name: pageName,
-    pixel_id: pixelId,
-    pixel_name: pixelName,
+    ...patch,
+    meta_ad_account_name: accountName,
   });
 }

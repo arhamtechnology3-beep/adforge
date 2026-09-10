@@ -8,6 +8,21 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-11
 
+### Feature: Switch Meta Ad Account in Campaigns picker
+**What / why**  
+New ad accounts (e.g. DP Foods under Arham Technologi) did not appear in AdForge — Connect only stored one auto-picked account. Users can now choose any ad account visible to their Facebook login.
+
+**Fix**
+- `/api/meta/assets` returns `ad_accounts[]` and accepts `meta_ad_account_id` on save
+- MetaAssetPicker: Ad Account dropdown + Refresh; switching reloads pixels for that account
+
+**Paths:** `api/meta/assets`, `MetaAssetPicker.tsx`
+
+**Manual**
+1. Open the new account once in Ads Manager (so Meta grants access)  
+2. AdForge Campaigns → **Refresh list** (or Reconnect Facebook)  
+3. Select the new **Meta Ad Account** → matching Page + Pixel → Save  
+
 ### Fix: Warn on Page vs Pixel brand mismatch in campaign picker
 **What / why**  
 AdForge listed all Facebook Pages the user manages, but Pixels only from the connected ad account — so users could save Page “Arham Advertising” with Pixel “Divyaprabha Foods”. Preview then showed the wrong Page identity.
