@@ -14,6 +14,7 @@ import {
   X,
   Shield,
   FileBarChart2,
+  Gauge,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
@@ -27,6 +28,7 @@ const navItems = [
   { href: '/campaigns', label: 'Campaigns', icon: Megaphone },
   { href: '/performance', label: 'Performance', icon: BarChart3 },
   { href: '/reports', label: 'Reports', icon: FileBarChart2 },
+  { href: '/optimize', label: 'Optimize', icon: Gauge },
   { href: '/ops', label: 'Ops Agent', icon: Shield },
   { href: '/billing', label: 'Billing', icon: CreditCard },
 ];

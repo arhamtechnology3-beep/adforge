@@ -408,8 +408,28 @@ export function buildReport(opts: {
     case 'ab_tests':
       return {
         ...base,
-        kpis: [{ label: 'Active tests', value: '0' }],
-        notes: ['A/B board populates when creative/audience tests launch (Phase 2).'],
+        kpis: [
+          { label: 'Planner', value: 'Ready' },
+          { label: 'Hub', value: '/optimize' },
+        ],
+        notes: [
+          'Use Optimize → A/B planner for sample size, duration, and Meta Experiments setup.',
+          'Primary KPI should be declared before launch (CTR, CPC, CPA, or ROAS).',
+        ],
+      };
+
+    case 'health_score':
+      return {
+        ...base,
+        kpis: [
+          { label: 'Pillars', value: '4' },
+          { label: 'Weights', value: '30/30/20/20' },
+          { label: 'Hub', value: '/optimize' },
+        ],
+        notes: [
+          'Tracking 30% · Creative 30% · Structure 20% · Audience 20%.',
+          'Open /optimize for live Health Score, kill/scale lists, and audit HTML.',
+        ],
       };
 
     case 'best_of':

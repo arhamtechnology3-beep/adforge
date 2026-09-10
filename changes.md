@@ -6,6 +6,50 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+## 2026-09-10
+
+### Feature: Meta Optimize suite (P0–P2) + deep tests
+**What / why**  
+Product gaps vs Meta audit skills are now in AdForge so subscriptions can measure, track, and optimize — not only create/launch.
+
+**P0**
+- Meta Ads Health Score (tracking/creative/structure/audience, 0–100 + grade, quick wins, kill/scale lists)
+- Ops v2 rules wired into Ops Agent: 3× kill, +20% scale, learning protect, fatigue, tracking gaps
+- Creative diversity / near-duplicate + fatigue engine (Andromeda-style)
+- Pixel/CAPI tracking health + Shopify → Meta CAPI webhook (hash PII, EMQ estimate, dry-run safe)
+
+**P1**
+- Budget advisor (CBO/ABO, 70/20/10, bid strategy, per-campaign kill/scale/hold/test)
+- PPC math (break-even CPA/ROAS, target CPA/ROAS, LTV:CAC, MER)
+- Landing page score (message match, speed, mobile, trust, pixel)
+- A/B test planner (sample size, duration, Meta Experiments steps) + `optimize_ab_tests` table
+
+**P2**
+- Attribution health (window, AEM, dedup, consent)
+- Lookalike / custom audience planner (IN 1/2/5% specs)
+- Brand DNA extractor
+- Photoshoot 5-style briefs
+- Printable audit HTML (`/api/optimize?view=audit`)
+
+**Paths**
+- `src/lib/meta-optimize/**`, `src/lib/ops-agent/rules.ts`
+- `src/app/(dashboard)/optimize/**`, `src/components/Sidebar.tsx`
+- `src/app/api/optimize/route.ts`, `src/app/api/webhooks/shopify/capi/route.ts`
+- `supabase/migrations/011_meta_optimize.sql`
+- `scripts/tests/meta-optimize.test.ts` (13 deep cases)
+- `.env.example`, `README.md`, Reports catalog (`health_score`)
+
+**Manual**
+1. Run SQL migration `011_meta_optimize.sql` in Supabase
+2. Redeploy / restart `npm run dev`
+3. Open **/optimize** (dry-run sample until Meta insights sync)
+4. Optional CAPI: set `SHOPIFY_WEBHOOK_SECRET`, point Shopify `orders/paid` to  
+   `POST /api/webhooks/shopify/capi?user_id=<uuid>`  
+   Env names: `META_CAPI_ACCESS_TOKEN`, `META_PIXEL_ID`, `META_CAPI_TEST_EVENT_CODE`
+5. Tests: `npm run test:optimize`
+
+---
+
 ## 2026-09-08
 
 ### Fix: Confirm launch “same account Id as the adgroup” Meta error

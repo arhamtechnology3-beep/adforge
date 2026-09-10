@@ -28,6 +28,7 @@ export type ReportViewId =
   | 'recommendations'
   | 'audit_trail'
   | 'ab_tests'
+  | 'health_score'
   | 'best_of'
   | 'weekly_checklist'
   | 'monthly_strategy';
@@ -79,7 +80,8 @@ export const REPORT_CATALOG: ReportCatalogItem[] = [
   { id: 'aov', group: 'Funnel', title: 'AOV & purchase CVR', description: 'Order value proxies', needs: ['shopify'] },
   { id: 'recommendations', group: 'Agent', title: 'Recommendations log', description: 'Pending / applied / rejected' },
   { id: 'audit_trail', group: 'Agent', title: 'Auto-pause & policy audit', description: 'Agent actions history' },
-  { id: 'ab_tests', group: 'Agent', title: 'A/B test board', description: 'Structure ready', needs: ['phase2'] },
+  { id: 'ab_tests', group: 'Agent', title: 'A/B test board', description: 'Optimize A/B planner + Meta Experiments' },
+  { id: 'health_score', group: 'Strategy', title: 'Meta Health Score', description: 'Tracking/creative/structure/audience pillars' },
   { id: 'best_of', group: 'Strategy', title: 'Best creatives / audiences', description: 'Ranked winners + next steps' },
   { id: 'weekly_checklist', group: 'Strategy', title: 'Weekly optimization checklist', description: 'Auto from rules' },
   { id: 'monthly_strategy', group: 'Strategy', title: 'Monthly strategic review', description: 'ROI and planning pack' },

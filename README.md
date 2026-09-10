@@ -146,9 +146,17 @@ Create 3 subscription plans in the Razorpay Dashboard and set the plan IDs in en
 | 8 | Performance dashboard | ✅ |
 | 9 | BullMQ automated jobs | ✅ |
 | 10 | Dashboard layout & design | ✅ |
-| 11 | Ops Agent + Policy Guard | ✅ (email alerts; dry-run without Meta) |
+| 11 | Ops Agent + Policy Guard | ✅ (Ops v2: 3× kill, +20% scale) |
 | 12 | Reports Hub (DM library) | ✅ |
 | 13 | Email digests (no WA reports) | ✅ |
+| 14 | Optimize suite (Health Score, CAPI, A/B, LP, LAL…) | ✅ |
+
+## Optimize suite
+
+- UI: `/optimize` — Health Score, kill/scale, tracking, diversity, budget, PPC, audiences, brand DNA, photoshoot, A/B planner
+- API: `GET/POST /api/optimize`, Shopify CAPI `POST /api/webhooks/shopify/capi?user_id=`
+- Migration: `011_meta_optimize.sql`
+- Tests: `npm run test:optimize`
 
 ## Project Structure
 

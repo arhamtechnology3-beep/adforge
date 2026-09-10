@@ -66,8 +66,12 @@ export default function OpsClient() {
         <div>
           <h1 className="text-2xl font-bold">Ops Agent</h1>
           <p className="text-muted mt-1">
-            Research-backed Meta rules: learning-phase protection, pause losers, scale winners
-            +15%, Pixel/conversion gaps. Live changes email you a detailed report + screenshot.
+            Research-backed Meta rules (Ops v2): learning-phase protection, 3× kill rule,
+            scale winners +20%, Pixel/CAPI gaps. Live changes email you a detailed report.{' '}
+            <Link href="/optimize" className="underline">
+              Open Optimize
+            </Link>{' '}
+            for Health Score.
           </p>
           {dryRun && (
             <p className="text-xs mt-2 text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 inline-block">
