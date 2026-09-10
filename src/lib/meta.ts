@@ -249,6 +249,83 @@ export async function getAdAccounts(accessToken: string) {
   }>;
 }
 
+/** Meta Marketing API account_status codes that cannot create/run ads. */
+export function describeAdAccountBlocker(accountStatus?: number | null): string | null {
+  const s = Number(accountStatus);
+  if (!s || s === 1) return null; // ACTIVE
+  const map: Record<number, string> = {
+    2: 'This ad account is DISABLED and cannot create ads.',
+    3: 'This ad account is UNSETTLED (billing). Fix payment in Ads Manager, then retry.',
+    7: 'This ad account is in risk review and cannot create ads yet.',
+    8: 'This ad account is pending settlement. Fix billing in Ads Manager, then retry.',
+    9: 'This ad account is in a grace period and may be restricted.',
+    100: 'This ad account is PENDING CLOSURE. In Ads Manager click “Cancel deactivation”, then retry Launch/Confirm.',
+    101: 'This ad account is CLOSED and cannot create ads. Use or create an active ad account.',
+  };
+  return (
+    map[s] ||
+    `This ad account is restricted (account_status=${s}) and cannot create ads. Fix it in Ads Manager, then retry.`
+  );
+}
+
+export async function getAdAccountStatus(
+  accessToken: string,
+  adAccountId: string
+): Promise<{ id: string; name?: string; account_status?: number }> {
+  const actId = normalizeMetaAdAccountId(adAccountId);
+  const res = await fetch(
+    `${META_BASE}/${actId}?fields=id,name,account_status&access_token=${accessToken}`
+  );
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(formatMetaApiError('Failed to read ad account status', err));
+  }
+  return res.json();
+}
+
+/** Fail fast before creating campaign/ad set when Meta will reject creatives. */
+export async function assertAdAccountCanCreateAds(
+  accessToken: string,
+  adAccountId: string
+): Promise<void> {
+  const acct = await getAdAccountStatus(accessToken, adAccountId);
+  const blocker = describeAdAccountBlocker(acct.account_status);
+  if (blocker) throw new Error(blocker);
+}
+
+/** Delete a PAUSED campaign (and its ad sets/ads) so we do not leave incomplete trees. */
+export async function deleteMetaCampaign(
+  accessToken: string,
+  campaignId: string
+): Promise<void> {
+  const id = String(campaignId || '').trim();
+  if (!id) return;
+  const res = await fetch(
+    `${META_BASE}/${id}?access_token=${encodeURIComponent(accessToken)}`,
+    { method: 'DELETE' }
+  );
+  if (!res.ok) {
+    const err = await res.text();
+    console.warn('[meta] delete campaign failed', id, err.slice(0, 200));
+  }
+}
+
+/**
+ * If campaign/ad set were created but zero ads made it, delete the empty campaign
+ * so Ads Manager does not show “Create ad” shells from failed launches.
+ */
+export async function rollbackEmptyCampaignTree(opts: {
+  accessToken: string;
+  campaignId: string | null | undefined;
+  adIds: string[];
+}): Promise<boolean> {
+  if (opts.adIds.length > 0) return false;
+  const campaignId = String(opts.campaignId || '').trim();
+  if (!campaignId) return false;
+  await deleteMetaCampaign(opts.accessToken, campaignId);
+  return true;
+}
+
 export async function getFacebookPages(accessToken: string) {
   const res = await fetch(
     `${META_BASE}/me/accounts?fields=id,name,access_token&access_token=${accessToken}`

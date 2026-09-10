@@ -2,12 +2,14 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import {
   activateCampaignTree,
+  assertAdAccountCanCreateAds,
   createCampaign,
   createAdSet,
   ensureFacebookPageId,
   metaObjectBelongsToAdAccount,
   normalizeMetaAdAccountId,
   publishAdsToMeta,
+  rollbackEmptyCampaignTree,
 } from '@/lib/meta';
 import type { PlacementToggles } from '@/lib/meta-campaign';
 import { genderToMetaGenders, isHttpsWebsiteUrl, normalizeWebsiteCta } from '@/lib/meta-campaign';
@@ -112,6 +114,10 @@ export async function POST(
   try {
     const token = metaAccessToken(metaConnection);
     const adAccountId = normalizeMetaAdAccountId(metaConnection.meta_ad_account_id!);
+
+    // Block Confirm when Meta will reject creatives (pending closure, disabled, etc.)
+    await assertAdAccountCanCreateAds(token, adAccountId);
+
     let metaCampaignId = campaign.meta_campaign_id;
     let metaAdSetId = campaign.ad_set_id;
     const launchConfig = (campaign.launch_config || {}) as Record<string, unknown>;
@@ -120,6 +126,7 @@ export async function POST(
     let metaAdIds = Array.isArray(launchConfig.meta_ad_ids)
       ? (launchConfig.meta_ad_ids as string[])
       : [];
+    let createdEmptyTreeThisRequest = false;
 
     const name = campaign.name || `Campaign ${Date.now()}`;
 
@@ -165,6 +172,7 @@ export async function POST(
         campaign.objective || 'OUTCOME_TRAFFIC'
       );
       metaCampaignId = created.id;
+      createdEmptyTreeThisRequest = true;
     }
 
     if (!metaAdSetId) {
@@ -196,6 +204,7 @@ export async function POST(
         }
       );
       metaAdSetId = adSet.id;
+      createdEmptyTreeThisRequest = true;
     }
 
     // Always create ads when prior sync left an empty ad set
@@ -268,11 +277,55 @@ export async function POST(
       });
       metaAdIds = published.metaAdIds;
       if (!metaAdIds.length) {
+        const errMsg =
+          published.errors[0] ||
+          'Meta could not create ads. Fix Page access / creatives / account status, then Confirm again.';
+
+        if (createdEmptyTreeThisRequest) {
+          await rollbackEmptyCampaignTree({
+            accessToken: token,
+            campaignId: metaCampaignId,
+            adIds: metaAdIds,
+          });
+          metaCampaignId = null;
+          metaAdSetId = null;
+        }
+
+        const failedLaunchConfig = {
+          ...launchConfig,
+          meta_synced: false,
+          meta_sync_error: errMsg,
+          meta_ad_account_id: adAccountId,
+          meta_ad_ids: metaAdIds,
+        };
+
+        if (sessionUser.isDemo) {
+          await upsertDemoCampaign(
+            {
+              ...campaign,
+              meta_campaign_id: metaCampaignId,
+              ad_set_id: metaAdSetId,
+              launch_config: failedLaunchConfig,
+            },
+            sessionUser.id
+          );
+        } else {
+          const supabase = await createClient();
+          await supabase
+            .from('meta_campaigns')
+            .update({
+              meta_campaign_id: metaCampaignId,
+              ad_set_id: metaAdSetId,
+              launch_config: failedLaunchConfig,
+            })
+            .eq('id', params.id);
+        }
+
         return NextResponse.json(
           {
-            error:
-              published.errors[0] ||
-              'Meta campaign/ad set exist but ads could not be created. Reconnect Facebook, then Confirm again.',
+            error: createdEmptyTreeThisRequest
+              ? `${errMsg} Empty campaign/ad set was removed so Ads Manager stays clean.`
+              : errMsg,
             meta_ad_errors: published.errors,
           },
           { status: 502 }

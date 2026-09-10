@@ -8,6 +8,28 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-11
 
+### Fix: Do not leave incomplete Meta campaign/ad set shells
+**What / why**  
+Launch created Campaign + Ad set PAUSED, then creative failed (e.g. account pending closure) → Ads Manager showed empty “Create ad” trees.
+
+**Fix**
+- Preflight `account_status` before creating anything (clear message for pending closure / disabled / billing)
+- If zero ads created → delete the empty Meta campaign (rollback)
+- Confirm also checks account status; rolls back newly created empty trees
+
+**Paths:** `src/lib/meta.ts`, `api/campaigns/launch`, `api/campaigns/[id]/confirm`, `CampaignWizard.tsx`
+
+**Manual**
+1. Ads Manager → **Cancel deactivation** on Divyaprabha account  
+2. Optionally delete the old empty “Divyaprabha 1st Ads testing” campaign/ad set already in Ads Manager  
+3. Redeploy; Create / Confirm again  
+
+### Docs: Persist Ad Library / Hostinger playbook in Cursor rules
+**What / why**  
+Live `/ads` FarmDidi Library creatives work again; saved diagnosis + seed/worker steps so future SAMPLE regressions resolve quickly.
+
+**Paths:** `.cursor/rules/meta-ad-library-hostinger.mdc`, `docs/ad-library-hostinger.md` (+ Cursor user rule “AdForge Meta Ad Library (Hostinger)”)
+
 ### Fix: Shared Meta page Library cache so Hostinger can show real Library ads
 **What / why**  
 Meta Ad Library in the browser shows FarmDidi (and other) live ads correctly. Hostinger cannot open that page (no Chromium / no `AD_LIBRARY_WORKER_URL`), so AdForge returned SAMPLE placeholders. Cache alone was empty until a successful fetch existed.

@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import {
+  assertAdAccountCanCreateAds,
   createCampaign,
   createAdSet,
   ensureFacebookPageId,
   normalizeMetaAdAccountId,
   publishAdsToMeta,
+  rollbackEmptyCampaignTree,
 } from '@/lib/meta';
 import { genderToMetaGenders, isHttpsWebsiteUrl, normalizeWebsiteCta } from '@/lib/meta-campaign';
 import { getSessionUser } from '@/lib/auth/session';
@@ -129,6 +131,10 @@ export async function POST(request: Request) {
       const adAccountId = normalizeMetaAdAccountId(metaConnection.meta_ad_account_id!);
       syncedAdAccountId = adAccountId;
 
+      // Fail before creating campaign/ad set when Meta will block creatives
+      // (e.g. account pending closure) — avoids incomplete Ads Manager shells.
+      await assertAdAccountCanCreateAds(token, adAccountId);
+
       const campaign = await createCampaign(token, adAccountId, campaignName, objective);
       metaCampaignId = campaign.id;
 
@@ -190,9 +196,18 @@ export async function POST(request: Request) {
       });
       metaAdIds.push(...published.metaAdIds);
       if (!published.metaAdIds.length) {
+        const rolledBack = await rollbackEmptyCampaignTree({
+          accessToken: token,
+          campaignId: metaCampaignId,
+          adIds: metaAdIds,
+        });
+        if (rolledBack) {
+          metaCampaignId = null;
+          metaAdSetId = null;
+        }
         throw new Error(
           published.errors[0] ||
-            'Campaign and ad set were created on Meta, but no ads were created. Check Page access and creative images, then Confirm again.'
+            'No ads were created on Meta. Empty campaign/ad set was removed so Ads Manager stays clean. Fix the error (Page access, images, or account status), then Create again.'
         );
       }
       if (published.errors.length) {
@@ -202,6 +217,23 @@ export async function POST(request: Request) {
     } catch (err) {
       console.error('[Campaign Launch Meta]', err);
       metaSyncError = err instanceof Error ? err.message : 'Meta API sync failed';
+      // If we created a campaign but never got ads (thrown before rollback path), clean up.
+      if (metaCampaignId && metaAdIds.length === 0 && metaConnection) {
+        try {
+          const token = metaAccessToken(metaConnection);
+          const rolledBack = await rollbackEmptyCampaignTree({
+            accessToken: token,
+            campaignId: metaCampaignId,
+            adIds: metaAdIds,
+          });
+          if (rolledBack) {
+            metaCampaignId = null;
+            metaAdSetId = null;
+          }
+        } catch (cleanupErr) {
+          console.warn('[Campaign Launch Meta] rollback failed', cleanupErr);
+        }
+      }
     }
   }
 
@@ -247,7 +279,7 @@ export async function POST(request: Request) {
           ? `Draft on Meta with ${metaAdIds.length} ad(s). Warning: ${metaSyncError.slice(0, 160)}`
           : 'Draft created on Meta (PAUSED). Confirm to go live.'
         : metaReady
-          ? `Local draft saved. Meta sync failed${metaSyncError ? `: ${metaSyncError.slice(0, 180)}` : ''} — try Confirm later or Create again.`
+          ? `Local draft saved. Meta sync failed${metaSyncError ? `: ${metaSyncError.slice(0, 180)}` : ''} — fix the Meta issue, then Create again (we do not leave empty campaign/ad sets on Meta).`
           : 'Local draft saved. Connect Meta, then Confirm & Launch to go live.',
     });
   }
@@ -311,7 +343,7 @@ export async function POST(request: Request) {
         ? `Draft on Meta with ${metaAdIds.length} ad(s). Warning: ${metaSyncError.slice(0, 160)}`
         : 'Draft created on Meta (PAUSED). Confirm to go live.'
       : metaReady
-        ? `Local draft saved. Meta sync failed${metaSyncError ? `: ${metaSyncError.slice(0, 180)}` : ''} — Confirm will retry creating ads.`
+        ? `Local draft saved. Meta sync failed${metaSyncError ? `: ${metaSyncError.slice(0, 180)}` : ''} — fix the Meta issue, then Create again (empty Meta campaign/ad sets are rolled back).`
         : 'Local draft saved. Connect Meta, then Confirm & Launch to go live.',
   });
 }

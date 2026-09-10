@@ -808,7 +808,7 @@ export function CampaignWizard({
                   <>
                     Local draft is saved
                     {lastLaunchMetaError
-                      ? ', but Meta sync failed. Confirm will retry creating the Ad under your Ad set.'
+                      ? `. Meta sync failed: ${lastLaunchMetaError.slice(0, 160)}. Fix the Meta account issue (e.g. cancel pending closure), then Create again — AdForge will not leave empty campaign/ad sets.`
                       : '. Connect Meta or Confirm to publish when ready.'}
                   </>
                 )}
