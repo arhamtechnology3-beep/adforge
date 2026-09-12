@@ -6,7 +6,74 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+## 2026-09-12
+
+### Reports: campaign filter + Sync latest from Meta
+**What / why**  
+Reports needed **campaign-wise** views and an in-page way to pull fresh Meta insights (not only the 4× daily worker). Added campaign dropdown (All / per campaign), highlighted **Sync latest from Meta** button → `POST /api/reports/sync`, shared `syncMetaPerformanceForUser` used by API + CLI.
+
+**Paths:** `ReportsClient.tsx`, `api/reports/route.ts`, `api/reports/sync/route.ts`, `lib/sync-meta-performance.ts`, `scripts/sync-meta-live-performance.ts`
+
+**Manual:** Deploy → `/reports` → pick **Ganpati** → **Sync latest from Meta** → confirm KPIs refresh.
+
+### Fix: Optimize sample banner + empty Ops (wrong `daily_budget` column)
+**What / why**  
+`/optimize` showed **Sample account** Health **75 B** because `load-account` selected non-existent `meta_campaigns.daily_budget` → query failed → dry-run fixtures. `/ops` showed **No performance items** because no stored recs and live analysis was never run. Fixed `budget` column + creatives load; Ops GET computes Ops v2 from snapshots; healthy live campaigns get a **Monitoring** info pulse instead of a blank page.
+
+**Paths:** `load-account.ts`, `api/ops/recommendations/route.ts`, `ops-v2.ts`, `OptimizeClient.tsx`, `OpsClient.tsx`
+
+**Manual:** Deploy Hostinger → hard-refresh `/optimize` (Live, ~63 C, not 75 B) and `/ops` (Monitoring: Ganpati…).
+
+### E2E: Reports live against Ganpati + stop demo leak in sub-views
+**What / why**  
+End-to-end tested all **33** report views against live Meta snapshot for **Ganpati Meta Ads For DP**. Overview views already matched Meta (₹322 spend, CTR 1.69%, date `2026-09-12`). Several Efficiency/Creative/Agent views still injected **Festive Pickles / sample creatives** even when `dryRun=false`. Fixed `buildReport` to use live campaign metrics + breakdowns; sample fixtures only when no spend.
+
+**E2E (latest sync):** Meta today ₹321.79 · 34,579 imps · 583 clicks · placement facebook/instagram/whatsapp live. Optimize suite health **63 (C)**, budget **hold**. Creative leaderboard honestly shows “ad-level pending” instead of fake ads. Shopify views tagged Needs Shopify. Unit: `meta-optimize.test.ts` 13/13 pass.
+
+**Paths:** `src/lib/reports/build.ts`, `src/app/api/reports/route.ts`
+
+**Manual:** Deploy app to Hostinger, hard-refresh `/reports` — check Daily, Pacing (Ganpati ~64% of ₹500), Placement. Re-sync: `npx tsx scripts/sync-meta-live-performance.ts`
+
+### Cleanup: Keep only Ganpati Meta Ads For DP
+**What / why**  
+User is running a single live campaign. Removed **12** other AdForge `meta_campaigns` (test/archived/demo) for the account; kept **Ganpati Meta Ads For DP** (`active`, Meta id `120246273438200139`) and its performance snapshot.
+
+**Manual:** Hard-refresh `/performance` — list should show only Ganpati. Meta Ads Manager was not bulk-deleted (archived tests already inactive on Meta).
+
+### Sync: Meta ACTIVE → AdForge + live Performance snapshots
+**What / why**  
+Ganpati was **ACTIVE on Meta** with real spend but stuck as **`draft`** in AdForge, so Ops Monitor skipped it and `/performance` / Optimize stayed empty/sample. Synced status from Meta Graph, upserted today’s insights into `performance_snapshots`, and hardened Ops Monitor to re-align status (incl. ARCHIVED→paused) on every run.
+
+**Live fetch (today):** Ganpati `120246273438200139` → **active** + snapshot **₹316.60** spend · **34,019** imps · **574** clicks.
+
+**Paths:** `scripts/sync-meta-live-performance.ts`, `src/workers/jobs/ops-monitor.ts`, `PerformanceClient.tsx`
+
+**Manual**
+1. Hard-refresh **https://adforge.arhamtechnology.com/performance** — open **Ganpati Meta Ads For DP**
+2. Deploy worker/app so Hostinger Ops Monitor keeps syncing (`ops-monitor` status sync)
+3. Re-run anytime: `npx tsx scripts/sync-meta-live-performance.ts`
+
+**Note:** No Meta MCP is connected in this workspace; sync used Meta Graph + Supabase. Browser MCP hit login wall (could not verify UI without credentials).
+
+---
+
 ## 2026-09-11
+
+### Probe: Ads Manager IG Feed blank vs real Instagram media
+**What / why**  
+Ads Manager showed FB Feed media OK but Instagram Feed blank for **Ads 2 Testing** carousel. Live Graph check: Page + IG (`divyaprabha_foods`) linked, creative has `instagram_user_id`, `effective_instagram_media_id`, permalink, and all 4 carousel JPEGs return HTTP 200. No `issues_info`. Blank IG pane is Ads Manager preview quirk for this PAUSED/PENDING_REVIEW carousel — not missing assets.
+
+**Paths:** `scripts/probe-ad-instagram-fields.ts`, `src/lib/meta.ts` (`resolveInstagramUserIdForPage` + set `object_story_spec.instagram_user_id` on new creatives)
+
+**Manual:** Open IG permalink from creative (or Ads Manager → Preview → Instagram) / hard-refresh Ads Manager. Existing ad does not need recreate for media.
+
+### Ops: Complete stuck Meta draft ads from Mac (Hostinger auth-lock bypass)
+**What / why**  
+Live probe + complete script from this Mac: Meta **accepts** create on Vidhi Panchal. Hostinger still gets auth-lock. Completed ads for draft **Ads 2 Testing** (`meta_ad_id` created PAUSED).
+
+**Paths:** `scripts/complete-meta-draft-ads.ts`, `scripts/probe-meta-ad-create.ts`
+
+**Manual:** AdForge → draft **Ads 2 Testing** → **Confirm & Launch** to activate. For future Hostinger locks, run `npx tsx scripts/complete-meta-draft-ads.ts` on Mac after Create keeps campaign/ad set.
 
 ### Fix: Keep Meta campaign/ad set on auth-lock so Confirm retries ads only
 **What / why**  

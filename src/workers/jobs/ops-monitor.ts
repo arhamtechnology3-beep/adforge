@@ -58,14 +58,46 @@ async function buildBreakdowns(
   }
 }
 
+function mapMetaCampaignStatus(
+  effective?: string,
+  configured?: string
+): 'active' | 'paused' | null {
+  const eff = (effective || configured || '').toUpperCase();
+  if (eff === 'ACTIVE') return 'active';
+  if (
+    eff === 'PAUSED' ||
+    eff === 'CAMPAIGN_PAUSED' ||
+    eff === 'ADSET_PAUSED' ||
+    eff === 'ARCHIVED' ||
+    eff === 'DELETED'
+  ) {
+    return 'paused';
+  }
+  return null;
+}
+
+async function fetchMetaCampaignStatus(token: string, metaCampaignId: string) {
+  const res = await fetch(
+    `https://graph.facebook.com/v21.0/${metaCampaignId}?fields=id,name,status,effective_status&access_token=${token}`
+  );
+  if (!res.ok) return null;
+  return (await res.json()) as {
+    id: string;
+    name?: string;
+    status?: string;
+    effective_status?: string;
+  };
+}
+
 export async function runOpsMonitorSlot(slot: AgentSlot = 'morning') {
   const supabase = getServiceClient();
   const today = new Date().toISOString().split('T')[0];
 
+  // Include drafts that already have a Meta campaign id — status is re-synced from Meta below.
   const { data: campaigns } = await supabase
     .from('meta_campaigns')
     .select('*')
-    .in('status', ['active', 'paused']);
+    .or('status.in.(active,paused),meta_campaign_id.not.is.null');
 
   const byUser = new Map<string, MetaCampaign[]>();
   for (const c of (campaigns || []) as MetaCampaign[]) {
@@ -110,6 +142,28 @@ export async function runOpsMonitorSlot(slot: AgentSlot = 'morning') {
       if (adAccount?.access_token_encrypted && campaign.meta_campaign_id) {
         try {
           const token = retrieveToken(adAccount.access_token_encrypted);
+
+          // Keep AdForge status aligned with Meta (e.g. draft completed outside Confirm).
+          const metaCamp = await fetchMetaCampaignStatus(token, campaign.meta_campaign_id);
+          const mapped = mapMetaCampaignStatus(
+            metaCamp?.effective_status,
+            metaCamp?.status
+          );
+          if (mapped && mapped !== campaign.status) {
+            const launchConfig = {
+              ...((campaign.launch_config || {}) as Record<string, unknown>),
+              meta_live: mapped === 'active',
+              meta_status_synced_at: new Date().toISOString(),
+              meta_effective_status: metaCamp?.effective_status || metaCamp?.status,
+            };
+            await supabase
+              .from('meta_campaigns')
+              .update({ status: mapped, launch_config: launchConfig })
+              .eq('id', campaign.id);
+            campaign.status = mapped;
+            campaign.launch_config = launchConfig;
+          }
+
           const raw = await getCampaignInsights(token, campaign.meta_campaign_id, 'today');
           parsed = parseInsightsPayload(raw);
           breakdowns = await buildBreakdowns(token, campaign.meta_campaign_id);

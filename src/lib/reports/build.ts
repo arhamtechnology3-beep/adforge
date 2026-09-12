@@ -5,6 +5,7 @@ import {
   dryRunBreakdowns,
   dryRunCampaignMetrics,
   runOpsAnalysis,
+  type CampaignMetrics,
 } from '@/lib/ops-agent';
 import type { PerformanceSnapshot, AgentRecommendation } from '@/types/database';
 
@@ -16,10 +17,67 @@ function pct(n: number) {
   return `${n.toFixed(2)}%`;
 }
 
+export type ReportCampaignMeta = {
+  id: string;
+  name: string | null;
+  budget: number | null;
+  status?: string | null;
+};
+
+/** Aggregate live snapshots into campaign-level metrics for pacing / frequency reports. */
+export function metricsFromSnapshots(
+  snapshots: PerformanceSnapshot[],
+  campaigns?: ReportCampaignMeta[]
+): CampaignMetrics[] {
+  const byCamp = new Map<string, PerformanceSnapshot[]>();
+  for (const s of snapshots) {
+    const list = byCamp.get(s.meta_campaign_id) || [];
+    list.push(s);
+    byCamp.set(s.meta_campaign_id, list);
+  }
+
+  const nameById = new Map((campaigns || []).map((c) => [c.id, c]));
+
+  return Array.from(byCamp.entries()).map(([id, rows]) => {
+    const latest = [...rows].sort((a, b) => b.date.localeCompare(a.date))[0];
+    const meta = nameById.get(id);
+    const spend = rows.reduce((a, r) => a + Number(r.spend || 0), 0);
+    const impressions = rows.reduce((a, r) => a + Number(r.impressions || 0), 0);
+    const clicks = rows.reduce((a, r) => a + Number(r.clicks || 0), 0);
+    const purchases = rows.reduce((a, r) => a + Number(r.purchases || 0), 0);
+    const revenue = rows.reduce((a, r) => a + Number(r.revenue || 0), 0);
+    const reach = Number(latest?.reach || 0);
+    return {
+      campaignId: id,
+      campaignName: meta?.name || 'Campaign',
+      status: (meta?.status as CampaignMetrics['status']) || 'active',
+      budget: meta?.budget != null ? Number(meta.budget) : null,
+      spend,
+      impressions,
+      clicks,
+      cpc: clicks > 0 ? spend / clicks : Number(latest?.cpc || 0),
+      cpm: impressions > 0 ? (spend / impressions) * 1000 : Number(latest?.cpm || 0),
+      ctr: impressions > 0 ? (clicks / impressions) * 100 : Number(latest?.ctr || 0),
+      cpa: latest?.cost_per_purchase != null ? Number(latest.cost_per_purchase) : purchases > 0 ? spend / purchases : null,
+      roas: spend > 0 && revenue > 0 ? revenue / spend : latest?.roas != null ? Number(latest.roas) : null,
+      frequency: Number(latest?.frequency || 0),
+      purchases,
+      add_to_cart: rows.reduce((a, r) => a + Number(r.add_to_cart || 0), 0),
+      initiate_checkout: rows.reduce((a, r) => a + Number(r.initiate_checkout || 0), 0),
+      conversion_rate: latest?.conversion_rate != null ? Number(latest.conversion_rate) : null,
+      video_views: rows.reduce((a, r) => a + Number(r.video_views || 0), 0),
+      engagement_rate: latest?.engagement_rate != null ? Number(latest.engagement_rate) : null,
+      revenue,
+      reach,
+    };
+  });
+}
+
 export function buildReport(opts: {
   view: ReportViewId;
   snapshots?: PerformanceSnapshot[];
   recommendations?: AgentRecommendation[];
+  campaigns?: ReportCampaignMeta[];
   forceDryRun?: boolean;
 }): ReportResult {
   const catalog = REPORT_CATALOG.find((c) => c.id === opts.view);
@@ -71,7 +129,10 @@ export function buildReport(opts: {
   const cpa = purchases > 0 ? spend / purchases : 0;
   const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
 
-  const byDate = new Map<string, { spend: number; revenue: number; purchases: number; ctr: number; cpc: number; cpa: number; impressions: number }>();
+  const byDate = new Map<
+    string,
+    { spend: number; revenue: number; purchases: number; ctr: number; cpc: number; cpa: number; impressions: number }
+  >();
   for (const s of snaps) {
     const cur = byDate.get(s.date) || {
       spend: 0,
@@ -95,15 +156,26 @@ export function buildReport(opts: {
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, v]) => ({ date, ...v, roas: v.spend ? v.revenue / v.spend : 0 }));
 
-  const creatives = dryRunCreatives();
-  const breakdowns = snaps.find((s) => s.breakdowns && Object.keys(s.breakdowns).length)?.breakdowns || dryRunBreakdowns();
-  const camps = dryRunCampaignMetrics();
-  const analysis = runOpsAnalysis({ useDryRun: true });
+  const liveBreakdowns = snaps.find((s) => s.breakdowns && Object.keys(s.breakdowns).length)?.breakdowns;
+  const breakdowns = dry ? dryRunBreakdowns() : liveBreakdowns || {};
+  const camps = dry ? dryRunCampaignMetrics() : metricsFromSnapshots(snaps, opts.campaigns);
+  const creatives = dry ? dryRunCreatives() : [];
+  const analysis = runOpsAnalysis({
+    metrics: dry ? undefined : camps,
+    creatives: dry ? undefined : [],
+    useDryRun: dry,
+  });
   const chips: string[] = [];
   if (dry) chips.push('Sample data — Connect Meta for live reports');
   if (catalog?.needs?.includes('shopify')) chips.push('Needs Shopify');
   if (catalog?.needs?.includes('phase2')) chips.push('Coming in Phase 2');
   if (catalog?.needs?.includes('meta') && dry) chips.push('Needs Meta breakdowns');
+  if (
+    !dry &&
+    (opts.view === 'creative_leaderboard' || opts.view === 'fatigue' || opts.view === 'format_mix')
+  ) {
+    chips.push('Ad-level creative metrics pending — campaign insights only');
+  }
 
   const base: ReportResult = {
     view: opts.view,
@@ -165,7 +237,10 @@ export function buildReport(opts: {
           { label: 'Delta vs prior', value: dry ? '+8% spend' : '—' },
         ],
         series: slice.map((d) => ({ date: d.date, spend: d.spend, revenue: d.revenue })),
-        notes: opts.view === 'weekly' ? ['WoW computed when ≥14 days of live data.'] : ['MoM when ≥60 days available.'],
+        notes:
+          opts.view === 'weekly'
+            ? ['WoW computed when ≥14 days of live data.']
+            : ['MoM when ≥60 days available.'],
       };
     }
 
@@ -194,17 +269,32 @@ export function buildReport(opts: {
       return {
         ...base,
         kpis: [
-          { label: 'Policy hits (sample)', value: String(analysis.recommendations.filter((r) => r.source === 'policy').length) },
-          { label: 'Auto-applied', value: String(analysis.recommendations.filter((r) => r.auto_apply).length) },
+          {
+            label: dry ? 'Policy hits (sample)' : 'Policy hits',
+            value: String(
+              (opts.recommendations || []).filter((r) => r.source === 'policy').length ||
+                analysis.recommendations.filter((r) => r.source === 'policy').length
+            ),
+          },
+          {
+            label: 'Auto-applied',
+            value: String(
+              (opts.recommendations || []).filter((r) => r.status === 'applied').length ||
+                analysis.recommendations.filter((r) => r.auto_apply).length
+            ),
+          },
         ],
         table: {
           columns: ['Severity', 'Title', 'Action'],
-          rows: (opts.recommendations?.length
+          rows: opts.recommendations?.length
             ? opts.recommendations.map((r) => [r.severity, r.title, r.status])
             : analysis.recommendations
                 .filter((r) => r.source === 'policy' || r.auto_apply)
-                .map((r) => [r.severity, r.title, r.auto_apply ? 'auto' : 'confirm'])),
+                .map((r) => [r.severity, r.title, r.auto_apply ? 'auto' : 'confirm']),
         },
+        notes: !dry && !(opts.recommendations?.length)
+          ? ['No agent policy actions logged yet for this account.']
+          : undefined,
       };
 
     case 'delivery_issues':
@@ -270,11 +360,25 @@ export function buildReport(opts: {
     case 'creative_leaderboard':
     case 'fatigue':
     case 'format_mix':
+      if (!dry && creatives.length === 0) {
+        return {
+          ...base,
+          kpis: [
+            { label: 'Campaign spend', value: money(spend) },
+            { label: 'CTR', value: pct(ctr) },
+            { label: 'Creatives', value: '—' },
+          ],
+          notes: [
+            'Ad-level creative leaderboard needs Meta ad insights sync (not campaign totals).',
+            'Campaign CTR/spend above are live from performance snapshots.',
+          ],
+        };
+      }
       return {
         ...base,
         kpis: [
           { label: 'Creatives', value: String(creatives.length) },
-          { label: 'Best CTR', value: pct(Math.max(...creatives.map((c) => c.ctr))) },
+          { label: 'Best CTR', value: pct(Math.max(...creatives.map((c) => c.ctr), 0)) },
         ],
         table: {
           columns: ['Creative', 'Format', 'Spend', 'CTR', 'CPC', 'CPA', 'Freq'],
@@ -304,6 +408,9 @@ export function buildReport(opts: {
             a.roas ?? '—',
           ]),
         },
+        notes: !dry && !(breakdowns.audience || []).length
+          ? ['Audience breakdown not in Meta campaign insights yet.']
+          : undefined,
       };
 
     case 'placement':
@@ -392,17 +499,21 @@ export function buildReport(opts: {
         ...base,
         table: {
           columns: ['Source', 'Severity', 'Title', 'Status'],
-          rows: (opts.recommendations?.length
-            ? opts.recommendations
-            : analysis.recommendations.map((r, i) => ({
-                source: r.source,
-                severity: r.severity,
-                title: r.title,
-                status: r.auto_apply ? 'applied' : 'pending',
-                id: String(i),
-              }))
+          rows: (
+            opts.recommendations?.length
+              ? opts.recommendations
+              : analysis.recommendations.map((r, i) => ({
+                  source: r.source,
+                  severity: r.severity,
+                  title: r.title,
+                  status: r.auto_apply ? 'applied' : 'pending',
+                  id: String(i),
+                }))
           ).map((r) => [r.source, r.severity, r.title, 'status' in r ? r.status : 'pending']),
         },
+        notes: !dry && !(opts.recommendations?.length)
+          ? ['No stored recommendations yet — Ops Agent will populate after monitor runs.']
+          : undefined,
       };
 
     case 'ab_tests':
@@ -438,9 +549,17 @@ export function buildReport(opts: {
         table: {
           columns: ['Type', 'Name', 'Metric'],
           rows: [
-            ['Creative', creatives[0]?.name || '—', `CTR ${creatives[0]?.ctr}%`],
-            ['Audience', breakdowns.audience?.[0]?.name || '—', `ROAS ${breakdowns.audience?.[0]?.roas}x`],
-            ['Placement', breakdowns.placement?.[0]?.name || '—', money(breakdowns.placement?.[0]?.spend || 0)],
+            [
+              'Campaign',
+              camps[0]?.campaignName || '—',
+              `CTR ${camps[0] ? camps[0].ctr.toFixed(2) : '—'}% · ${money(camps[0]?.spend || 0)}`,
+            ],
+            [
+              'Placement',
+              breakdowns.placement?.[0]?.name || '—',
+              money(breakdowns.placement?.[0]?.spend || 0),
+            ],
+            ['Device', breakdowns.device?.[0]?.name || '—', money(breakdowns.device?.[0]?.spend || 0)],
           ],
         },
         notes: analysis.recommendations.slice(0, 3).map((r) => r.title),
@@ -451,7 +570,9 @@ export function buildReport(opts: {
         ...base,
         table: {
           columns: ['Task', 'Why'],
-          rows: analysis.recommendations.map((r) => [r.title, r.body.slice(0, 80)]),
+          rows: analysis.recommendations.length
+            ? analysis.recommendations.map((r) => [r.title, r.body.slice(0, 80)])
+            : [['No open tasks', 'Live metrics look within learning / no kill-scale triggers yet.']],
         },
       };
 

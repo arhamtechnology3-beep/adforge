@@ -31,10 +31,15 @@ export async function loadOptimizeAccount(
     .eq('user_id', userId)
     .maybeSingle();
 
-  const { data: campaigns } = await supabase
+  // Column is `budget` (not daily_budget) — wrong name made this query fail and forced sample account.
+  const { data: campaigns, error: campErr } = await supabase
     .from('meta_campaigns')
-    .select('id, name, status, daily_budget, objective, launch_config')
+    .select('id, name, status, budget, objective, launch_config, ad_ids')
     .eq('user_id', userId);
+
+  if (campErr) {
+    console.error('[optimize] meta_campaigns', campErr.message);
+  }
 
   if (!campaigns?.length) {
     return { account: dryRunOptimizeAccount(), dryRun: true };
@@ -48,14 +53,47 @@ export async function loadOptimizeAccount(
     .order('date', { ascending: false })
     .limit(200);
 
-  const { data: ads } = await supabase
-    .from('generated_ads')
-    .select('id, headline, primary_text, format, status')
-    .eq('user_id', userId)
-    .in('status', ['approved', 'pending'])
-    .limit(40);
+  const adIds = Array.from(
+    new Set(
+      campaigns.flatMap((c) => (Array.isArray(c.ad_ids) ? (c.ad_ids as string[]) : []))
+    )
+  );
 
-  const byCamp = new Map<string, typeof snapshots>();
+  let ads: Array<{
+    id: string;
+    headline: string | null;
+    copy_text: string;
+    ad_format: string | null;
+    status: string;
+  }> = [];
+
+  if (adIds.length) {
+    const { data } = await supabase
+      .from('generated_ads')
+      .select('id, headline, copy_text, ad_format, status')
+      .in('id', adIds)
+      .limit(40);
+    ads = data || [];
+  } else {
+    // Fallback: ads owned via campaigns_input for this user
+    const { data: inputs } = await supabase
+      .from('campaigns_input')
+      .select('id')
+      .eq('user_id', userId)
+      .limit(20);
+    const inputIds = (inputs || []).map((i) => i.id);
+    if (inputIds.length) {
+      const { data } = await supabase
+        .from('generated_ads')
+        .select('id, headline, copy_text, ad_format, status')
+        .in('campaign_input_id', inputIds)
+        .in('status', ['approved', 'pending'])
+        .limit(40);
+      ads = data || [];
+    }
+  }
+
+  const byCamp = new Map<string, NonNullable<typeof snapshots>>();
   for (const s of snapshots || []) {
     const list = byCamp.get(s.meta_campaign_id) || [];
     list.push(s);
@@ -73,7 +111,7 @@ export async function loadOptimizeAccount(
       objective: c.objective,
       budgetType: (lc.budget_type as OptimizeCampaignInput['budgetType']) || 'unknown',
       biddingStrategy: (lc.bidding_strategy as string) || null,
-      dailyBudget: c.daily_budget != null ? Number(c.daily_budget) : null,
+      dailyBudget: c.budget != null ? Number(c.budget) : null,
       spend: Number(latest?.spend || 0),
       impressions: Number(latest?.impressions || 0),
       clicks: Number(latest?.clicks || 0),
@@ -95,12 +133,12 @@ export async function loadOptimizeAccount(
     };
   });
 
-  const creatives: OptimizeCreativeInput[] = (ads || []).map((a, i) => ({
+  const creatives: OptimizeCreativeInput[] = ads.map((a, i) => ({
     id: a.id,
     name: a.headline || `Creative ${i + 1}`,
-    format: a.format || 'single_image',
+    format: a.ad_format || 'single_image',
     headline: a.headline || undefined,
-    primaryText: a.primary_text || undefined,
+    primaryText: a.copy_text || undefined,
     spend: 0,
     ctr: 0,
     cpa: null,

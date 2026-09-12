@@ -75,7 +75,7 @@ export default function OpsClient() {
           </p>
           {dryRun && (
             <p className="text-xs mt-2 text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 inline-block">
-              Showing sample recommendations until Meta is connected and migration 006 is applied.
+              Showing sample recommendations until Meta insights sync into Performance.
             </p>
           )}
         </div>
@@ -112,8 +112,13 @@ export default function OpsClient() {
       ) : (
         <div className="space-y-3">
           {filtered.length === 0 ? (
-            <div className="card text-center py-12 text-muted">
-              No {tab} items right now.
+            <div className="card text-center py-12 text-muted space-y-2">
+              <p>No {tab} items right now.</p>
+              <p className="text-xs max-w-md mx-auto">
+                {tab === 'performance'
+                  ? 'Ops v2 found no kill/scale/pause actions for live campaigns (learning protection or healthy pacing). Open Optimize for Health Score.'
+                  : 'No policy hits logged. Policy Guard scans copy + Meta ad effective_status on Ops Monitor runs.'}
+              </p>
             </div>
           ) : (
             filtered.map((r) => (

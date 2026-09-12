@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   BarChart3,
   Download,
   Loader2,
+  RefreshCw,
   ShieldAlert,
 } from 'lucide-react';
 import {
@@ -31,25 +32,83 @@ const GROUPS = [
   'Strategy',
 ] as const;
 
+type ReportCampaignOption = {
+  id: string;
+  name: string;
+  status: string;
+  budget: number | null;
+  hasMeta: boolean;
+};
+
 export default function ReportsClient() {
   const searchParams = useSearchParams();
   const initial = (searchParams.get('view') as ReportViewId) || 'executive';
+  const initialCampaign = searchParams.get('campaign') || 'all';
   const [view, setView] = useState<ReportViewId>(initial);
+  const [campaignId, setCampaignId] = useState<string>(initialCampaign);
+  const [campaigns, setCampaigns] = useState<ReportCampaignOption[]>([]);
   const [catalog, setCatalog] = useState<ReportCatalogItem[]>([]);
   const [report, setReport] = useState<ReportResult | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+
+  const loadReport = useCallback(async () => {
+    setLoading(true);
+    try {
+      const qs = new URLSearchParams({ view });
+      if (campaignId && campaignId !== 'all') qs.set('campaignId', campaignId);
+      const res = await fetch(`/api/reports?${qs}`);
+      const data = await res.json();
+      setCatalog(data.catalog || []);
+      setReport(data.report || null);
+      setCampaigns(data.campaigns || []);
+      setLastSyncedAt(data.lastSyncedAt || null);
+    } catch {
+      /* keep prior */
+    } finally {
+      setLoading(false);
+    }
+  }, [view, campaignId]);
 
   useEffect(() => {
-    setLoading(true);
-    fetch(`/api/reports?view=${view}`)
-      .then((r) => r.json())
-      .then((data) => {
-        setCatalog(data.catalog || []);
-        setReport(data.report || null);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [view]);
+    loadReport();
+  }, [loadReport]);
+
+  async function syncLatest() {
+    setSyncing(true);
+    setSyncMessage(null);
+    try {
+      const res = await fetch('/api/reports/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          campaignId: campaignId !== 'all' ? campaignId : null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSyncMessage(data.error || 'Sync failed');
+        return;
+      }
+      const written = data.snapshotsWritten ?? 0;
+      const spend = (data.campaigns || []).reduce(
+        (a: number, c: { spend?: number }) => a + Number(c.spend || 0),
+        0
+      );
+      setSyncMessage(
+        written > 0
+          ? `Synced ${written} campaign${written === 1 ? '' : 's'} · today ₹${Math.round(spend).toLocaleString('en-IN')}`
+          : 'Sync finished — no new insights for today yet'
+      );
+      await loadReport();
+    } catch {
+      setSyncMessage('Sync failed — check Meta connection');
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   const grouped = useMemo(() => {
     const map: Record<string, ReportCatalogItem[]> = {};
@@ -76,6 +135,11 @@ export default function ReportsClient() {
     a.click();
     URL.revokeObjectURL(url);
   }
+
+  const selectedLabel =
+    campaignId === 'all'
+      ? 'All campaigns'
+      : campaigns.find((c) => c.id === campaignId)?.name || 'Campaign';
 
   return (
     <div className="flex flex-col lg:flex-row gap-6">
@@ -114,6 +178,48 @@ export default function ReportsClient() {
       </aside>
 
       <main className="flex-1 min-w-0">
+        <div className="mb-5 flex flex-wrap items-end justify-between gap-3 rounded-2xl border-2 border-primary/25 bg-gradient-to-r from-orange-50 to-white p-4">
+          <div className="min-w-0 flex-1 space-y-2">
+            <label className="block text-xs font-semibold uppercase tracking-wide text-muted">
+              Campaign
+            </label>
+            <select
+              className="input max-w-md w-full"
+              value={campaignId}
+              onChange={(e) => setCampaignId(e.target.value)}
+            >
+              <option value="all">All campaigns</option>
+              {campaigns.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.status ? ` · ${c.status}` : ''}
+                  {!c.hasMeta ? ' (no Meta id)' : ''}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted">
+              Viewing <span className="font-medium text-gray-800">{selectedLabel}</span>
+              {lastSyncedAt ? ` · snapshot ${lastSyncedAt}` : ' · no snapshot yet'}
+            </p>
+            {syncMessage && (
+              <p className="text-xs font-medium text-emerald-800">{syncMessage}</p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={syncLatest}
+            disabled={syncing}
+            className="btn-primary text-sm inline-flex items-center gap-2 shrink-0 shadow-md ring-2 ring-primary/30 ring-offset-2"
+          >
+            {syncing ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4" />
+            )}
+            {syncing ? 'Syncing from Meta…' : 'Sync latest from Meta'}
+          </button>
+        </div>
+
         {loading || !report ? (
           <div className="flex justify-center py-20">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -133,7 +239,11 @@ export default function ReportsClient() {
                 ))}
               </div>
               {report.table && (
-                <button type="button" className="btn-secondary text-sm inline-flex items-center gap-1.5" onClick={downloadCsv}>
+                <button
+                  type="button"
+                  className="btn-secondary text-sm inline-flex items-center gap-1.5"
+                  onClick={downloadCsv}
+                >
                   <Download className="w-4 h-4" /> CSV
                 </button>
               )}
@@ -218,7 +328,7 @@ export default function ReportsClient() {
             {!report.kpis.length && !report.table && (
               <div className="card text-center py-12 text-muted">
                 <BarChart3 className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                No data for this view yet.
+                No data for this view yet. Use <strong>Sync latest from Meta</strong> above.
               </div>
             )}
           </div>

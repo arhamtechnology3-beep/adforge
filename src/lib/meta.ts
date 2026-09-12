@@ -410,6 +410,43 @@ export async function ensureFacebookPageId(opts: {
   };
 }
 
+/**
+ * Resolve Instagram Business user id linked to a Facebook Page (for object_story_spec).
+ * Prefer Page token; fall back to user token.
+ */
+export async function resolveInstagramUserIdForPage(opts: {
+  pageId: string;
+  accessToken: string;
+  pageAccessToken?: string | null;
+}): Promise<string | null> {
+  const pageId = String(opts.pageId || '').trim();
+  if (!pageId) return null;
+  const tokens = [
+    String(opts.pageAccessToken || '').trim(),
+    String(opts.accessToken || '').trim(),
+  ].filter(Boolean);
+
+  for (const token of tokens) {
+    try {
+      const res = await fetch(
+        `${META_BASE}/${pageId}?fields=instagram_business_account{id},connected_instagram_account&access_token=${encodeURIComponent(token)}`
+      );
+      if (!res.ok) continue;
+      const data = (await res.json()) as {
+        instagram_business_account?: { id?: string };
+        connected_instagram_account?: { id?: string };
+      };
+      const id =
+        String(data.instagram_business_account?.id || '').trim() ||
+        String(data.connected_instagram_account?.id || '').trim();
+      if (id) return id;
+    } catch {
+      // try next token
+    }
+  }
+  return null;
+}
+
 export async function createCampaign(
   accessToken: string,
   adAccountId: string,
@@ -727,6 +764,8 @@ export async function publishAdsToMeta(opts: {
   pageId: string;
   /** Page token preferred for creatives (reduces Meta security locks vs user token alone). */
   pageAccessToken?: string | null;
+  /** Instagram Business account id for IG placements / Ads Manager IG preview. */
+  instagramUserId?: string | null;
   link: string;
   ctaType?: string;
   linkDescription?: string;
@@ -737,6 +776,13 @@ export async function publishAdsToMeta(opts: {
   const ctaType = normalizeWebsiteCta(opts.ctaType);
   const link = String(opts.link || '').trim();
   const creativeToken = String(opts.pageAccessToken || '').trim() || opts.accessToken;
+  const instagramUserId =
+    String(opts.instagramUserId || '').trim() ||
+    (await resolveInstagramUserIdForPage({
+      pageId: opts.pageId,
+      accessToken: opts.accessToken,
+      pageAccessToken: opts.pageAccessToken,
+    }));
 
   if (!isHttpsWebsiteUrl(link)) {
     return {
@@ -776,7 +822,8 @@ export async function publishAdsToMeta(opts: {
         ctaType,
         opts.linkDescription,
         ad.media_payload?.cards || undefined,
-        creativeToken
+        creativeToken,
+        instagramUserId
       );
       metaAdIds.push(created.id);
     } catch (error) {
@@ -809,7 +856,9 @@ export async function createAd(
   linkDescription?: string,
   cards?: MetaCreateAdCard[],
   /** Prefer Page token for object_story_spec creatives when available. */
-  creativeAccessToken?: string
+  creativeAccessToken?: string,
+  /** Instagram Business user id — improves IG placement identity / preview binding. */
+  instagramUserId?: string | null
 ): Promise<{ id: string; creative_id: string }> {
   const destination = String(link || '').trim();
   if (!isHttpsWebsiteUrl(destination)) {
@@ -873,13 +922,13 @@ export async function createAd(
   // (JSON posts sometimes drop `creative` / `object_story_spec` and return success without an id).
   const creativeBody = new URLSearchParams();
   creativeBody.set('name', `${adHeadline} · Creative`);
-  creativeBody.set(
-    'object_story_spec',
-    JSON.stringify({
-      page_id: pageId,
-      link_data: linkData,
-    })
-  );
+  const storySpec: Record<string, unknown> = {
+    page_id: pageId,
+    link_data: linkData,
+  };
+  const igUser = String(instagramUserId || '').trim();
+  if (igUser) storySpec.instagram_user_id = igUser;
+  creativeBody.set('object_story_spec', JSON.stringify(storySpec));
   creativeBody.set('access_token', tokenForCreative);
 
   const creativeRes = await fetch(`${META_BASE}/${actId}/adcreatives`, {

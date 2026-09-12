@@ -226,6 +226,24 @@ export function analyzePerformanceV2(
     }
   }
 
+  // Healthy active campaigns with delivery but no triggers — still surface a monitoring pulse.
+  const hasActionable = out.some((r) => r.source === 'performance' && r.type !== 'monitoring');
+  if (!hasActionable) {
+    for (const m of metrics) {
+      if (m.status !== 'active' || m.spend <= 0) continue;
+      out.push({
+        source: 'performance',
+        type: 'monitoring',
+        severity: 'info',
+        title: `Monitoring: ${m.campaignName}`,
+        body: `₹${Math.round(m.spend)} spend · CTR ${m.ctr.toFixed(2)}% · ${m.impressions.toLocaleString()} imps. No kill/scale triggers — hold and keep watching.`,
+        proposed_action: { action: 'hold', campaignId: m.campaignId },
+        meta_campaign_id: m.campaignId,
+        auto_apply: false,
+      });
+    }
+  }
+
   return out;
 }
 

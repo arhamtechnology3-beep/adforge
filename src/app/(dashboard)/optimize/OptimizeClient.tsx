@@ -101,7 +101,12 @@ export default function OptimizeClient() {
           </p>
           {data?.dryRun && (
             <p className="text-xs mt-2 text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 inline-block">
-              Sample account until Meta insights sync. Run migration 011 for A/B + CAPI logs.
+              Sample account until Meta insights sync into Performance.
+            </p>
+          )}
+          {!data?.dryRun && data?.brandName && (
+            <p className="text-xs mt-2 text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1.5 inline-block">
+              Live · {data.brandName}
             </p>
           )}
         </div>

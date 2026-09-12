@@ -30,11 +30,19 @@ export default function PerformanceClient() {
     fetch('/api/campaigns/launch')
       .then((r) => r.json())
       .then((data) => {
-        const active = (data.campaigns || []).filter(
+        const listed = (data.campaigns || []).filter(
           (c: MetaCampaign) => c.status === 'active' || c.status === 'paused'
         );
-        setCampaigns(active);
-        if (!selectedId && active.length > 0) setSelectedId(active[0].id);
+        // Prefer live Meta-linked actives so Performance opens on real insights, not empty shells.
+        const ranked = [...listed].sort((a, b) => {
+          const score = (c: MetaCampaign) =>
+            (c.status === 'active' ? 4 : 0) +
+            (c.meta_campaign_id ? 2 : 0) +
+            ((c.launch_config as { meta_live?: boolean } | null)?.meta_live ? 1 : 0);
+          return score(b) - score(a);
+        });
+        setCampaigns(ranked);
+        if (!selectedId && ranked.length > 0) setSelectedId(ranked[0].id);
         setLoading(false);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -161,7 +169,9 @@ export default function PerformanceClient() {
             </div>
           ) : (
             <div className="card text-center py-8 text-muted text-sm">
-              Performance data will appear after the Ops Agent sync runs. Sample reports are available now.
+              No insights for this campaign yet. Live Meta sync writes today’s spend/clicks into
+              Performance after Ops Agent runs (or{' '}
+              <code className="text-xs">npx tsx scripts/sync-meta-live-performance.ts</code>).
             </div>
           )}
 
