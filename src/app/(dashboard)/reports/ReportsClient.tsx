@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   BarChart3,
@@ -40,12 +40,22 @@ type ReportCampaignOption = {
   hasMeta: boolean;
 };
 
+function pickDefaultCampaign(list: ReportCampaignOption[]) {
+  const ranked = [...list].sort((a, b) => {
+    const score = (c: ReportCampaignOption) =>
+      (c.status === 'active' ? 4 : 0) + (c.hasMeta ? 2 : 0);
+    return score(b) - score(a);
+  });
+  return ranked[0]?.id || 'all';
+}
+
 export default function ReportsClient() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const initial = (searchParams.get('view') as ReportViewId) || 'executive';
-  const initialCampaign = searchParams.get('campaign') || 'all';
+  const initialCampaign = searchParams.get('campaign') || '';
   const [view, setView] = useState<ReportViewId>(initial);
-  const [campaignId, setCampaignId] = useState<string>(initialCampaign);
+  const [campaignId, setCampaignId] = useState<string>(initialCampaign || 'all');
   const [campaigns, setCampaigns] = useState<ReportCampaignOption[]>([]);
   const [catalog, setCatalog] = useState<ReportCatalogItem[]>([]);
   const [report, setReport] = useState<ReportResult | null>(null);
@@ -53,6 +63,14 @@ export default function ReportsClient() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const autoPicked = useRef(Boolean(initialCampaign));
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    params.set('view', view);
+    if (campaignId && campaignId !== 'all') params.set('campaign', campaignId);
+    router.replace(`/reports?${params.toString()}`, { scroll: false });
+  }, [view, campaignId, router]);
 
   const loadReport = useCallback(async () => {
     setLoading(true);
@@ -63,8 +81,14 @@ export default function ReportsClient() {
       const data = await res.json();
       setCatalog(data.catalog || []);
       setReport(data.report || null);
-      setCampaigns(data.campaigns || []);
+      const list = (data.campaigns || []) as ReportCampaignOption[];
+      setCampaigns(list);
       setLastSyncedAt(data.lastSyncedAt || null);
+      if (!autoPicked.current && list.length && campaignId === 'all') {
+        autoPicked.current = true;
+        const preferred = pickDefaultCampaign(list);
+        if (preferred !== 'all') setCampaignId(preferred);
+      }
     } catch {
       /* keep prior */
     } finally {
@@ -176,46 +200,46 @@ export default function ReportsClient() {
       </aside>
 
       <main className="flex-1 min-w-0">
-        <div className="mb-5 flex flex-wrap items-end justify-between gap-3 rounded-2xl border-2 border-primary/25 bg-gradient-to-r from-orange-50 to-white p-4">
-          <div className="min-w-0 flex-1 space-y-2">
-            <label className="block text-xs font-semibold uppercase tracking-wide text-muted">
-              Campaign
-            </label>
-            <select
-              className="input max-w-md w-full"
-              value={campaignId}
-              onChange={(e) => setCampaignId(e.target.value)}
-            >
-              <option value="all">All campaigns</option>
-              {campaigns.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                  {c.status ? ` · ${c.status}` : ''}
-                  {!c.hasMeta ? ' (no Meta id)' : ''}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-muted">
-              Viewing <span className="font-medium text-gray-800">{selectedLabel}</span>
-              {lastSyncedAt ? ` · snapshot ${lastSyncedAt}` : ' · no snapshot yet'}
+        <div className="mb-5 rounded-2xl border-2 border-primary/30 bg-gradient-to-r from-orange-50 to-white p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+              View by campaign
             </p>
-            {syncMessage && (
-              <p className="text-xs font-medium text-emerald-800">{syncMessage}</p>
-            )}
+            <p className="text-xs text-muted">
+              {lastSyncedAt ? `Last snapshot ${lastSyncedAt}` : 'No snapshot yet — sync to fetch Meta'}
+            </p>
           </div>
-          <button
-            type="button"
-            onClick={syncLatest}
-            disabled={syncing}
-            className="btn-primary text-sm inline-flex items-center gap-2 shrink-0 shadow-md ring-2 ring-primary/30 ring-offset-2"
-          >
-            {syncing ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <RefreshCw className="w-4 h-4" />
-            )}
-            {syncing ? 'Syncing from Meta…' : 'Sync latest from Meta'}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setCampaignId('all')}
+              className={`px-3 py-1.5 rounded-full text-sm font-medium ${
+                campaignId === 'all'
+                  ? 'bg-primary text-white'
+                  : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              All campaigns
+            </button>
+            {campaigns.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setCampaignId(c.id)}
+                className={`px-3 py-1.5 rounded-full text-sm font-medium ${
+                  campaignId === c.id
+                    ? 'bg-primary text-white'
+                    : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                {c.name}
+                {c.status === 'active' ? ' · live' : ''}
+              </button>
+            ))}
+          </div>
+          {syncMessage && (
+            <p className="text-xs font-medium text-emerald-800">{syncMessage}</p>
+          )}
         </div>
 
         {loading || !report ? (
@@ -226,6 +250,9 @@ export default function ReportsClient() {
           <div className="space-y-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary mb-1">
+                  {selectedLabel}
+                </p>
                 <h2 className="text-xl font-bold">{report.title}</h2>
                 {report.chips?.map((c) => (
                   <span
@@ -236,15 +263,30 @@ export default function ReportsClient() {
                   </span>
                 ))}
               </div>
-              {report.table && (
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  className="btn-secondary text-sm inline-flex items-center gap-1.5"
-                  onClick={downloadCsv}
+                  onClick={syncLatest}
+                  disabled={syncing}
+                  className="btn-primary text-sm inline-flex items-center gap-2 shadow-md ring-2 ring-primary/40 ring-offset-2"
                 >
-                  <Download className="w-4 h-4" /> CSV
+                  {syncing ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4" />
+                  )}
+                  {syncing ? 'Syncing from Meta…' : 'Sync latest from Meta'}
                 </button>
-              )}
+                {report.table && (
+                  <button
+                    type="button"
+                    className="btn-secondary text-sm inline-flex items-center gap-1.5"
+                    onClick={downloadCsv}
+                  >
+                    <Download className="w-4 h-4" /> CSV
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">

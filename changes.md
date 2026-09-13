@@ -8,6 +8,16 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-13
 
+### Reports: campaign-wise views + highlighted Sync on the report
+**What / why**  
+Reports should be **campaign-wise** and refreshable without waiting for the 4× daily worker. Campaign chips (All + each campaign) filter every report view; the orange **Sync latest from Meta** button sits on the report itself and writes today/yesterday insights. Opens on the live Meta campaign by default. Same Sync on `/performance`.
+
+**Paths:** `ReportsClient.tsx`, `PerformanceClient.tsx`, `api/reports/route.ts`, `api/reports/sync/route.ts`, `lib/sync-meta-performance.ts`
+
+**E2E (13 Sep):** Meta today ₹568.41 / yesterday ₹490.98 → snapshots match → Executive **₹1,059** · Daily 2 rows · Pacing Ganpati 212% of ₹500 · all 33 views live, no sample leak.
+
+**Manual:** Push + Hostinger deploy → hard-refresh `/reports` — campaign chips + orange **Sync latest from Meta** must appear (live site was still on an older build).
+
 ### Fix: Reports Sync could not refresh snapshots
 **What / why**  
 Live Reports stayed on **2026-09-12** (₹322) while Meta already had new delivery (today ~₹563, yesterday ~₹491). Causes: (1) Hostinger Ops worker/Redis not writing daily snapshots; (2) Sync upsert used the user session, and `performance_snapshots` had **SELECT/INSERT only — no UPDATE**, so refreshing an existing day failed; (3) Sync only wrote UTC “today”, so yesterday never updated.

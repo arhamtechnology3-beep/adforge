@@ -6,7 +6,7 @@ import Link from 'next/link';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { BarChart3, Loader2, ArrowRight, Shield } from 'lucide-react';
+import { BarChart3, Loader2, ArrowRight, Shield, RefreshCw } from 'lucide-react';
 import type { MetaCampaign, PerformanceSnapshot } from '@/types/database';
 import { formatCurrency } from '@/lib/utils';
 
@@ -25,6 +25,8 @@ export default function PerformanceClient() {
   const [snapshots, setSnapshots] = useState<PerformanceSnapshot[]>([]);
   const [cpaTarget, setCpaTarget] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/campaigns/launch')
@@ -48,15 +50,47 @@ export default function PerformanceClient() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (!selectedId) return;
-    fetch(`/api/performance/${selectedId}`)
+  function loadSnapshots(id: string) {
+    fetch(`/api/performance/${id}`)
       .then((r) => r.json())
       .then((data) => {
         setSnapshots(data.snapshots || []);
         setCpaTarget(data.cpaTarget);
       });
+  }
+
+  useEffect(() => {
+    if (!selectedId) return;
+    loadSnapshots(selectedId);
   }, [selectedId]);
+
+  async function syncLatest() {
+    if (!selectedId) return;
+    setSyncing(true);
+    setSyncMessage(null);
+    try {
+      const res = await fetch('/api/reports/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaignId: selectedId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSyncMessage(data.error || 'Sync failed');
+        return;
+      }
+      setSyncMessage(
+        data.snapshotsWritten > 0
+          ? `Synced ${data.snapshotsWritten} day(s) from Meta`
+          : 'Sync finished — no new insights yet'
+      );
+      loadSnapshots(selectedId);
+    } catch {
+      setSyncMessage('Sync failed — check Meta connection');
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   const chartData = snapshots.map((s) => ({
     date: new Date(s.date).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }),
@@ -80,6 +114,15 @@ export default function PerformanceClient() {
           <p className="text-muted mt-1">Campaign drill-down — full library in Reports Hub</p>
         </div>
         <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={syncLatest}
+            disabled={syncing || !selectedId}
+            className="btn-primary text-sm inline-flex items-center gap-2 shadow-md ring-2 ring-primary/30 ring-offset-2"
+          >
+            {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            {syncing ? 'Syncing…' : 'Sync latest from Meta'}
+          </button>
           <Link href="/reports" className="btn-secondary text-sm inline-flex items-center gap-1.5">
             All reports <ArrowRight className="w-4 h-4" />
           </Link>
@@ -99,6 +142,9 @@ export default function PerformanceClient() {
         </div>
       ) : (
         <>
+          {syncMessage && (
+            <p className="text-xs font-medium text-emerald-800 mb-3">{syncMessage}</p>
+          )}
           <div className="flex gap-2 mb-6 overflow-x-auto">
             {campaigns.map((c) => (
               <button
