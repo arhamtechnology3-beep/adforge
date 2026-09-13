@@ -167,48 +167,59 @@ export async function syncMetaPerformanceForUser(
         row.status = mapped;
       }
 
-      const raw = await getCampaignInsights(token, metaId, 'today');
-      const parsed = parseInsightsPayload(raw);
-      if (!parsed) {
+      // Meta "today" is the ad-account timezone — use the insight date_start, and
+      // also persist yesterday so Reports is not stuck on a stale first-day row.
+      let lastParsed: ReturnType<typeof parseInsightsPayload> = null;
+      for (const preset of ['yesterday', 'today'] as const) {
+        const raw = await getCampaignInsights(token, metaId, preset);
+        const parsed = parseInsightsPayload(raw);
+        if (!parsed) continue;
+        lastParsed = parsed;
+        const snapDate = String(parsed.raw.date_start || (preset === 'today' ? today : ''));
+        if (!snapDate) continue;
+
+        const breakdowns =
+          preset === 'today' ? await buildBreakdowns(token, metaId) : {};
+        const { error: sErr } = await supabase.from('performance_snapshots').upsert(
+          {
+            meta_campaign_id: campaign.id,
+            date: snapDate,
+            cpc: parsed.cpc,
+            cpa: parsed.cost_per_purchase,
+            ctr: parsed.ctr,
+            spend: parsed.spend,
+            impressions: parsed.impressions,
+            reach: parsed.reach,
+            clicks: parsed.clicks,
+            cpm: parsed.cpm,
+            frequency: parsed.frequency,
+            purchases: parsed.purchases,
+            add_to_cart: parsed.add_to_cart,
+            initiate_checkout: parsed.initiate_checkout,
+            cost_per_purchase: parsed.cost_per_purchase,
+            roas: parsed.roas,
+            conversion_rate: parsed.conversion_rate,
+            video_views: parsed.video_views,
+            engagement_rate: parsed.engagement_rate,
+            revenue: parsed.revenue,
+            raw_insights: parsed.raw,
+            breakdowns,
+          },
+          { onConflict: 'meta_campaign_id,date' }
+        );
+        if (sErr) throw new Error(sErr.message);
+        snapshotsWritten += 1;
+      }
+
+      if (!lastParsed) {
         results.push(row);
         continue;
       }
 
-      const breakdowns = await buildBreakdowns(token, metaId);
-      const { error: sErr } = await supabase.from('performance_snapshots').upsert(
-        {
-          meta_campaign_id: campaign.id,
-          date: today,
-          cpc: parsed.cpc,
-          cpa: parsed.cost_per_purchase,
-          ctr: parsed.ctr,
-          spend: parsed.spend,
-          impressions: parsed.impressions,
-          reach: parsed.reach,
-          clicks: parsed.clicks,
-          cpm: parsed.cpm,
-          frequency: parsed.frequency,
-          purchases: parsed.purchases,
-          add_to_cart: parsed.add_to_cart,
-          initiate_checkout: parsed.initiate_checkout,
-          cost_per_purchase: parsed.cost_per_purchase,
-          roas: parsed.roas,
-          conversion_rate: parsed.conversion_rate,
-          video_views: parsed.video_views,
-          engagement_rate: parsed.engagement_rate,
-          revenue: parsed.revenue,
-          raw_insights: parsed.raw,
-          breakdowns,
-        },
-        { onConflict: 'meta_campaign_id,date' }
-      );
-      if (sErr) throw new Error(sErr.message);
-
-      snapshotsWritten += 1;
       row.snapshot = true;
-      row.spend = parsed.spend;
-      row.impressions = parsed.impressions;
-      row.clicks = parsed.clicks;
+      row.spend = lastParsed.spend;
+      row.impressions = lastParsed.impressions;
+      row.clicks = lastParsed.clicks;
       results.push(row);
     } catch (err) {
       row.error = err instanceof Error ? err.message : String(err);

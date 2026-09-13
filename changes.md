@@ -6,6 +6,23 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+## 2026-09-13
+
+### Fix: Reports Sync could not refresh snapshots
+**What / why**  
+Live Reports stayed on **2026-09-12** (₹322) while Meta already had new delivery (today ~₹563, yesterday ~₹491). Causes: (1) Hostinger Ops worker/Redis not writing daily snapshots; (2) Sync upsert used the user session, and `performance_snapshots` had **SELECT/INSERT only — no UPDATE**, so refreshing an existing day failed; (3) Sync only wrote UTC “today”, so yesterday never updated.
+
+**Fix:** Sync API writes with service role; persist Meta `today` + `yesterday` using insight `date_start`; add UPDATE RLS (`015_performance_snapshots_update.sql`).
+
+**Paths:** `api/reports/sync/route.ts`, `lib/sync-meta-performance.ts`, `ReportsClient.tsx`, `supabase/migrations/015_performance_snapshots_update.sql`
+
+**Manual**
+1. Deploy `main` on Hostinger, hard-refresh `/reports` — you should see **Campaign** + **Sync latest from Meta**
+2. In Supabase SQL editor run `015_performance_snapshots_update.sql` (safe even if API uses service role)
+3. For automatic refresh without Redis: keep `npm run worker` running, or click Sync after each day
+
+---
+
 ## 2026-09-12
 
 ### Reports: campaign filter + Sync latest from Meta

@@ -93,14 +93,12 @@ export default function ReportsClient() {
         return;
       }
       const written = data.snapshotsWritten ?? 0;
-      const spend = (data.campaigns || []).reduce(
-        (a: number, c: { spend?: number }) => a + Number(c.spend || 0),
-        0
-      );
+      const first = (data.campaigns || []).find((c: { snapshot?: boolean }) => c.snapshot);
+      const spend = Number(first?.spend || 0);
       setSyncMessage(
         written > 0
-          ? `Synced ${written} campaign${written === 1 ? '' : 's'} · today ₹${Math.round(spend).toLocaleString('en-IN')}`
-          : 'Sync finished — no new insights for today yet'
+          ? `Synced ${written} day${written === 1 ? '' : 's'} from Meta · latest ₹${Math.round(spend).toLocaleString('en-IN')}`
+          : data.error || 'Sync finished — no new insights for today yet'
       );
       await loadReport();
     } catch {
