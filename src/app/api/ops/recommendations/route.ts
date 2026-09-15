@@ -13,6 +13,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const userId = user.id;
+
   const { searchParams } = new URL(request.url);
   const source = searchParams.get('source'); // performance | policy | all
   const status = searchParams.get('status') || 'pending';
@@ -20,13 +22,13 @@ export async function GET(request: Request) {
   const { data: profile } = await supabase
     .from('users')
     .select('cpa_target, roas_target, daily_budget_cap')
-    .eq('id', user.id)
+    .eq('id', userId)
     .maybeSingle();
 
   let query = supabase
     .from('agent_recommendations')
     .select('*')
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(100);
 
@@ -38,7 +40,7 @@ export async function GET(request: Request) {
   const { data: runs } = await supabase
     .from('agent_runs')
     .select('*')
-    .or(`user_id.eq.${user.id},user_id.is.null`)
+    .or(`user_id.eq.${userId},user_id.is.null`)
     .order('created_at', { ascending: false })
     .limit(20);
 
@@ -46,7 +48,7 @@ export async function GET(request: Request) {
   const { data: campaigns } = await supabase
     .from('meta_campaigns')
     .select('id, name, budget, status')
-    .eq('user_id', user.id);
+    .eq('user_id', userId);
   const campIds = (campaigns || []).map((c) => c.id);
   let snapshots: import('@/types/database').PerformanceSnapshot[] = [];
   if (campIds.length) {
@@ -81,7 +83,7 @@ export async function GET(request: Request) {
     });
     return analysis.recommendations.map((r, i) => ({
       id: `live-${i}`,
-      user_id: user.id,
+      user_id: userId,
       meta_campaign_id: r.meta_campaign_id || null,
       source: r.source,
       type: r.type,
@@ -89,7 +91,7 @@ export async function GET(request: Request) {
       title: r.title,
       body: r.body,
       proposed_action: r.proposed_action,
-      status: (r.auto_apply ? 'applied' : 'pending') as const,
+      status: r.auto_apply ? ('applied' as const) : ('pending' as const),
       created_at: new Date().toISOString(),
       resolved_at: r.auto_apply ? new Date().toISOString() : null,
     }));
@@ -115,7 +117,7 @@ export async function GET(request: Request) {
       dryRun: true,
       recommendations: analysis.recommendations.map((r, i) => ({
         id: `dry-${i}`,
-        user_id: user.id,
+        user_id: userId,
         meta_campaign_id: r.meta_campaign_id || null,
         source: r.source,
         type: r.type,
@@ -149,7 +151,7 @@ export async function GET(request: Request) {
         .filter((r) => !r.auto_apply)
         .map((r, i) => ({
           id: `dry-${i}`,
-          user_id: user.id,
+          user_id: userId,
           meta_campaign_id: r.meta_campaign_id || null,
           source: r.source,
           type: r.type,

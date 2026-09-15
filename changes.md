@@ -8,6 +8,14 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-15
 
+### Fix: Hostinger build — user possibly null in Ops API
+**What / why**  
+Deploy `2c6a1ee` failed typecheck: nested `liveRecRows()` closed over `user` which TS still treated as nullable. Capture `userId` after the auth guard.
+
+**Paths:** `src/app/api/ops/recommendations/route.ts`
+
+**Manual:** Wait for this commit’s Hostinger deploy → Completed → hard-refresh `/reports`.
+
 ### Fix: Hostinger build fail on reports prefer-const
 **What / why**  
 Deploy of campaign Sync UI failed ESLint: `campQuery` in `api/reports/route.ts` was `let` but never reassigned (`prefer-const`). Live stayed on older Completed build `fcf51bc`. Fixed query to `const` await.
