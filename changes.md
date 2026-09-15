@@ -6,6 +6,16 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+### UX: Shopify CAPI setup steps for every subscriber
+**What / why**  
+Subscribers need the same Order-payment webhook instructions Divyaprabha used. Campaigns tracking checklist now shows full Shopify Admin steps + **Copy URL** for their personal `user_id` webhook. Onboarding mirrors the same guidance.
+
+**Paths:** `TrackingReadinessChecklist.tsx`, `OnboardingClient.tsx`
+
+**Manual:** Hard-refresh `/campaigns` after deploy — expand Store tracking readiness → follow Shopify steps → Copy URL.
+
+---
+
 ### Product: Auto Cities + Interests from competitor Library
 **What / why**  
 Cities and Interests are critical for Sales ROAS. Meta Ad Library does not expose competitor targeting, so AdForge now **auto-suggests** metros/tier-2 cities + category interests from competitor Library copy + brand category (pickles/food → cuisine/gifting). Prefills when launching from `/ads`, and Campaigns Audience step has **Auto-fill from competitors** (editable).
