@@ -19,6 +19,10 @@ export type AudienceSuggestInput = {
   category?: string | null;
   brandName?: string | null;
   websiteUrl?: string | null;
+  /** Scraped store page text (title/description/h1) — drives interest prefill */
+  websiteTexts?: string[];
+  /** Catalog product names from the subscriber account */
+  productNames?: string[];
   competitorBrands?: string[];
   competitorHooks?: string[];
   libraryAdTexts?: string[];
@@ -35,9 +39,13 @@ export type AudienceSuggestion = {
   interests: string[];
   citiesCsv: string;
   interestsCsv: string;
+  /** Extra Meta-style chips the user can click to add (not yet selected). */
+  suggestedInterests: string[];
   source: string;
   rationale: string[];
   cityTiers: CityTier[];
+  brandName?: string | null;
+  category?: string | null;
 };
 
 /** Official-style Tier-1 metros (8). */
@@ -295,23 +303,21 @@ const CATEGORY_INTERESTS: Record<string, string[]> = {
     'Indian cuisine',
     'Cooking',
     'Homemade food',
-    'Organic food',
     'Foodie',
+    'Gifting',
     'Online shopping',
     'Shopping',
     'E-commerce',
-    'Gifting',
-    'Healthy eating',
     'Festivals',
     'Diwali',
     'Indian festivals',
+    'Healthy eating',
   ],
   food: [
     'Indian cuisine',
     'Cooking',
-    'Organic food',
-    'Foodie',
     'Homemade food',
+    'Foodie',
     'Healthy eating',
     'Online shopping',
     'Shopping',
@@ -388,25 +394,126 @@ const FESTIVE_EXTRA = [
 ];
 
 const KEYWORD_TO_INTEREST: Array<{ re: RegExp; interest: string }> = [
-  { re: /\b(pickle|achar|aachar|chhundo|keri|mango)\b/i, interest: 'Indian cuisine' },
-  { re: /\b(homemade|ghar|kitchen|nani|dadi)\b/i, interest: 'Homemade food' },
+  { re: /\b(pickle|achar|aachar|chhundo|keri|mango|saurashtra)\b/i, interest: 'Indian cuisine' },
+  { re: /\b(homemade|ghar|kitchen|nani|dadi|hand.?made|traditional)\b/i, interest: 'Homemade food' },
   { re: /\b(organic|natural|preservative.?free|chemical.?free)\b/i, interest: 'Organic food' },
   { re: /\b(gift|gifting|hamper|festival|diwali|ganpati|navratri)\b/i, interest: 'Gifting' },
   { re: /\b(spice|masala|chutney)\b/i, interest: 'Spices' },
   { re: /\b(snack|namkeen|makhana|chana)\b/i, interest: 'Snacks' },
-  { re: /\b(cook|recipe|thali|meal)\b/i, interest: 'Cooking' },
+  { re: /\b(cook|recipe|thali|meal|kitchen)\b/i, interest: 'Cooking' },
   { re: /\b(shop|buy|order|cart|offer|sale)\b/i, interest: 'Online shopping' },
   { re: /\b(beauty|skincare|serum)\b/i, interest: 'Beauty' },
   { re: /\b(fashion|kurti|saree|apparel)\b/i, interest: 'Fashion' },
   { re: /\b(veg|vegetarian|satvik)\b/i, interest: 'Vegetarianism' },
-  { re: /\b(foodie|gourmet|delicious)\b/i, interest: 'Foodie' },
+  { re: /\b(foodie|gourmet|delicious|tasty)\b/i, interest: 'Foodie' },
+  { re: /\b(healthy|wellness)\b/i, interest: 'Healthy eating' },
+  { re: /\b(wedding|shaadi)\b/i, interest: 'Weddings' },
 ];
+
+/** Browse pool shown as Meta-style clickable chips (beyond selected). */
+const SUGGESTION_POOL: Record<string, string[]> = {
+  pickles: [
+    'Indian cuisine',
+    'Cooking',
+    'Homemade food',
+    'Foodie',
+    'Gifting',
+    'Organic food',
+    'Spices',
+    'Healthy eating',
+    'Festivals',
+    'Diwali',
+    'Indian festivals',
+    'Weddings',
+    'Online shopping',
+    'Shopping',
+    'E-commerce',
+    'Snacks',
+  ],
+  food: [
+    'Indian cuisine',
+    'Cooking',
+    'Homemade food',
+    'Foodie',
+    'Organic food',
+    'Healthy eating',
+    'Gifting',
+    'Festivals',
+    'Diwali',
+    'Online shopping',
+    'Shopping',
+    'E-commerce',
+    'Spices',
+    'Snacks',
+    'Weddings',
+  ],
+  snacks: [
+    'Snacks',
+    'Healthy eating',
+    'Foodie',
+    'Cooking',
+    'Indian cuisine',
+    'Online shopping',
+    'Gifting',
+    'Festivals',
+    'Shopping',
+    'E-commerce',
+  ],
+  spices: [
+    'Spices',
+    'Indian cuisine',
+    'Cooking',
+    'Organic food',
+    'Homemade food',
+    'Online shopping',
+    'Gifting',
+    'Foodie',
+  ],
+  fashion: [
+    'Fashion',
+    'Clothing',
+    'Online shopping',
+    'Shopping',
+    'Gifting',
+    'Festivals',
+    'Weddings',
+    'E-commerce',
+  ],
+  beauty: [
+    'Beauty',
+    'Skincare',
+    'Cosmetics',
+    'Online shopping',
+    'Shopping',
+    'Gifting',
+    'E-commerce',
+  ],
+  jewellery: [
+    'Jewellery',
+    'Fashion',
+    'Weddings',
+    'Gifting',
+    'Festivals',
+    'Online shopping',
+    'Shopping',
+  ],
+  default: [
+    'Online shopping',
+    'Shopping',
+    'E-commerce',
+    'Gifting',
+    'Festivals',
+    'Diwali',
+  ],
+};
 
 function detectCategory(input: AudienceSuggestInput): string {
   const blob = [
     input.category,
     input.brandName,
     input.websiteUrl,
+    ...(input.websiteTexts || []),
+    ...(input.productNames || []),
     ...(input.competitorHooks || []),
     ...(input.libraryAdTexts || []),
   ]
@@ -414,7 +521,7 @@ function detectCategory(input: AudienceSuggestInput): string {
     .join(' ')
     .toLowerCase();
 
-  if (/pickle|achar|aachar|chutney/.test(blob)) return 'pickles';
+  if (/pickle|achar|aachar|chutney|keri|mango.?pickle/.test(blob)) return 'pickles';
   if (/spice|masala/.test(blob)) return 'spices';
   if (/snack|namkeen|makhana/.test(blob)) return 'snacks';
   if (/beauty|skincare|cosmetic/.test(blob)) return 'beauty';
@@ -471,11 +578,13 @@ export function citiesCsvFromTiers(tiers: CityTier[] = DEFAULT_SALES_CITY_TIERS)
 /**
  * Build recommended cities + interests. Cities follow selected tiers
  * (default Tier 1 + Tier 2 for Sales). Always returns editable CSV strings.
+ * Interests prioritize subscriber website + product catalog signals.
  */
 export function suggestAudience(input: AudienceSuggestInput = {}): AudienceSuggestion {
   const rationale: string[] = [];
   const category = detectCategory(input);
   rationale.push(`Category detected: ${category}`);
+  if (input.brandName) rationale.push(`Brand: ${input.brandName}`);
 
   const cityTiers = normalizeTiers(input.cityTiers);
   const cities: string[] = [];
@@ -491,10 +600,20 @@ export function suggestAudience(input: AudienceSuggestInput = {}): AudienceSugge
   );
 
   const pack = CATEGORY_INTERESTS[category] || CATEGORY_INTERESTS.default;
+  const storeBlob = [
+    ...(input.websiteTexts || []),
+    ...(input.productNames || []),
+    input.brandName || '',
+    input.websiteUrl || '',
+  ];
+  const fromStore = interestsFromCopy(storeBlob);
   const fromCopy = interestsFromCopy([
     ...(input.libraryAdTexts || []),
     ...(input.competitorHooks || []),
   ]);
+  if (fromStore.length) {
+    rationale.push('Interests inferred from your store website / products');
+  }
   if (fromCopy.length) {
     rationale.push('Interests inferred from competitor Ad Library copy');
   }
@@ -502,13 +621,26 @@ export function suggestAudience(input: AudienceSuggestInput = {}): AudienceSugge
     rationale.push(`Competitor brands referenced: ${input.competitorBrands.slice(0, 3).join(', ')}`);
   }
 
-  let interests = [...fromCopy, ...pack];
+  // Store signals first, then competitor, then category pack (Organic only if mentioned)
+  let interests = [...fromStore, ...fromCopy, ...pack];
+  const storeText = storeBlob.join(' ').toLowerCase();
+  const mentionsOrganic = /organic|natural|preservative.?free|chemical.?free/.test(storeText);
+  if (!mentionsOrganic) {
+    interests = interests.filter((i) => i.toLowerCase() !== 'organic food');
+  } else if (!interests.some((i) => /organic/i.test(i))) {
+    interests = ['Organic food', ...interests];
+  }
+
   const festive =
     input.festive ||
     /ganpati|diwali|navratri|festive|festival/i.test(
-      [...(input.libraryAdTexts || []), ...(input.competitorHooks || []), input.brandName || ''].join(
-        ' '
-      )
+      [
+        ...(input.libraryAdTexts || []),
+        ...(input.competitorHooks || []),
+        ...(input.websiteTexts || []),
+        ...(input.productNames || []),
+        input.brandName || '',
+      ].join(' ')
     );
   if (festive) {
     interests = [...FESTIVE_EXTRA, ...interests];
@@ -516,20 +648,31 @@ export function suggestAudience(input: AudienceSuggestInput = {}): AudienceSugge
   }
 
   const citiesOut = uniquePreserve(cities, 300);
-  const interestsOut = uniquePreserve(interests, 24);
+  const interestsOut = uniquePreserve(interests, 12);
+  const pool = SUGGESTION_POOL[category] || SUGGESTION_POOL.default;
+  const selectedSet = new Set(interestsOut.map((i) => i.toLowerCase()));
+  const suggestedInterests = uniquePreserve(
+    [...pool, ...fromStore, ...fromCopy].filter((i) => !selectedSet.has(i.toLowerCase())),
+    16
+  );
 
   return {
     cities: citiesOut,
     interests: interestsOut,
     citiesCsv: citiesOut.join(', '),
     interestsCsv: interestsOut.join(', '),
-    source: input.libraryAdTexts?.length
-      ? 'competitor_library'
-      : input.competitorHooks?.length
-        ? 'competitor_intel'
-        : 'category_playbook',
+    suggestedInterests,
+    source: input.websiteTexts?.length || input.productNames?.length
+      ? 'subscriber_website'
+      : input.libraryAdTexts?.length
+        ? 'competitor_library'
+        : input.competitorHooks?.length
+          ? 'competitor_intel'
+          : 'category_playbook',
     rationale,
     cityTiers,
+    brandName: input.brandName || null,
+    category,
   };
 }
 
@@ -537,6 +680,8 @@ export function audienceSuggestionFromCompetitorIntel(opts: {
   brandName?: string | null;
   websiteUrl?: string | null;
   category?: string | null;
+  websiteTexts?: string[];
+  productNames?: string[];
   cityTiers?: CityTier[];
   competitors: Array<{
     brand?: string;
@@ -582,6 +727,8 @@ export function audienceSuggestionFromCompetitorIntel(opts: {
     category: opts.category,
     brandName: opts.brandName,
     websiteUrl: opts.websiteUrl,
+    websiteTexts: opts.websiteTexts,
+    productNames: opts.productNames,
     competitorBrands: opts.competitors.map((c) => c.brand).filter(Boolean) as string[],
     competitorHooks,
     libraryAdTexts,

@@ -20,6 +20,8 @@ import {
   MapPin,
   Calendar,
   LayoutGrid,
+  X,
+  Plus,
 } from 'lucide-react';
 import type { GeneratedAd, MetaCampaign } from '@/types/database';
 import { META_AD_FORMATS } from '@/lib/creatives';
@@ -186,6 +188,11 @@ export function CampaignWizard({
   const [audienceLoading, setAudienceLoading] = useState(false);
   /** India city tiers pushed to Meta geo (resolved via Targeting Search at launch). */
   const [cityTiers, setCityTiers] = useState<CityTier[]>([...DEFAULT_SALES_CITY_TIERS]);
+  /** Meta-style browse suggestions (click to add). */
+  const [interestSuggestions, setInterestSuggestions] = useState<string[]>(
+    audienceBootstrap.suggestedInterests || []
+  );
+  const [interestDraft, setInterestDraft] = useState('');
 
   const approvedAds = initialAds;
   const tzInfo = { timezone_id: timezoneId, timezone_name: timezoneName };
@@ -257,6 +264,51 @@ export function CampaignWizard({
     if (prefill.templateId) setSelectedTemplateId(prefill.templateId);
   }
 
+  function parseInterestList(csv: string): string[] {
+    return csv
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  function interestListToCsv(list: string[]): string {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of list) {
+      const v = raw.trim();
+      if (!v) continue;
+      const key = v.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(v);
+    }
+    return out.join(', ');
+  }
+
+  function removeInterest(name: string) {
+    const next = parseInterestList(interests).filter(
+      (i) => i.toLowerCase() !== name.toLowerCase()
+    );
+    setInterests(interestListToCsv(next));
+    setInterestSuggestions((prev) =>
+      prev.some((p) => p.toLowerCase() === name.toLowerCase())
+        ? prev
+        : [...prev, name]
+    );
+  }
+
+  function addInterest(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const current = parseInterestList(interests);
+    if (current.some((i) => i.toLowerCase() === trimmed.toLowerCase())) return;
+    setInterests(interestListToCsv([...current, trimmed]));
+    setInterestSuggestions((prev) =>
+      prev.filter((p) => p.toLowerCase() !== trimmed.toLowerCase())
+    );
+    setInterestDraft('');
+  }
+
   function applyCityTiers(next: CityTier[]) {
     const tiers = next.length ? next : (['tier1'] as CityTier[]);
     setCityTiers(tiers);
@@ -293,8 +345,9 @@ export function CampaignWizard({
     if (replace) {
       setLocations(local.citiesCsv);
       setInterests(local.interestsCsv);
+      setInterestSuggestions(local.suggestedInterests || []);
       setAudienceHint(
-        'Sales playbook audience applied (selected India tiers + category interests). Refining from Meta / competitors…'
+        'Sales playbook from your store category applied. Studying website + Meta suggestions…'
       );
     }
     try {
@@ -310,24 +363,30 @@ export function CampaignWizard({
       // Always apply API result when forced/replacing — do not re-read stale React state
       if (nextCities && replace) setLocations(nextCities);
       if (nextInterests && replace) setInterests(nextInterests);
+      if (Array.isArray(data.suggestedInterests)) {
+        setInterestSuggestions(data.suggestedInterests);
+      }
       if (Array.isArray(data.cityTiers) && data.cityTiers.length) {
         setCityTiers(data.cityTiers as CityTier[]);
       }
       const why = Array.isArray(data.rationale) ? data.rationale.slice(0, 2).join(' · ') : '';
       const dropped = Array.isArray(data.droppedCities) ? data.droppedCities.length : 0;
+      const brand = data.brandName ? ` for ${data.brandName}` : '';
       const src = data.metaResolved
         ? 'Meta Targeting Search (Ads-safe)'
-        : data.source === 'competitor_library' || data.source === 'competitor_intel'
-          ? 'competitor Library / intel'
-          : 'India D2C Sales playbook';
+        : data.source === 'subscriber_website'
+          ? 'your store website'
+          : data.source === 'competitor_library' || data.source === 'competitor_intel'
+            ? 'competitor Library / intel'
+            : 'India D2C Sales playbook';
       setAudienceHint(
-        `Auto-filled from ${src}${why ? ` — ${why}` : ''}.${
-          dropped ? ` ${dropped} names Meta could not match were skipped.` : ''
-        } Edit freely.`
+        `Interests auto-filled from ${src}${brand}${why ? ` — ${why}` : ''}.${
+          dropped ? ` ${dropped} geo names Meta could not match were skipped.` : ''
+        } Click suggestions below to add more.`
       );
     } catch {
       setAudienceHint(
-        'Using Sales playbook cities/interests (Meta resolve unavailable). Names still resolve at launch.'
+        'Using Sales playbook cities/interests (Meta resolve unavailable). Click suggestion chips to refine.'
       );
     } finally {
       setAudienceLoading(false);
@@ -830,13 +889,66 @@ export function CampaignWizard({
                 </p>
               </div>
               <div>
-                <label className="label">Interests (comma-separated)</label>
-                <input
-                  className="input"
-                  value={interests}
-                  onChange={(e) => setInterests(e.target.value)}
-                  placeholder="Indian cuisine, Cooking, Homemade food, Online shopping, Gifting"
-                />
+                <label className="label">Interests</label>
+                <div className="flex flex-wrap gap-1.5 mb-2 min-h-[32px]">
+                  {parseInterestList(interests).map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => removeInterest(name)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border border-[var(--meta-blue)] bg-blue-50 text-[var(--meta-blue)]"
+                      title="Remove interest"
+                    >
+                      {name}
+                      <X className="w-3 h-3 opacity-70" />
+                    </button>
+                  ))}
+                  {!parseInterestList(interests).length && (
+                    <span className="text-xs text-[var(--muted)]">No interests selected yet</span>
+                  )}
+                </div>
+                <div className="flex gap-2 mb-2">
+                  <input
+                    className="input flex-1"
+                    value={interestDraft}
+                    onChange={(e) => setInterestDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addInterest(interestDraft);
+                      }
+                    }}
+                    placeholder="Type an interest and press Enter"
+                  />
+                  <button
+                    type="button"
+                    className="btn-secondary text-xs inline-flex items-center gap-1 shrink-0"
+                    onClick={() => addInterest(interestDraft)}
+                    disabled={!interestDraft.trim()}
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add
+                  </button>
+                </div>
+                {interestSuggestions.length > 0 && (
+                  <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5 space-y-1.5">
+                    <p className="text-[11px] font-semibold text-[var(--muted)] uppercase tracking-wide">
+                      Suggestions (click to add)
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {interestSuggestions.map((name) => (
+                        <button
+                          key={name}
+                          type="button"
+                          onClick={() => addInterest(name)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-dashed border-[var(--border)] hover:border-[var(--meta-blue)] hover:text-[var(--meta-blue)] hover:bg-blue-50 transition-colors"
+                        >
+                          <Plus className="w-3 h-3" />
+                          {name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {audienceHint && (
                   <p className="text-xs text-blue-800 bg-blue-50 border border-blue-100 rounded-lg px-2.5 py-2 mt-2">
                     {audienceHint}
@@ -844,7 +956,7 @@ export function CampaignWizard({
                 )}
                 {!audienceHint && (
                   <p className="text-xs text-[var(--muted)] mt-1">
-                    Click <strong>Auto-fill Cities &amp; Interests</strong> if fields look empty or too thin.
+                    Prefills from your store website. Click suggestions like Meta Ads Manager, or type your own.
                   </p>
                 )}
               </div>
