@@ -719,11 +719,11 @@ export default function OnboardingClient() {
                   {websiteUrl || 'your store'}.
                 </li>
                 <li>
-                  Shopify: add orders webhook to{' '}
-                  <code className="text-[10px] bg-white/80 px-1 rounded">
-                    /api/webhooks/shopify/capi?user_id=YOUR_USER_ID
-                  </code>{' '}
-                  (shown on Campaigns after login).
+                  <strong>Shopify CAPI (each subscriber does this once):</strong> Shopify Admin →
+                  Settings → Notifications → Webhooks → Create webhook → Event{' '}
+                  <strong>Order payment</strong>, Format <strong>JSON</strong>, URL = the personal
+                  link shown on <strong>Campaigns</strong> (includes your user_id). After that,
+                  AdForge sends Purchase to Meta automatically.
                 </li>
                 <li>Launch Sales (Purchase) campaigns — not Traffic — for ROAS results.</li>
               </ol>
