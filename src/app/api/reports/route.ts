@@ -22,13 +22,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ catalog: REPORT_CATALOG });
   }
 
-  let campQuery = supabase
+  const { data: allCampaigns } = await supabase
     .from('meta_campaigns')
     .select('id, name, budget, status, meta_campaign_id')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
-
-  const { data: allCampaigns } = await campQuery;
 
   const campaigns =
     campaignId && campaignId !== 'all'

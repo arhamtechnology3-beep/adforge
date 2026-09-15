@@ -6,6 +6,18 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+## 2026-09-15
+
+### Fix: Hostinger build fail on reports prefer-const
+**What / why**  
+Deploy of campaign Sync UI failed ESLint: `campQuery` in `api/reports/route.ts` was `let` but never reassigned (`prefer-const`). Live stayed on older Completed build `fcf51bc`. Fixed query to `const` await.
+
+**Paths:** `src/app/api/reports/route.ts`
+
+**Manual:** Hostinger Redeploy / wait for auto-deploy of this commit → hard-refresh `/reports`.
+
+---
+
 ## 2026-09-13
 
 ### Reports: campaign-wise views + highlighted Sync on the report
