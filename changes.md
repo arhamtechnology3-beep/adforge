@@ -6,6 +6,16 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+### Product: Auto Cities + Interests from competitor Library
+**What / why**  
+Cities and Interests are critical for Sales ROAS. Meta Ad Library does not expose competitor targeting, so AdForge now **auto-suggests** metros/tier-2 cities + category interests from competitor Library copy + brand category (pickles/food → cuisine/gifting). Prefills when launching from `/ads`, and Campaigns Audience step has **Auto-fill from competitors** (editable).
+
+**Paths:** `src/lib/audience-suggest.ts`, `api/campaigns/audience-suggest`, `CampaignWizard.tsx`, `ads/page.tsx`, `meta-targeting.ts`, `scripts/tests/audience-suggest.test.ts`
+
+**Manual:** From competitor ads → Launch campaign → Audience step should show India metros + food/gifting interests. Click **Auto-fill from competitors** to refresh. Edit if needed, then Continue.
+
+---
+
 ## 2026-09-15
 
 ### Product: Sales + ATC/Purchase E2E for every subscriber

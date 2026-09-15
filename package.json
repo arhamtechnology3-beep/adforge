@@ -16,6 +16,7 @@
     "test:optimize": "npx tsx scripts/tests/meta-optimize.test.ts",
     "test:timezone": "npx tsx scripts/tests/meta-timezone.test.ts",
     "test:sales-gate": "npx tsx scripts/tests/campaign-sales-gate.test.ts",
+    "test:audience-suggest": "npx tsx scripts/tests/audience-suggest.test.ts",
     "test:preflight": "npx tsx scripts/tests/preflight-live-gate.ts",
     "launch:divyaprabha-sales": "npx tsx scripts/launch-divyaprabha-sales.ts",
     "test:all": "npm run test:step1 && npm run test:step2 && npm run test:optimize && npm run test:timezone",

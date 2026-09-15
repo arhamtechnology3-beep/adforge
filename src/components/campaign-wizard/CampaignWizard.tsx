@@ -161,6 +161,8 @@ export function CampaignWizard({
   const [prefillBanner, setPrefillBanner] = useState<string | null>(
     fromAds ? 'Strategy imported from competitor ads — review and launch' : null
   );
+  const [audienceHint, setAudienceHint] = useState<string | null>(null);
+  const [audienceLoading, setAudienceLoading] = useState(false);
 
   const approvedAds = initialAds;
   const tzInfo = { timezone_id: timezoneId, timezone_name: timezoneName };
@@ -221,6 +223,29 @@ export function CampaignWizard({
     if (prefill.templateId) setSelectedTemplateId(prefill.templateId);
   }
 
+  async function autoFillAudience(opts?: { force?: boolean }) {
+    setAudienceLoading(true);
+    try {
+      const res = await fetch('/api/campaigns/audience-suggest');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Audience suggest failed');
+      if (opts?.force || !locations.trim()) {
+        setLocations(data.citiesCsv || data.cities?.join(', ') || locations);
+      }
+      if (opts?.force || !interests.trim() || interests === 'Online shopping, Gifting') {
+        setInterests(data.interestsCsv || data.interests?.join(', ') || interests);
+      }
+      const why = Array.isArray(data.rationale) ? data.rationale.slice(0, 2).join(' · ') : '';
+      setAudienceHint(
+        `Auto-filled from ${data.source === 'competitor_library' || data.source === 'competitor_intel' ? 'competitor Library / intel' : 'India D2C Sales playbook'}${why ? ` — ${why}` : ''}. Edit freely.`
+      );
+    } catch {
+      setAudienceHint('Could not auto-suggest — using defaults. Edit cities/interests manually.');
+    } finally {
+      setAudienceLoading(false);
+    }
+  }
+
   useEffect(() => {
     const prefill = loadCampaignPrefill();
     if (prefill) {
@@ -231,11 +256,22 @@ export function CampaignWizard({
           `Sales playbook imported from competitor ads${brand} — Pixel + Purchase required. Review and launch.`
         );
       }
-      clearCampaignPrefill();
+      if (prefill.locations && prefill.interests) {
+        setAudienceHint(
+          'Cities & interests auto-filled from competitor Ad Library + India Sales playbook. You can edit before launch.'
+        );
+        clearCampaignPrefill();
+      } else {
+        clearCampaignPrefill();
+        // Prefill missing audience — pull from onboarding/competitor intel
+        void autoFillAudience({ force: true });
+      }
     } else if (initialTemplateId) {
       applyTemplate(initialTemplateId);
+      void autoFillAudience({ force: true });
     } else if (!fromAds) {
       applyTemplate(getDefaultSalesTemplate().id);
+      void autoFillAudience({ force: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -644,15 +680,47 @@ export function CampaignWizard({
                 </div>
               </div>
               <div>
-                <label className="label flex items-center gap-1.5">
-                  <MapPin className="w-3.5 h-3.5" /> Cities (comma-separated)
-                </label>
-                <input className="input" value={locations} onChange={(e) => setLocations(e.target.value)} placeholder="Mumbai, Delhi, Bengaluru" />
-                <p className="text-xs text-[var(--muted)] mt-1">Resolved to Meta city IDs automatically</p>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label className="label flex items-center gap-1.5 mb-0">
+                    <MapPin className="w-3.5 h-3.5" /> Cities (comma-separated)
+                  </label>
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-[var(--meta-blue)] hover:underline disabled:opacity-50"
+                    disabled={audienceLoading}
+                    onClick={() => autoFillAudience({ force: true })}
+                  >
+                    {audienceLoading ? 'Suggesting…' : 'Auto-fill from competitors'}
+                  </button>
+                </div>
+                <input
+                  className="input"
+                  value={locations}
+                  onChange={(e) => setLocations(e.target.value)}
+                  placeholder="Mumbai, Delhi, Bengaluru"
+                />
+                <p className="text-xs text-[var(--muted)] mt-1">
+                  Resolved to Meta city IDs automatically. Prefer metros + tier-2 for Sales.
+                </p>
               </div>
               <div>
                 <label className="label">Interests (comma-separated)</label>
-                <input className="input" value={interests} onChange={(e) => setInterests(e.target.value)} placeholder="Online shopping, Fashion" />
+                <input
+                  className="input"
+                  value={interests}
+                  onChange={(e) => setInterests(e.target.value)}
+                  placeholder="Online shopping, Indian cuisine, Gifting"
+                />
+                {audienceHint && (
+                  <p className="text-xs text-blue-800 bg-blue-50 border border-blue-100 rounded-lg px-2.5 py-2 mt-2">
+                    {audienceHint}
+                  </p>
+                )}
+                {!audienceHint && (
+                  <p className="text-xs text-[var(--muted)] mt-1">
+                    Auto-suggested from competitor Library copy + category. Edit if needed.
+                  </p>
+                )}
               </div>
             </div>
           )}

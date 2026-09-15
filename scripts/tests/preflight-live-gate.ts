@@ -67,6 +67,7 @@ async function main() {
   runCmd('eslint-launch-api', 'npx', ['next', 'lint', '--file', 'src/app/api/campaigns/launch/route.ts']);
   runCmd('unit-meta-optimize', 'npx', ['tsx', 'scripts/tests/meta-optimize.test.ts']);
   runCmd('unit-sales-gate', 'npx', ['tsx', 'scripts/tests/campaign-sales-gate.test.ts']);
+  runCmd('unit-audience-suggest', 'npx', ['tsx', 'scripts/tests/audience-suggest.test.ts']);
 
   // Prefer full next build when not skipped (slow but matches Hostinger)
   if (process.env.PREFLIGHT_SKIP_BUILD !== '1') {

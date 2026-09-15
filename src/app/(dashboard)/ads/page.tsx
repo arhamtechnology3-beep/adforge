@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { saveCampaignPrefill } from '@/lib/campaign-prefill';
 import { loadCarouselUrlPrefill } from '@/lib/carousel-url-prefill';
+import { audienceSuggestionFromCompetitorIntel } from '@/lib/audience-suggest';
 import { CAROUSEL_URL_MIN } from '@/lib/carousel-limits';
 import StoryFillImage from '@/components/ads/StoryFillImage';
 import StoriesPhoneChrome from '@/components/ads/StoriesPhoneChrome';
@@ -731,10 +732,24 @@ export default function AdsPage() {
       .map((h) => String(h).slice(0, 40))
       .filter(Boolean)
       .slice(0, 4);
-    const interestSeed = ['Online shopping', 'Gifting', ...strategyHooks]
-      .filter(Boolean)
-      .slice(0, 6)
-      .join(', ');
+    const audience = audienceSuggestionFromCompetitorIntel({
+      brandName: null,
+      websiteUrl: null,
+      category: 'pickles',
+      competitors: competitorIntel.map((c) => ({
+        brand: c.brand,
+        hook: c.hook,
+        counterAngle: c.counterAngle,
+        positioning: c.positioning,
+        live_meta_ads: c.live_meta_ads,
+      })),
+      selectedAds: adsList.map((a) => ({
+        headline: a.headline,
+        primary_text: a.primary_text,
+        target_locations: a.target_locations,
+      })),
+    });
+    void strategyHooks;
     const launchAssets = ads.filter(
       (ad) =>
         ad.status === 'approved' &&
@@ -765,8 +780,8 @@ export default function AdsPage() {
       age_min: 21,
       age_max: 55,
       gender: 'ALL',
-      locations: 'Mumbai, Delhi, Bengaluru, Hyderabad, Pune, Ahmedabad',
-      interests: interestSeed || 'Online shopping, Gifting, Indian cuisine',
+      locations: audience.citiesCsv,
+      interests: audience.interestsCsv,
       placements: {
         reels: platforms.has('instagram') || platforms.size === 0,
         ig_feed: platforms.has('instagram') || platforms.size === 0,
