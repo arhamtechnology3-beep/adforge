@@ -6,6 +6,7 @@ import {
   suggestAudience,
   audienceSuggestionFromCompetitorIntel,
   citiesFromTiers,
+  interestSuggestionPool,
   DEFAULT_SALES_CITY_TIERS,
   type CityTier,
 } from '@/lib/audience-suggest';
@@ -150,11 +151,10 @@ export async function GET(request: NextRequest) {
         const connection = await resolveMetaConnection(user);
         const token = connection ? metaAccessToken(connection) : null;
         if (token) {
-          const targeting = await resolveTargeting(
-            cities,
-            [...interests, ...suggestedInterests],
-            token
-          );
+          // Resolve selected interests + cities for Ads safety.
+          // Keep the large curated suggestion chip list (50+) — do not shrink it
+          // to Meta's first-hit leftovers (that caused only ~5 chips).
+          const targeting = await resolveTargeting(cities, interests, token);
           if (targeting.cities.length) {
             cities = targeting.cities.map((c) => c.name);
             metaResolved = true;
@@ -176,10 +176,6 @@ export async function GET(request: NextRequest) {
               })
               .filter(Boolean) as string[];
             interests = mapped.length ? mapped : targeting.interests.slice(0, 12).map((r) => r.name);
-            const sel = new Set(interests.map((i) => i.toLowerCase()));
-            suggestedInterests = targeting.interests
-              .map((r) => r.name)
-              .filter((n) => !sel.has(n.toLowerCase()));
             metaResolved = true;
           }
           droppedCities = targeting.unresolved_cities;
@@ -189,6 +185,22 @@ export async function GET(request: NextRequest) {
         console.warn('[audience-suggest] Meta resolve failed', err);
       }
     }
+
+    // Always recompute a large suggestion pool (50+) minus currently selected
+    const sel = new Set(interests.map((i) => i.toLowerCase()));
+    const categoryKey = suggestion.category || categoryHint || 'pickles';
+    const pool = [
+      ...interestSuggestionPool(categoryKey),
+      ...(suggestion.suggestedInterests || []),
+      ...(fallback.suggestedInterests || []),
+    ];
+    suggestedInterests = Array.from(
+      new Map(
+        pool
+          .filter((n) => n && !sel.has(n.toLowerCase()))
+          .map((n) => [n.toLowerCase(), n] as const)
+      ).values()
+    ).slice(0, 80);
 
     return NextResponse.json({
       ...suggestion,

@@ -79,6 +79,7 @@ assert(fromSite.category === 'pickles', 'site_category_pickles', String(fromSite
 assert(!fromSite.interests.includes('Organic food'), 'no_organic_without_signal', fromSite.interestsCsv);
 assert(fromSite.interests.some((i) => /cuisine|Homemade|Cooking/i.test(i)), 'pickle_core_interests', fromSite.interestsCsv);
 assert(fromSite.suggestedInterests.some((i) => /Organic|Spices|Gifting/i.test(i)), 'suggestions_available');
+assert(fromSite.suggestedInterests.length >= 50, 'suggestions_50_plus', String(fromSite.suggestedInterests.length));
 assert(fromSite.source === 'subscriber_website', 'source_website', fromSite.source);
 
 if (failed) {

@@ -932,9 +932,9 @@ export function CampaignWizard({
                 {interestSuggestions.length > 0 && (
                   <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5 space-y-1.5">
                     <p className="text-[11px] font-semibold text-[var(--muted)] uppercase tracking-wide">
-                      Suggestions (click to add)
+                      Suggestions ({interestSuggestions.length}) — click to add
                     </p>
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto pr-1">
                       {interestSuggestions.map((name) => (
                         <button
                           key={name}
