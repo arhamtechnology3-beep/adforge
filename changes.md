@@ -8,11 +8,11 @@ Format: newest entries first. Date is local project context (IST).
 
 ### UX: Interests from store website + Meta-style suggestion chips
 **What / why**  
-Interests were too generic (e.g. Organic food) and only a comma text box. Audience now **studies the subscriber website + product catalog** to prefill (pickles → Indian cuisine / Homemade food / Cooking — Organic only if the site says so). UI matches Meta Ads Manager: **selected chips** (click to remove) + **Suggestions (click to add)** + type-to-add.
+Interests were too generic (e.g. Organic food) and only a comma text box. Audience now **studies the subscriber website + product catalog** to prefill (pickles → Indian cuisine / Homemade food / Cooking — Organic only if the site says so). UI matches Meta Ads Manager: **selected chips** (click to remove) + **50+ Suggestions (click to add)** + type-to-add. Meta resolve no longer shrinks the suggestion list to a handful of fuzzy hits.
 
 **Paths:** `audience-suggest.ts`, `api/campaigns/audience-suggest`, `CampaignWizard.tsx`, `scripts/tests/audience-suggest.test.ts`
 
-**Manual:** Hard-refresh Campaigns → Audience → Auto-fill — selected interests match store; click dashed suggestion chips to add more.
+**Manual:** Hard-refresh Campaigns → Audience → Auto-fill — expect **Suggestions (50+)** chips; click to add.
 
 ---
 
