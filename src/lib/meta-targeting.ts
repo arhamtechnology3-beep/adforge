@@ -120,60 +120,87 @@ function dedupeByKey<T extends { key?: string; id?: string }>(
   return out;
 }
 
+async function mapPool<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      const idx = i++;
+      out[idx] = await fn(items[idx]);
+    }
+  }
+  const n = Math.max(1, Math.min(concurrency, items.length || 1));
+  await Promise.all(Array.from({ length: n }, () => worker()));
+  return out;
+}
+
+/**
+ * Resolve city/interest names to Meta IDs.
+ * With a token: live Targeting Search only (never invent geo keys).
+ * Without a token: offline metro/interest fallback for demos — Tier-2/3
+ * cities stay as names until a Meta token can resolve them at launch.
+ */
 export async function resolveTargeting(
   locations: string[] = [],
   interests: string[] = [],
   accessToken?: string | null
 ): Promise<ResolvedTargeting> {
-  const cities: Array<{ key: string; name: string }> = [];
-  const resolvedInterests: Array<{ id: string; name: string }> = [];
   const unresolved_cities: string[] = [];
   const unresolved_interests: string[] = [];
 
-  for (const loc of locations) {
+  const cityResults = await mapPool(locations, 8, async (loc) => {
     const key = loc.trim().toLowerCase();
-    if (!key) continue;
+    if (!key) return null;
 
-    // Prefer live Targeting Search when token exists (correct Meta keys).
     if (accessToken) {
       const found = await searchMetaCity(accessToken, loc.trim());
-      if (found) {
-        cities.push(found);
-        continue;
-      }
+      if (found) return { ok: true as const, value: found };
+      unresolved_cities.push(loc.trim());
+      return null;
     }
 
+    // Offline: only use curated metro keys — never fabricate Tier-2/3 keys
     if (KNOWN_INDIAN_CITIES[key]) {
-      cities.push(KNOWN_INDIAN_CITIES[key]);
-      continue;
+      return { ok: true as const, value: KNOWN_INDIAN_CITIES[key] };
     }
-
     unresolved_cities.push(loc.trim());
-  }
+    return null;
+  });
 
-  for (const interest of interests) {
+  const interestResults = await mapPool(interests, 8, async (interest) => {
     const key = interest.trim().toLowerCase();
-    if (!key) continue;
+    if (!key) return null;
 
     if (accessToken) {
       const found = await searchMetaInterest(accessToken, interest.trim());
-      if (found) {
-        resolvedInterests.push(found);
-        continue;
-      }
+      if (found) return { ok: true as const, value: found };
+      unresolved_interests.push(interest.trim());
+      return null;
     }
 
     if (KNOWN_INTERESTS[key]) {
-      resolvedInterests.push(KNOWN_INTERESTS[key]);
-      continue;
+      return { ok: true as const, value: KNOWN_INTERESTS[key] };
     }
-
     unresolved_interests.push(interest.trim());
-  }
+    return null;
+  });
+
+  const cities = dedupeByKey(
+    cityResults.filter(Boolean).map((r) => r!.value),
+    'key'
+  );
+  const resolvedInterests = dedupeByKey(
+    interestResults.filter(Boolean).map((r) => r!.value),
+    'id'
+  );
 
   return {
-    cities: dedupeByKey(cities, 'key'),
-    interests: dedupeByKey(resolvedInterests, 'id'),
+    cities,
+    interests: resolvedInterests,
     unresolved_cities,
     unresolved_interests,
   };

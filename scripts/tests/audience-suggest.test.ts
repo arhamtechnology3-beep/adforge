@@ -26,7 +26,10 @@ const food = suggestAudience({
 });
 
 assert(food.cities.includes('Mumbai'), 'metros_included');
+assert(food.cities.includes('Chennai') && food.cities.includes('Kolkata'), 'tier1_has_8_metros');
 assert(food.cities.some((c) => /Jaipur|Surat|Indore/.test(c)), 'tier2_for_food');
+assert(food.cities.length >= 50, 'broad_tier_city_count', String(food.cities.length));
+assert(food.cityTiers.includes('tier1') && food.cityTiers.includes('tier2'), 'default_tiers');
 assert(
   food.interests.some((i) => /cuisine|Cooking|Gifting|Organic|shopping/i.test(i)),
   'food_interests',

@@ -6,6 +6,16 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+### Product: India Tier 1/2/3 cities — Meta Targeting Search only
+**What / why**  
+Audience Cities must be pushable to Meta Ads. Wizard now has **Tier 1 (8 metros) / Tier 2 (~97) / Tier 3** toggles that fill Meta-oriented city names. Interests use Meta-searchable labels. At launch (and Auto-fill with `resolve=1`), `resolveTargeting` keeps only cities/interests Meta Targeting Search returns — unresolved names are dropped; we never invent geo keys.
+
+**Paths:** `audience-suggest.ts`, `meta-targeting.ts`, `api/campaigns/audience-suggest`, `CampaignWizard.tsx`, `scripts/tests/audience-suggest.test.ts`
+
+**Manual:** Campaigns → Audience → toggle Tier 1 / 2 / 3 → city list expands → Auto-fill (with Meta connected) filters to Ads-safe matches → Launch.
+
+---
+
 ### Fix: Cities & Interests stuck on weak defaults (`?from=ads`)
 **What / why**  
 Live Audience step stayed on `Mumbai…Pune` + `Online shopping, Gifting` when opening `/campaigns?from=ads` without sessionStorage prefill — autofill was skipped. Wizard now bootstraps Sales playbook immediately (client + API), replaces weak values on Audience step, and always returns a full playbook from `/api/campaigns/audience-suggest`. Button label: **Auto-fill Cities & Interests**.

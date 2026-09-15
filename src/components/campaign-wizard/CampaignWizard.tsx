@@ -36,7 +36,13 @@ import {
   clearCampaignPrefill,
   type CampaignPrefill,
 } from '@/lib/campaign-prefill';
-import { suggestAudience } from '@/lib/audience-suggest';
+import {
+  suggestAudience,
+  citiesCsvFromTiers,
+  CITY_TIER_META,
+  DEFAULT_SALES_CITY_TIERS,
+  type CityTier,
+} from '@/lib/audience-suggest';
 import type { CampaignValidationResult } from '@/lib/campaign-validation';
 import { formatCurrency } from '@/lib/utils';
 import { WizardStepper } from './WizardStepper';
@@ -178,6 +184,8 @@ export function CampaignWizard({
   );
   const [audienceHint, setAudienceHint] = useState<string | null>(null);
   const [audienceLoading, setAudienceLoading] = useState(false);
+  /** India city tiers pushed to Meta geo (resolved via Targeting Search at launch). */
+  const [cityTiers, setCityTiers] = useState<CityTier[]>([...DEFAULT_SALES_CITY_TIERS]);
 
   const approvedAds = initialAds;
   const tzInfo = { timezone_id: timezoneId, timezone_name: timezoneName };
@@ -249,6 +257,26 @@ export function CampaignWizard({
     if (prefill.templateId) setSelectedTemplateId(prefill.templateId);
   }
 
+  function applyCityTiers(next: CityTier[]) {
+    const tiers = next.length ? next : (['tier1'] as CityTier[]);
+    setCityTiers(tiers);
+    setLocations(citiesCsvFromTiers(tiers));
+    const labels = tiers.map((t) => CITY_TIER_META[t].label).join(' + ');
+    const count = citiesCsvFromTiers(tiers).split(',').filter(Boolean).length;
+    setAudienceHint(
+      `${labels} selected (${count} Meta city names). Geo IDs resolve via Meta Targeting Search at launch — unmatched names are skipped.`
+    );
+  }
+
+  function toggleCityTier(tier: CityTier) {
+    const on = cityTiers.includes(tier);
+    if (on && cityTiers.length === 1) return; // keep at least one tier
+    const next = on ? cityTiers.filter((t) => t !== tier) : [...cityTiers, tier];
+    // Keep stable order: tier1 → tier2 → tier3
+    const order: CityTier[] = ['tier1', 'tier2', 'tier3'];
+    applyCityTiers(order.filter((t) => next.includes(t)));
+  }
+
   async function autoFillAudience(opts?: { force?: boolean }) {
     setAudienceLoading(true);
     // Instant local playbook so UI never stays on weak defaults while API loads
@@ -258,6 +286,7 @@ export function CampaignWizard({
       brandName: null,
       // Food D2C default when store URL not loaded yet — never leave Online shopping only
       category: storeUrl ? null : 'pickles',
+      cityTiers,
     });
     const replace =
       !!opts?.force || isWeakAudience(locations, interests) || !locations.trim() || !interests.trim();
@@ -265,11 +294,15 @@ export function CampaignWizard({
       setLocations(local.citiesCsv);
       setInterests(local.interestsCsv);
       setAudienceHint(
-        'Sales playbook audience applied (India metros + category interests). Refining from competitors…'
+        'Sales playbook audience applied (selected India tiers + category interests). Refining from Meta / competitors…'
       );
     }
     try {
-      const res = await fetch('/api/campaigns/audience-suggest');
+      const qs = new URLSearchParams({
+        tiers: cityTiers.join(','),
+        resolve: '1',
+      });
+      const res = await fetch(`/api/campaigns/audience-suggest?${qs}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Audience suggest failed');
       const nextCities = data.citiesCsv || data.cities?.join(', ');
@@ -277,15 +310,24 @@ export function CampaignWizard({
       // Always apply API result when forced/replacing — do not re-read stale React state
       if (nextCities && replace) setLocations(nextCities);
       if (nextInterests && replace) setInterests(nextInterests);
+      if (Array.isArray(data.cityTiers) && data.cityTiers.length) {
+        setCityTiers(data.cityTiers as CityTier[]);
+      }
       const why = Array.isArray(data.rationale) ? data.rationale.slice(0, 2).join(' · ') : '';
-      const src =
-        data.source === 'competitor_library' || data.source === 'competitor_intel'
+      const dropped = Array.isArray(data.droppedCities) ? data.droppedCities.length : 0;
+      const src = data.metaResolved
+        ? 'Meta Targeting Search (Ads-safe)'
+        : data.source === 'competitor_library' || data.source === 'competitor_intel'
           ? 'competitor Library / intel'
           : 'India D2C Sales playbook';
-      setAudienceHint(`Auto-filled from ${src}${why ? ` — ${why}` : ''}. Edit freely.`);
+      setAudienceHint(
+        `Auto-filled from ${src}${why ? ` — ${why}` : ''}.${
+          dropped ? ` ${dropped} names Meta could not match were skipped.` : ''
+        } Edit freely.`
+      );
     } catch {
       setAudienceHint(
-        'Using Sales playbook cities/interests (competitor refresh unavailable). Edit if needed.'
+        'Using Sales playbook cities/interests (Meta resolve unavailable). Names still resolve at launch.'
       );
     } finally {
       setAudienceLoading(false);
@@ -744,7 +786,7 @@ export function CampaignWizard({
               <div>
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <label className="label flex items-center gap-1.5 mb-0">
-                    <MapPin className="w-3.5 h-3.5" /> Cities (comma-separated)
+                    <MapPin className="w-3.5 h-3.5" /> Cities (Meta geo)
                   </label>
                   <button
                     type="button"
@@ -755,14 +797,36 @@ export function CampaignWizard({
                     {audienceLoading ? 'Filling…' : 'Auto-fill Cities & Interests'}
                   </button>
                 </div>
-                <input
-                  className="input"
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {(['tier1', 'tier2', 'tier3'] as CityTier[]).map((tier) => {
+                    const meta = CITY_TIER_META[tier];
+                    const on = cityTiers.includes(tier);
+                    return (
+                      <button
+                        key={tier}
+                        type="button"
+                        onClick={() => toggleCityTier(tier)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                          on
+                            ? 'border-[var(--meta-blue)] bg-blue-50 text-[var(--meta-blue)]'
+                            : 'border-[var(--border)] text-[var(--muted)]'
+                        }`}
+                        title={meta.description}
+                      >
+                        {meta.label} · {meta.cities.length}
+                      </button>
+                    );
+                  })}
+                </div>
+                <textarea
+                  className="input min-h-[72px] text-sm"
                   value={locations}
                   onChange={(e) => setLocations(e.target.value)}
-                  placeholder="Mumbai, Delhi, Bengaluru, Hyderabad, Pune, Ahmedabad"
+                  placeholder="Mumbai, Delhi, Bengaluru, Hyderabad, Chennai, Kolkata, Pune, Ahmedabad"
                 />
                 <p className="text-xs text-[var(--muted)] mt-1">
-                  Resolved to Meta city IDs automatically. Prefer metros + tier-2 for Sales.
+                  Tier 1 = 8 metros · Tier 2 ≈ 97 cities · Tier 3 = more. Only names Meta
+                  Targeting Search can resolve are sent to Ads at launch.
                 </p>
               </div>
               <div>
