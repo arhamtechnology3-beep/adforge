@@ -1,6 +1,5 @@
--- Ops Acknowledge/Reject for live-* cards inserts into agent_recommendations.
--- 006 only had SELECT + UPDATE; INSERT was blocked by RLS for the user session.
--- Idempotent so Hostinger / re-runs do not fail.
+-- Apply in Supabase SQL Editor (required for Ops Acknowledge on live-* cards).
+-- Source: supabase/migrations/016_agent_recommendations_insert_rls.sql
 
 DROP POLICY IF EXISTS agent_recs_insert_own ON agent_recommendations;
 CREATE POLICY agent_recs_insert_own ON agent_recommendations

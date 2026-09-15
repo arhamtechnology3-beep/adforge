@@ -117,24 +117,40 @@ export function validateCampaignLaunch(opts: {
     errors.push('Objective is required');
   }
 
-  // Pixel for sales
+  // Pixel required for Sales (ATC → Purchase). Traffic is advanced-only for stores.
   if (input.objective === 'OUTCOME_SALES') {
     if (opts.has_pixel) {
       items.push({
         id: 'pixel',
-        label: 'Meta Pixel installed',
+        label: 'Meta Pixel for Purchase',
         status: 'pass',
-        message: 'Conversion tracking ready',
+        message: 'Pixel linked — Sales will optimize for Purchase',
       });
     } else {
       items.push({
         id: 'pixel',
-        label: 'Meta Pixel installed',
-        status: 'warn',
-        message: 'Recommended for Sales — reconnect Meta to auto-link Pixel, or set META_PIXEL_ID',
+        label: 'Meta Pixel for Purchase',
+        status: 'fail',
+        message:
+          'Required for Sales — link a website Pixel (Events Manager: PageView, ATC, Purchase) before launch',
       });
-      warnings.push('Meta Pixel recommended for Sales campaigns');
+      errors.push(
+        'Meta Pixel is required for Sales campaigns. Connect Pixel in Campaigns → Meta assets.'
+      );
     }
+  }
+
+  if (input.objective === 'OUTCOME_TRAFFIC') {
+    items.push({
+      id: 'traffic_warning',
+      label: 'Traffic objective',
+      status: 'warn',
+      message:
+        'Traffic optimizes for clicks, not purchases. Store subscribers should use Sales + Pixel.',
+    });
+    warnings.push(
+      'Traffic will not optimize for AddToCart/Purchase — prefer Sales for store ROAS'
+    );
   }
 
   // Budget

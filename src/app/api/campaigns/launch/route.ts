@@ -5,6 +5,7 @@ import {
   createCampaign,
   createAdSet,
   ensureFacebookPageId,
+  ensureMetaPixelId,
   isMetaAuthLockError,
   normalizeMetaAdAccountId,
   publishAdsToMeta,
@@ -62,6 +63,49 @@ export async function POST(request: Request) {
 
   if (Number(budget) < 100) {
     return NextResponse.json({ error: 'Minimum daily budget is ₹100' }, { status: 400 });
+  }
+
+  const metaConnectionEarly = await resolveMetaConnection(user);
+  let pixelForSales =
+    metaConnectionEarly?.pixel_id || process.env.META_PIXEL_ID || null;
+  if (
+    objective === 'OUTCOME_SALES' &&
+    !pixelForSales &&
+    metaConnectionIsLive(metaConnectionEarly) &&
+    metaConnectionEarly
+  ) {
+    try {
+      const token = metaAccessToken(metaConnectionEarly);
+      const resolved = await ensureMetaPixelId({
+        accessToken: token,
+        adAccountId: normalizeMetaAdAccountId(metaConnectionEarly.meta_ad_account_id!),
+        storedPixelId: metaConnectionEarly.pixel_id,
+      });
+      if (resolved?.pixelId) {
+        pixelForSales = resolved.pixelId;
+        if (!user.isDemo && resolved.source === 'live') {
+          await supabase
+            .from('ad_accounts')
+            .update({
+              pixel_id: resolved.pixelId,
+              pixel_name: resolved.pixelName || null,
+            })
+            .eq('user_id', user.id);
+        }
+      }
+    } catch (err) {
+      console.warn('[Campaign Launch] pixel auto-resolve failed', err);
+    }
+  }
+  if (objective === 'OUTCOME_SALES' && !pixelForSales) {
+    return NextResponse.json(
+      {
+        error:
+          'Sales campaigns require a website Meta Pixel (Purchase). Link Pixel under Campaigns → Meta assets, confirm ATC/Purchase in Events Manager, then retry.',
+        code: 'pixel_required',
+      },
+      { status: 422 }
+    );
   }
 
   let ads: Array<{
@@ -162,7 +206,11 @@ export async function POST(request: Request) {
           budgetType: budget_type,
           objective,
           accessToken: token,
-          pixelId: metaConnection.pixel_id || process.env.META_PIXEL_ID || null,
+          pixelId:
+            metaConnection.pixel_id ||
+            process.env.META_PIXEL_ID ||
+            pixelForSales ||
+            null,
         }
       );
       metaAdSetId = adSet.id;
@@ -386,6 +434,7 @@ export async function GET() {
       timezone_id: metaConnection?.timezone_id ?? null,
       timezone_name: metaConnection?.timezone_name ?? null,
       timezone_offset_hours_utc: metaConnection?.timezone_offset_hours_utc ?? null,
+      user_id: user.id,
     });
   }
 
@@ -407,5 +456,6 @@ export async function GET() {
     timezone_id: metaConnection?.timezone_id ?? null,
     timezone_name: metaConnection?.timezone_name ?? null,
     timezone_offset_hours_utc: metaConnection?.timezone_offset_hours_utc ?? null,
+    user_id: user.id,
   });
 }

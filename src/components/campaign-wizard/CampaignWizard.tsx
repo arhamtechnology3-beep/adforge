@@ -25,10 +25,12 @@ import type { GeneratedAd, MetaCampaign } from '@/types/database';
 import { META_AD_FORMATS } from '@/lib/creatives';
 import {
   CAMPAIGN_OBJECTIVES,
+  DEFAULT_CAMPAIGN_OBJECTIVE,
   META_CTA_OPTIONS,
   type PlacementToggles,
+  type CampaignObjective,
 } from '@/lib/meta-campaign';
-import { CAMPAIGN_TEMPLATES, getCampaignTemplate } from '@/lib/campaign-templates';
+import { CAMPAIGN_TEMPLATES, getCampaignTemplate, getDefaultSalesTemplate } from '@/lib/campaign-templates';
 import {
   loadCampaignPrefill,
   clearCampaignPrefill,
@@ -38,6 +40,7 @@ import type { CampaignValidationResult } from '@/lib/campaign-validation';
 import { formatCurrency } from '@/lib/utils';
 import { WizardStepper } from './WizardStepper';
 import { ValidationChecklist } from './ValidationChecklist';
+import { TrackingReadinessChecklist } from './TrackingReadinessChecklist';
 import { FacebookAdPreview, previewFormatFromAdFormat } from '@/components/ad-preview/FacebookAdPreview';
 import MetaAssetPicker from '@/components/MetaAssetPicker';
 import {
@@ -83,11 +86,13 @@ export function CampaignWizard({
   websiteUrl: initialWebsiteUrl,
   initialTemplateId,
   fromAds,
+  pageId: initialPageId,
   pageName: initialPageName,
   pixelId: initialPixelId,
   pixelName: initialPixelName,
   timezoneName: initialTimezoneName,
   timezoneId: initialTimezoneId,
+  userId: subscriberUserId,
 }: {
   campaigns: MetaCampaign[];
   approvedAds: GeneratedAd[];
@@ -95,16 +100,19 @@ export function CampaignWizard({
   websiteUrl: string;
   initialTemplateId?: string;
   fromAds?: boolean;
+  pageId?: string | null;
   pageName?: string | null;
   pixelId?: string | null;
   pixelName?: string | null;
   timezoneName?: string | null;
   timezoneId?: number | null;
+  userId?: string | null;
 }) {
   const searchParams = useSearchParams();
   const [step, setStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
   const [campaigns, setCampaigns] = useState(initialCampaigns);
+  const [metaPageId, setMetaPageId] = useState(initialPageId || null);
   const [metaPageName, setMetaPageName] = useState(initialPageName || null);
   const [metaPixelName, setMetaPixelName] = useState(initialPixelName || null);
   const [metaPixelId, setMetaPixelId] = useState(initialPixelId || null);
@@ -115,7 +123,7 @@ export function CampaignWizard({
 
   // Form state
   const [name, setName] = useState('');
-  const [objective, setObjective] = useState('OUTCOME_TRAFFIC');
+  const [objective, setObjective] = useState(DEFAULT_CAMPAIGN_OBJECTIVE);
   const [budgetType, setBudgetType] = useState<'daily' | 'lifetime'>('daily');
   const [budget, setBudget] = useState('500');
   const [startDate, setStartDate] = useState(todayInIndia());
@@ -184,7 +192,7 @@ export function CampaignWizard({
     if (!t) return;
     setSelectedTemplateId(templateId);
     setName(`${t.name_prefix} · ${new Date().toLocaleDateString('en-IN')}`);
-    setObjective(t.objective);
+    setObjective(t.objective as CampaignObjective);
     setBudget(String(t.budget));
     setBudgetType(t.budget_type);
     setCta(t.cta);
@@ -199,7 +207,7 @@ export function CampaignWizard({
 
   function applyPrefill(prefill: CampaignPrefill) {
     if (prefill.name) setName(prefill.name);
-    if (prefill.objective) setObjective(prefill.objective);
+    if (prefill.objective) setObjective(prefill.objective as CampaignObjective);
     if (prefill.budget) setBudget(String(prefill.budget));
     if (prefill.budget_type) setBudgetType(prefill.budget_type);
     if (prefill.cta) setCta(prefill.cta);
@@ -218,11 +226,16 @@ export function CampaignWizard({
     if (prefill) {
       applyPrefill(prefill);
       if (prefill.fromAds) {
-        setPrefillBanner('Strategy imported from competitor ads — review and launch');
+        const brand = prefill.competitorBrand ? ` (${prefill.competitorBrand})` : '';
+        setPrefillBanner(
+          `Sales playbook imported from competitor ads${brand} — Pixel + Purchase required. Review and launch.`
+        );
       }
       clearCampaignPrefill();
     } else if (initialTemplateId) {
       applyTemplate(initialTemplateId);
+    } else if (!fromAds) {
+      applyTemplate(getDefaultSalesTemplate().id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -477,6 +490,7 @@ export function CampaignWizard({
         <MetaAssetPicker
           enabled
           onSaved={(sel) => {
+            setMetaPageId(sel.page_id);
             setMetaPageName(sel.page_name);
             setMetaPixelId(sel.pixel_id);
             setMetaPixelName(sel.pixel_name);
@@ -488,6 +502,19 @@ export function CampaignWizard({
           }}
         />
       )}
+
+      <div className="mb-4">
+        <TrackingReadinessChecklist
+          metaConnected={metaConnected}
+          pageId={metaPageId}
+          pageName={metaPageName}
+          pixelId={metaPixelId}
+          pixelName={metaPixelName}
+          websiteUrl={websiteUrl}
+          userId={subscriberUserId}
+          objective={objective}
+        />
+      </div>
 
       {toast && (
         <div className="mb-4 rounded-lg bg-green-50 border border-green-200 text-green-800 text-sm px-4 py-3">
@@ -532,12 +559,25 @@ export function CampaignWizard({
                       }`}
                     >
                       <span className="text-lg">{t.emoji}</span>
-                      <p className="font-semibold text-sm mt-1">{t.name}</p>
+                      <p className="font-semibold text-sm mt-1">
+                        {t.name}
+                        {t.advanced ? (
+                          <span className="ml-1 text-[9px] uppercase tracking-wide text-amber-700">
+                            advanced
+                          </span>
+                        ) : null}
+                      </p>
                       <p className="text-[10px] text-[var(--muted)] mt-0.5 line-clamp-2">{t.description}</p>
                     </button>
                   ))}
                 </div>
               </div>
+              {objective === 'OUTCOME_TRAFFIC' && (
+                <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-950 text-sm px-3 py-2">
+                  Traffic optimizes for clicks only. For store ATC → Purchase results, use{' '}
+                  <strong>Sales</strong> with a linked Pixel.
+                </div>
+              )}
               <div>
                 <label className="label">Campaign name</label>
                 <input

@@ -710,6 +710,25 @@ export default function OnboardingClient() {
               </button>
             )}
 
+            <div className="rounded-xl border border-[var(--border)] bg-blue-50/60 p-4 space-y-2 text-sm">
+              <p className="font-semibold text-[var(--foreground)]">Before Meta go-live (every store)</p>
+              <ol className="list-decimal pl-5 space-y-1 text-[var(--muted)] text-xs">
+                <li>Connect Facebook Page + website Meta Pixel in Campaigns.</li>
+                <li>
+                  Confirm Events Manager fires PageView, ViewContent, AddToCart, and Purchase on{' '}
+                  {websiteUrl || 'your store'}.
+                </li>
+                <li>
+                  Shopify: add orders webhook to{' '}
+                  <code className="text-[10px] bg-white/80 px-1 rounded">
+                    /api/webhooks/shopify/capi?user_id=YOUR_USER_ID
+                  </code>{' '}
+                  (shown on Campaigns after login).
+                </li>
+                <li>Launch Sales (Purchase) campaigns — not Traffic — for ROAS results.</li>
+              </ol>
+            </div>
+
             <div className="flex gap-3 pt-2">
               <button className="btn-secondary" onClick={() => setStep(1)}>
                 Back

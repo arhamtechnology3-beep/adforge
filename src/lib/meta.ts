@@ -518,7 +518,7 @@ export async function createAdSet(
   targeting?: MetaAdSetTargeting,
   options?: MetaAdSetOptions
 ) {
-  const objConfig = getObjectiveConfig(options?.objective || 'OUTCOME_TRAFFIC');
+  const objConfig = getObjectiveConfig(options?.objective || 'OUTCOME_SALES');
   const placementSpec = buildPlacementSpec(targeting?.placements);
   const schedule = buildScheduleTimes({
     start_date: targeting?.start_date,
@@ -575,7 +575,12 @@ export async function createAdSet(
     options?.pixelId ||
     process.env.META_PIXEL_ID ||
     null;
-  if (objConfig.optimization_goal === 'OFFSITE_CONVERSIONS' && pixelId) {
+  if (objConfig.optimization_goal === 'OFFSITE_CONVERSIONS') {
+    if (!pixelId) {
+      throw new Error(
+        'Sales campaigns require a Meta Pixel ID (Purchase). Link Pixel in Campaigns before launch.'
+      );
+    }
     body.promoted_object = {
       pixel_id: pixelId,
       custom_event_type: 'PURCHASE',

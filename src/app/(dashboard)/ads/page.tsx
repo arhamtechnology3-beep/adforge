@@ -720,6 +720,21 @@ export default function AdsPage() {
       .filter(Boolean)
       .slice(0, 3);
     const hasWinner = adsList.some((a) => a.performance_rating === 'WINNER');
+    const competitorBrand =
+      competitorIntel.find((c) =>
+        (c.live_meta_ads || []).some((x) => adsList.some((a) => a.id === x.id))
+      )?.brand ||
+      competitorIntel[0]?.brand ||
+      'Competitor';
+    const strategyHooks = competitorIntel
+      .flatMap((c) => [c.hook, c.counterAngle, c.positioning].filter(Boolean))
+      .map((h) => String(h).slice(0, 40))
+      .filter(Boolean)
+      .slice(0, 4);
+    const interestSeed = ['Online shopping', 'Gifting', ...strategyHooks]
+      .filter(Boolean)
+      .slice(0, 6)
+      .join(', ');
     const launchAssets = ads.filter(
       (ad) =>
         ad.status === 'approved' &&
@@ -732,14 +747,26 @@ export default function AdsPage() {
       return;
     }
 
+    const salesName = `Sales · from ${competitorBrand} · ${new Date().toLocaleDateString('en-IN')}`;
+
     saveCampaignPrefill({
       fromAds: true,
-      name: hasWinner ? 'Counter-Campaign — Winner Pack' : 'Counter-Campaign — D2C Pack',
+      templateId: 'subscriber-sales',
+      playbook: 'subscriber-sales',
+      competitorBrand,
+      name: hasWinner ? `${salesName} (winner pack)` : salesName,
       objective: 'OUTCOME_SALES',
       budget: hasWinner ? 3500 : 1500,
       budget_type: 'daily',
       cta: allowed.includes(ctaRaw) ? ctaRaw : 'SHOP_NOW',
-      link_description: hooks.length ? hooks.join(' · ').slice(0, 120) : undefined,
+      link_description: hooks.length
+        ? hooks.join(' · ').slice(0, 120)
+        : `Shop now — strategy inspired by ${competitorBrand}`,
+      age_min: 21,
+      age_max: 55,
+      gender: 'ALL',
+      locations: 'Mumbai, Delhi, Bengaluru, Hyderabad, Pune, Ahmedabad',
+      interests: interestSeed || 'Online shopping, Gifting, Indian cuisine',
       placements: {
         reels: platforms.has('instagram') || platforms.size === 0,
         ig_feed: platforms.has('instagram') || platforms.size === 0,

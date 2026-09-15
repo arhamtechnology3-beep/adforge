@@ -17,6 +17,8 @@ export type CampaignPrefill = {
   interests?: string;
   placements?: PlacementToggles;
   fromAds?: boolean;
+  competitorBrand?: string;
+  playbook?: 'subscriber-sales' | 'retargeting';
   approvedCreativeIds?: string[];
   creativeAssets?: Array<{
     id: string;
