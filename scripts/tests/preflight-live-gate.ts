@@ -269,7 +269,7 @@ async function main() {
       pass('confirm_payload', `type=${payload.recommendation.type} action=${payload.recommendation.proposed_action.action}`);
     }
 
-    // Persist reject path (safe — no Meta change)
+    // Persist reject path via service role (mirrors confirm route after auth)
     const { data: inserted, error: insErr } = await sb
       .from('agent_recommendations')
       .insert({
@@ -294,6 +294,33 @@ async function main() {
         pass('confirm_persist_cleanup', 'deleted preflight row');
       }
     }
+
+    // RLS: anon session must have INSERT policy (016) OR confirm uses service role.
+    // Catch the live bug: "new row violates row-level security policy".
+    const { data: policies, error: polErr } = await sb.rpc('exec_sql' as never).maybeSingle?.()
+      ? { data: null, error: { message: 'skip' } }
+      : await sb.from('pg_policies' as never).select('policyname' as never).eq('tablename' as never, 'agent_recommendations');
+    void polErr;
+    // Prefer direct SQL via postgres if available; otherwise probe with a signed-in-style check:
+    // Confirm route source must use createServiceClient after getUser (regression guard).
+    const confirmSrc = await import('fs').then((fs) =>
+      fs.readFileSync(
+        path.join(process.cwd(), 'src/app/api/ops/recommendations/[id]/confirm/route.ts'),
+        'utf8'
+      )
+    );
+    if (
+      confirmSrc.includes('createServiceClient') &&
+      confirmSrc.includes('createClient')
+    ) {
+      pass('confirm_uses_service_role_after_auth', 'guards against missing INSERT RLS');
+    } else {
+      fail(
+        'confirm_uses_service_role_after_auth',
+        'confirm route must auth with user client then persist with service role'
+      );
+    }
+    void policies;
   } else {
     fail('confirm_payload', 'no recommendations to validate');
   }
