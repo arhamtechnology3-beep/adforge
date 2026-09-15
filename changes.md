@@ -6,6 +6,16 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+### Fix: Meta ad set create — required `advantage_audience`
+**What / why**  
+Launch failed with: *“enable or disable the Advantage audience feature… set advantage_audience to 0 or 1 in targeting_automation”*. Meta Marketing API now requires this flag on every ad set. Ad set targeting now always sends `targeting_automation.advantage_audience: 0` (off) so wizard city/interest selections are used as-is.
+
+**Paths:** `meta-targeting.ts` (`buildTargetingSpec`), `scripts/tests/meta-targeting.test.ts`
+
+**Manual:** After deploy → Campaigns → Launch again (or Confirm & Go Live on the draft). Ad set create should succeed past Advantage audience.
+
+---
+
 ### UX: Interests from store website + Meta-style suggestion chips
 **What / why**  
 Interests were too generic (e.g. Organic food) and only a comma text box. Audience now **studies the subscriber website + product catalog** to prefill (pickles → Indian cuisine / Homemade food / Cooking — Organic only if the site says so). UI matches Meta Ads Manager: **selected chips** (click to remove) + **50+ Suggestions (click to add)** + type-to-add. Meta resolve no longer shrinks the suggestion list to a handful of fuzzy hits.
