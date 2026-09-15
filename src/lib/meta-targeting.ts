@@ -209,6 +209,11 @@ export async function resolveTargeting(
 /**
  * Meta rejects overlapping geo levels (e.g. country IN + cities inside IN).
  * When cities are present, send cities only; otherwise countries.
+ *
+ * Meta Marketing API (2024+) requires `targeting_automation.advantage_audience`
+ * (0 or 1) on every ad set — omitting it fails create with:
+ * "enable or disable the Advantage audience feature".
+ * We default to 0 so explicit city/interest selections from the wizard are respected.
  */
 export function buildTargetingSpec(opts: {
   countries?: string[];
@@ -218,6 +223,8 @@ export function buildTargetingSpec(opts: {
   cities?: Array<{ key: string }>;
   interests?: Array<{ id: string }>;
   placements?: Record<string, string[]>;
+  /** 1 = Advantage+ audience on, 0 = off (use detailed targeting as-is). Default 0. */
+  advantage_audience?: 0 | 1;
 }): Record<string, unknown> {
   const ageMin = Math.min(65, Math.max(13, Number(opts.age_min) || 18));
   const ageMax = Math.min(65, Math.max(ageMin, Number(opts.age_max) || 65));
@@ -234,6 +241,9 @@ export function buildTargetingSpec(opts: {
     geo_locations,
     age_min: ageMin,
     age_max: ageMax,
+    targeting_automation: {
+      advantage_audience: opts.advantage_audience === 1 ? 1 : 0,
+    },
   };
 
   if (opts.genders?.length) targeting.genders = opts.genders;

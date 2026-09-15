@@ -12,11 +12,20 @@ assert.deepEqual(withCities.geo_locations, {
   cities: [{ key: '2490299' }, { key: '2673300' }],
 });
 assert.ok(!('countries' in (withCities.geo_locations as object)));
+assert.deepEqual(withCities.targeting_automation, { advantage_audience: 0 });
 
 const countryOnly = buildTargetingSpec({
   countries: ['IN'],
   cities: [],
 });
 assert.deepEqual(countryOnly.geo_locations, { countries: ['IN'] });
+assert.deepEqual(countryOnly.targeting_automation, { advantage_audience: 0 });
 
-console.log('meta-targeting geo conflict tests passed');
+const advantageOn = buildTargetingSpec({
+  countries: ['IN'],
+  cities: [],
+  advantage_audience: 1,
+});
+assert.deepEqual(advantageOn.targeting_automation, { advantage_audience: 1 });
+
+console.log('meta-targeting geo conflict + advantage_audience tests passed');
