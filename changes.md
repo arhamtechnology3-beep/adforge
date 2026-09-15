@@ -6,7 +6,30 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+### Product: Auto Cities + Interests from competitor Library
+**What / why**  
+Cities and Interests are critical for Sales ROAS. Meta Ad Library does not expose competitor targeting, so AdForge now **auto-suggests** metros/tier-2 cities + category interests from competitor Library copy + brand category (pickles/food → cuisine/gifting). Prefills when launching from `/ads`, and Campaigns Audience step has **Auto-fill from competitors** (editable).
+
+**Paths:** `src/lib/audience-suggest.ts`, `api/campaigns/audience-suggest`, `CampaignWizard.tsx`, `ads/page.tsx`, `meta-targeting.ts`, `scripts/tests/audience-suggest.test.ts`
+
+**Manual:** From competitor ads → Launch campaign → Audience step should show India metros + food/gifting interests. Click **Auto-fill from competitors** to refresh. Edit if needed, then Continue.
+
+---
+
 ## 2026-09-15
+
+### Product: Sales + ATC/Purchase E2E for every subscriber
+**What / why**  
+Store subscribers need Meta ads that drive **AddToCart → Purchase**, not clicks. Wizard default is now **Sales**; Traffic is advanced-only. Sales launch is **hard-blocked without a website Pixel**. Competitor Library launch prefills the **Subscriber Sales playbook**. Campaigns shows a **tracking readiness** checklist (Page + Pixel + Shopify CAPI webhook). Ops Acknowledge uses service role after auth + migration **016** INSERT RLS.
+
+**Paths:** `meta-campaign.ts`, `campaign-templates.ts`, `campaign-validation.ts`, `meta.ts` (`createAdSet` requires Pixel for Sales/Purchase), `api/campaigns/launch`, `CampaignWizard.tsx`, `TrackingReadinessChecklist.tsx`, `ads/page.tsx` prefill, `OnboardingClient.tsx`, `016_agent_recommendations_insert_rls.sql`, `scripts/launch-divyaprabha-sales.ts`, `scripts/tests/campaign-sales-gate.test.ts`, `preflight-live-gate.ts`
+
+**Manual:**
+1. Run SQL migration **016** in Supabase (INSERT policies for `agent_recommendations`).
+2. Campaigns → link Page + website Pixel; confirm ATC/Purchase in Events Manager.
+3. `/ads` → approve creatives → Launch → Sales playbook → Confirm on Meta.
+4. Divyaprabha: `npm run launch:divyaprabha-sales` (dry-run), then `CONFIRM_LIVE=1 npm run launch:divyaprabha-sales`. Pause Traffic after Sales is ACTIVE.
+5. `npm run test:preflight` GREEN before Hostinger.
 
 ### Process: preflight gate before Hostinger push
 **What / why**  

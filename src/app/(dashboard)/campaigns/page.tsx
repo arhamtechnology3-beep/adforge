@@ -14,12 +14,14 @@ function CampaignsPageInner() {
   const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
   const [approvedAds, setApprovedAds] = useState<GeneratedAd[]>([]);
   const [metaConnected, setMetaConnected] = useState(false);
+  const [pageId, setPageId] = useState<string | null>(null);
   const [pageName, setPageName] = useState<string | null>(null);
   const [pixelId, setPixelId] = useState<string | null>(null);
   const [pixelName, setPixelName] = useState<string | null>(null);
   const [timezoneName, setTimezoneName] = useState<string | null>(null);
   const [timezoneId, setTimezoneId] = useState<number | null>(null);
   const [websiteUrl, setWebsiteUrl] = useState('');
+  const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -31,6 +33,7 @@ function CampaignsPageInner() {
       .then(([campaignData, onboardingData]) => {
         setCampaigns(campaignData.campaigns || []);
         setMetaConnected(!!campaignData.meta_connected);
+        setPageId(campaignData.page_id || null);
         setPageName(campaignData.page_name || null);
         setPixelId(campaignData.pixel_id || null);
         setPixelName(campaignData.pixel_name || null);
@@ -39,6 +42,7 @@ function CampaignsPageInner() {
           campaignData.timezone_id != null ? Number(campaignData.timezone_id) : null
         );
         if (onboardingData?.website_url) setWebsiteUrl(onboardingData.website_url);
+        setUserId(campaignData.user_id || onboardingData?.user_id || null);
 
         if (onboardingData?.id) {
           return fetch(`/api/ads/generate?campaign_input_id=${onboardingData.id}`)
@@ -70,11 +74,13 @@ function CampaignsPageInner() {
       websiteUrl={websiteUrl}
       initialTemplateId={template}
       fromAds={fromAds}
+      pageId={pageId}
       pageName={pageName}
       pixelId={pixelId}
       pixelName={pixelName}
       timezoneName={timezoneName}
       timezoneId={timezoneId}
+      userId={userId}
     />
   );
 }

@@ -5,19 +5,19 @@
 
 export const CAMPAIGN_OBJECTIVES = [
   {
-    value: 'OUTCOME_TRAFFIC',
-    label: 'Traffic',
-    description: 'Send people to your website or store',
-    icon: 'link',
-    optimization_goal: 'LINK_CLICKS',
+    value: 'OUTCOME_SALES',
+    label: 'Sales',
+    description: 'Drive AddToCart + Purchase on your store (Meta Pixel required)',
+    icon: 'cart',
+    optimization_goal: 'OFFSITE_CONVERSIONS',
     billing_event: 'IMPRESSIONS',
   },
   {
-    value: 'OUTCOME_SALES',
-    label: 'Sales',
-    description: 'Drive purchases (Meta Pixel recommended)',
-    icon: 'cart',
-    optimization_goal: 'OFFSITE_CONVERSIONS',
+    value: 'OUTCOME_TRAFFIC',
+    label: 'Traffic',
+    description: 'Clicks only — will not optimize for purchases (advanced)',
+    icon: 'link',
+    optimization_goal: 'LINK_CLICKS',
     billing_event: 'IMPRESSIONS',
   },
   {
@@ -39,6 +39,9 @@ export const CAMPAIGN_OBJECTIVES = [
 ] as const;
 
 export type CampaignObjective = (typeof CAMPAIGN_OBJECTIVES)[number]['value'];
+
+/** Default for every store subscriber — Purchase optimization. */
+export const DEFAULT_CAMPAIGN_OBJECTIVE: CampaignObjective = 'OUTCOME_SALES';
 
 export const META_CTA_OPTIONS = [
   { value: 'SHOP_NOW', label: 'Shop Now' },
