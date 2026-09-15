@@ -6,6 +6,16 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+### UX: Interests from store website + Meta-style suggestion chips
+**What / why**  
+Interests were too generic (e.g. Organic food) and only a comma text box. Audience now **studies the subscriber website + product catalog** to prefill (pickles → Indian cuisine / Homemade food / Cooking — Organic only if the site says so). UI matches Meta Ads Manager: **selected chips** (click to remove) + **Suggestions (click to add)** + type-to-add.
+
+**Paths:** `audience-suggest.ts`, `api/campaigns/audience-suggest`, `CampaignWizard.tsx`, `scripts/tests/audience-suggest.test.ts`
+
+**Manual:** Hard-refresh Campaigns → Audience → Auto-fill — selected interests match store; click dashed suggestion chips to add more.
+
+---
+
 ### Product: India Tier 1/2/3 cities — Meta Targeting Search only
 **What / why**  
 Audience Cities must be pushable to Meta Ads. Wizard now has **Tier 1 (8 metros) / Tier 2 (~97) / Tier 3** toggles that fill Meta-oriented city names. Interests use Meta-searchable labels. At launch (and Auto-fill with `resolve=1`), `resolveTargeting` keeps only cities/interests Meta Targeting Search returns — unresolved names are dropped; we never invent geo keys.
