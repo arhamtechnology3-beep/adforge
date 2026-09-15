@@ -19,6 +19,9 @@ export type CampaignMetrics = {
   status: string;
   budget: number | null;
   spend: number;
+  /** Latest snapshot day spend — use for daily pacing vs budget */
+  spendToday?: number;
+  daysCovered?: number;
   impressions: number;
   clicks: number;
   cpc: number;

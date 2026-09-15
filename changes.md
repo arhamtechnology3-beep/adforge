@@ -8,6 +8,22 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-09-15
 
+### Process: preflight gate before Hostinger push
+**What / why**  
+Repeated live deploys failed or shipped half-tested Ops/Reports fixes. Added `npm run test:preflight` which must pass **tsc + eslint on changed APIs + unit optimize + full `next build` + live Meta sync/reports/ops/confirm contracts** before push.
+
+**Paths:** `scripts/tests/preflight-live-gate.ts`, `package.json` (`test:preflight`)
+
+**Manual:** Always `npm run test:preflight` (or `PREFLIGHT_SKIP_BUILD=1` only for fast local loops). Do not Redeploy until GREEN.
+
+### Fix: Ops Confirm for live recs + decision detail on each card
+**What / why**  
+Confirm failed with 404 because Ops cards used ephemeral `live-*` ids not stored in `agent_recommendations`. Confirm now accepts the recommendation payload, applies Meta only for pause/budget, otherwise acknowledges + persists. Each card shows **What / Why / If you Confirm / Suggested decision**. Daily pacing uses **today’s spend** (not multi-day total) so false “336% over-pacing” is gone — Reports pacing too.
+
+**Paths:** `OpsClient.tsx`, `api/ops/recommendations/route.ts`, `api/ops/recommendations/[id]/confirm/route.ts`, `ops-v2.ts`, `reports/build.ts`, `ops-agent/types.ts`
+
+**Manual:** After GREEN deploy → `/ops` → read detail → **Acknowledge** / **Confirm pause** / **Reject**.
+
 ### Fix: Hostinger build — user possibly null in Ops API
 **What / why**  
 Deploy `2c6a1ee` failed typecheck: nested `liveRecRows()` closed over `user` which TS still treated as nullable. Capture `userId` after the auth guard.

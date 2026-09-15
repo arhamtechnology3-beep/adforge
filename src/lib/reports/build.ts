@@ -47,12 +47,15 @@ export function metricsFromSnapshots(
     const purchases = rows.reduce((a, r) => a + Number(r.purchases || 0), 0);
     const revenue = rows.reduce((a, r) => a + Number(r.revenue || 0), 0);
     const reach = Number(latest?.reach || 0);
+    const spendToday = Number(latest?.spend || 0);
     return {
       campaignId: id,
       campaignName: meta?.name || 'Campaign',
       status: (meta?.status as CampaignMetrics['status']) || 'active',
       budget: meta?.budget != null ? Number(meta.budget) : null,
       spend,
+      spendToday,
+      daysCovered: rows.length,
       impressions,
       clicks,
       cpc: clicks > 0 ? spend / clicks : Number(latest?.cpc || 0),
@@ -64,7 +67,12 @@ export function metricsFromSnapshots(
       purchases,
       add_to_cart: rows.reduce((a, r) => a + Number(r.add_to_cart || 0), 0),
       initiate_checkout: rows.reduce((a, r) => a + Number(r.initiate_checkout || 0), 0),
-      conversion_rate: latest?.conversion_rate != null ? Number(latest.conversion_rate) : null,
+      conversion_rate:
+        latest?.conversion_rate != null
+          ? Number(latest.conversion_rate)
+          : clicks > 0
+            ? (purchases / clicks) * 100
+            : null,
       video_views: rows.reduce((a, r) => a + Number(r.video_views || 0), 0),
       engagement_rate: latest?.engagement_rate != null ? Number(latest.engagement_rate) : null,
       revenue,
@@ -245,21 +253,46 @@ export function buildReport(opts: {
     }
 
     case 'pacing':
+      return {
+        ...base,
+        kpis: camps.map((c) => {
+          const day = c.spendToday != null ? c.spendToday : c.spend;
+          return {
+            label: c.campaignName,
+            value: c.budget ? `${Math.round((day / c.budget) * 100)}%` : '—',
+            hint: `Today ${money(day)} / ${money(c.budget || 0)} daily`,
+          };
+        }),
+        table: {
+          columns: ['Campaign', 'Daily budget', 'Spend today', 'Pacing'],
+          rows: camps.map((c) => {
+            const day = c.spendToday != null ? c.spendToday : c.spend;
+            return [
+              c.campaignName,
+              c.budget || 0,
+              Math.round(day),
+              c.budget ? `${Math.round((day / c.budget) * 100)}%` : '—',
+            ];
+          }),
+        },
+        notes: ['Pacing uses latest day spend vs daily budget (not lifetime total).'],
+      };
+
     case 'spend_budget':
       return {
         ...base,
         kpis: camps.map((c) => ({
           label: c.campaignName,
-          value: c.budget ? `${Math.round((c.spend / c.budget) * 100)}%` : '—',
-          hint: `${money(c.spend)} / ${money(c.budget || 0)}`,
+          value: money(c.spend),
+          hint: `Daily cap ${money(c.budget || 0)} · ${c.daysCovered || 1}d window`,
         })),
         table: {
-          columns: ['Campaign', 'Budget', 'Spend', 'Pacing'],
+          columns: ['Campaign', 'Daily budget', 'Window spend', 'Days'],
           rows: camps.map((c) => [
             c.campaignName,
             c.budget || 0,
             Math.round(c.spend),
-            c.budget ? `${Math.round((c.spend / c.budget) * 100)}%` : '—',
+            c.daysCovered || 1,
           ]),
         },
       };
@@ -301,7 +334,10 @@ export function buildReport(opts: {
       return {
         ...base,
         kpis: [
-          { label: 'Under-pacing', value: String(camps.filter((c) => c.budget && c.spend / c.budget < 0.4).length) },
+          { label: 'Under-pacing', value: String(camps.filter((c) => {
+            const day = c.spendToday != null ? c.spendToday : c.spend;
+            return c.budget && day / c.budget < 0.4;
+          }).length) },
           { label: 'Low CTR', value: String(camps.filter((c) => c.ctr < 0.6).length) },
         ],
         notes: ['Learning-phase flags appear when Meta delivery insights are connected.'],

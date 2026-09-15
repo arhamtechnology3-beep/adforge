@@ -25,17 +25,12 @@ export async function GET(request: Request) {
     .eq('id', userId)
     .maybeSingle();
 
-  let query = supabase
+  const { data: storedRecs, error } = await supabase
     .from('agent_recommendations')
     .select('*')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(100);
-
-  if (status !== 'all') query = query.eq('status', status);
-  if (source === 'performance' || source === 'policy') query = query.eq('source', source);
-
-  const { data: recommendations, error } = await query;
 
   const { data: runs } = await supabase
     .from('agent_runs')
@@ -44,7 +39,6 @@ export async function GET(request: Request) {
     .order('created_at', { ascending: false })
     .limit(20);
 
-  // Live metrics from synced snapshots (same path as Reports)
   const { data: campaigns } = await supabase
     .from('meta_campaigns')
     .select('id, name, budget, status')
@@ -74,48 +68,47 @@ export async function GET(request: Request) {
   function liveRecRows() {
     const analysis = runOpsAnalysis({
       metrics: liveMetrics,
-      useDryRun: false,
+      useDryRun: !hasLive,
       targets: {
         cpaTarget: profile?.cpa_target ?? 100,
         roasTarget: profile?.roas_target ?? 2,
         dailyBudgetCap: profile?.daily_budget_cap ?? null,
       },
     });
-    return analysis.recommendations.map((r, i) => ({
-      id: `live-${i}`,
-      user_id: userId,
-      meta_campaign_id: r.meta_campaign_id || null,
-      source: r.source,
-      type: r.type,
-      severity: r.severity,
-      title: r.title,
-      body: r.body,
-      proposed_action: r.proposed_action,
-      status: r.auto_apply ? ('applied' as const) : ('pending' as const),
-      created_at: new Date().toISOString(),
-      resolved_at: r.auto_apply ? new Date().toISOString() : null,
-    }));
+    return analysis.recommendations
+      .filter((r) => !r.auto_apply)
+      .map((r, i) => ({
+        id: `live-${i}`,
+        user_id: userId,
+        meta_campaign_id: r.meta_campaign_id || null,
+        source: r.source,
+        type: r.type,
+        severity: r.severity,
+        title: r.title,
+        body: r.body,
+        proposed_action: r.proposed_action,
+        status: 'pending' as const,
+        created_at: new Date().toISOString(),
+        resolved_at: null,
+      }));
   }
 
-  if (error) {
-    // Table missing — prefer live metrics over demo fixtures when we have spend
-    if (hasLive) {
-      let list = liveRecRows();
-      if (status !== 'all') list = list.filter((r) => r.status === status);
-      if (source === 'performance' || source === 'policy') {
-        list = list.filter((r) => r.source === source);
-      }
-      return NextResponse.json({
-        dryRun: false,
-        liveComputed: true,
-        recommendations: list,
-        runs: [],
-      });
-    }
+  const stored = error ? [] : storedRecs || [];
+  const resolvedKeys = new Set(
+    stored
+      .filter((r) => r.status === 'applied' || r.status === 'rejected')
+      .map((r) => `${r.type}:${r.meta_campaign_id || ''}`)
+  );
+
+  let live = hasLive
+    ? liveRecRows().filter((r) => !resolvedKeys.has(`${r.type}:${r.meta_campaign_id || ''}`))
+    : [];
+
+  if (error && !hasLive) {
     const analysis = runOpsAnalysis({ useDryRun: true });
-    return NextResponse.json({
-      dryRun: true,
-      recommendations: analysis.recommendations.map((r, i) => ({
+    live = analysis.recommendations
+      .filter((r) => !r.auto_apply)
+      .map((r, i) => ({
         id: `dry-${i}`,
         user_id: userId,
         meta_campaign_id: r.meta_campaign_id || null,
@@ -125,51 +118,33 @@ export async function GET(request: Request) {
         title: r.title,
         body: r.body,
         proposed_action: r.proposed_action,
-        status: r.auto_apply ? 'applied' : 'pending',
+        status: 'pending' as const,
         created_at: new Date().toISOString(),
-        resolved_at: r.auto_apply ? new Date().toISOString() : null,
-      })),
-      runs: [],
-    });
+        resolved_at: null,
+      }));
   }
 
-  let list = recommendations || [];
-  let dryRun = false;
-  let liveComputed = false;
+  let list = [
+    ...stored.filter((r) => (status === 'all' ? true : r.status === status)),
+    ...(status === 'pending' || status === 'all' ? live : []),
+  ];
 
-  if (!list.length) {
-    if (hasLive) {
-      list = liveRecRows();
-      liveComputed = true;
-      if (status !== 'all') list = list.filter((r) => r.status === status);
-      if (source === 'performance' || source === 'policy') {
-        list = list.filter((r) => r.source === source);
-      }
-    } else if (status === 'pending' || status === 'all') {
-      const analysis = runOpsAnalysis({ useDryRun: true });
-      list = analysis.recommendations
-        .filter((r) => !r.auto_apply)
-        .map((r, i) => ({
-          id: `dry-${i}`,
-          user_id: userId,
-          meta_campaign_id: r.meta_campaign_id || null,
-          source: r.source,
-          type: r.type,
-          severity: r.severity,
-          title: r.title,
-          body: r.body,
-          proposed_action: r.proposed_action,
-          status: 'pending' as const,
-          created_at: new Date().toISOString(),
-          resolved_at: null,
-        }));
-      dryRun = true;
-    }
+  if (source === 'performance' || source === 'policy') {
+    list = list.filter((r) => r.source === source);
   }
+
+  // Prefer DB pending over duplicate live type+campaign
+  const seen = new Set<string>();
+  list = list.filter((r) => {
+    const key = `${r.status}:${r.type}:${r.meta_campaign_id || ''}`;
+    if (seen.has(key) && String(r.id).startsWith('live-')) return false;
+    seen.add(key);
+    return true;
+  });
 
   return NextResponse.json({
-    dryRun,
-    liveComputed,
+    dryRun: list.some((r) => String(r.id).startsWith('dry-')),
+    liveComputed: list.some((r) => String(r.id).startsWith('live-')),
     recommendations: list,
     runs: runs || [],
   });
