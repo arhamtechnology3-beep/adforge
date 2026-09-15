@@ -658,6 +658,7 @@ function AdMedia({ ad }: { ad: GeneratedAd }) {
 export default function AdsPage() {
   const router = useRouter();
   const [campaignInputId, setCampaignInputId] = useState<string | null>(null);
+  const [storeWebsiteUrl, setStoreWebsiteUrl] = useState<string | null>(null);
   const [ads, setAds] = useState<GeneratedAd[]>([]);
   const [competitorIntel, setCompetitorIntel] = useState<CompetitorIntel[]>([]);
   const [compTab, setCompTab] = useState<'strategy' | 'meta_ads'>('meta_ads');
@@ -734,8 +735,8 @@ export default function AdsPage() {
       .slice(0, 4);
     const audience = audienceSuggestionFromCompetitorIntel({
       brandName: null,
-      websiteUrl: null,
-      category: 'pickles',
+      websiteUrl: storeWebsiteUrl,
+      category: storeWebsiteUrl ? null : 'pickles',
       competitors: competitorIntel.map((c) => ({
         brand: c.brand,
         hook: c.hook,
@@ -823,6 +824,7 @@ export default function AdsPage() {
           return;
         }
         setCampaignInputId(data.id);
+        if (data.website_url) setStoreWebsiteUrl(data.website_url);
         return fetch(`/api/ads/generate?campaign_input_id=${data.id}`);
       })
       .then((r) => {

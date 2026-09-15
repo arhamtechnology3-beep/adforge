@@ -6,6 +6,26 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+### Fix: Cities & Interests stuck on weak defaults (`?from=ads`)
+**What / why**  
+Live Audience step stayed on `Mumbai…Pune` + `Online shopping, Gifting` when opening `/campaigns?from=ads` without sessionStorage prefill — autofill was skipped. Wizard now bootstraps Sales playbook immediately (client + API), replaces weak values on Audience step, and always returns a full playbook from `/api/campaigns/audience-suggest`. Button label: **Auto-fill Cities & Interests**.
+
+**Paths:** `CampaignWizard.tsx`, `audience-suggest.ts`, `api/campaigns/audience-suggest`, `ads/page.tsx`, `campaign-templates.ts`
+
+**Manual:** Hard-refresh `/campaigns?from=ads` → Audience — expect metros + Ahmedabad/tier-2 + Indian cuisine/Cooking (not only Online shopping). Click Auto-fill if needed.
+
+---
+
+### UX: Shopify CAPI Verify webhook
+**What / why**  
+Tracking checklist now has **Verify webhook** (test Purchase via AdForge → Meta) plus status from `capi_event_logs`.
+
+**Paths:** `TrackingReadinessChecklist.tsx`, `api/webhooks/shopify/capi/verify`, `api/webhooks/shopify/capi`
+
+**Manual:** After deploy → Campaigns → tracking checklist → Copy URL → Shopify webhook → **Verify webhook**.
+
+---
+
 ### UX: Shopify CAPI setup steps for every subscriber
 **What / why**  
 Subscribers need the same Order-payment webhook instructions Divyaprabha used. Campaigns tracking checklist now shows full Shopify Admin steps + **Copy URL** for their personal `user_id` webhook. Onboarding mirrors the same guidance.
@@ -18,11 +38,11 @@ Subscribers need the same Order-payment webhook instructions Divyaprabha used. C
 
 ### Product: Auto Cities + Interests from competitor Library
 **What / why**  
-Cities and Interests are critical for Sales ROAS. Meta Ad Library does not expose competitor targeting, so AdForge now **auto-suggests** metros/tier-2 cities + category interests from competitor Library copy + brand category (pickles/food → cuisine/gifting). Prefills when launching from `/ads`, and Campaigns Audience step has **Auto-fill from competitors** (editable).
+Cities and Interests are critical for Sales ROAS. Meta Ad Library does not expose competitor targeting, so AdForge now **auto-suggests** metros/tier-2 cities + category interests from competitor Library copy + brand category (pickles/food → cuisine/gifting). Prefills when launching from `/ads`, and Campaigns Audience step has **Auto-fill Cities & Interests** (editable).
 
 **Paths:** `src/lib/audience-suggest.ts`, `api/campaigns/audience-suggest`, `CampaignWizard.tsx`, `ads/page.tsx`, `meta-targeting.ts`, `scripts/tests/audience-suggest.test.ts`
 
-**Manual:** From competitor ads → Launch campaign → Audience step should show India metros + food/gifting interests. Click **Auto-fill from competitors** to refresh. Edit if needed, then Continue.
+**Manual:** From competitor ads → Launch campaign → Audience step should show India metros + food/gifting interests. Click **Auto-fill Cities & Interests** to refresh. Edit if needed, then Continue.
 
 ---
 

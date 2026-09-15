@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { CheckCircle2, Circle, AlertTriangle, Copy, Check } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { CheckCircle2, Circle, AlertTriangle, Copy, Check, Loader2 } from 'lucide-react';
 
 type Props = {
   metaConnected: boolean;
@@ -13,6 +13,8 @@ type Props = {
   userId?: string | null;
   objective?: string;
 };
+
+type CapiVerifyStatus = 'not_verified' | 'test_ok' | 'live_ok' | 'error' | 'loading';
 
 function Row({
   ok,
@@ -53,6 +55,9 @@ export function TrackingReadinessChecklist({
   objective = 'OUTCOME_SALES',
 }: Props) {
   const [copied, setCopied] = useState(false);
+  const [capiStatus, setCapiStatus] = useState<CapiVerifyStatus>('loading');
+  const [capiMessage, setCapiMessage] = useState<string>('');
+  const [verifying, setVerifying] = useState(false);
   const pageOk = !!(pageId && pageId !== 'me');
   const pixelOk = !!pixelId;
   const sales = objective === 'OUTCOME_SALES';
@@ -62,7 +67,34 @@ export function TrackingReadinessChecklist({
     ? `${origin}/api/webhooks/shopify/capi?user_id=${userId}`
     : `${origin}/api/webhooks/shopify/capi?user_id=<YOUR_USER_ID>`;
 
+  const capiOk = capiStatus === 'test_ok' || capiStatus === 'live_ok';
   const ready = metaConnected && pageOk && pixelOk;
+
+  const refreshCapiStatus = useCallback(async () => {
+    if (!userId) {
+      setCapiStatus('not_verified');
+      setCapiMessage('Sign in to verify your webhook.');
+      return;
+    }
+    try {
+      const res = await fetch('/api/webhooks/shopify/capi/verify');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCapiStatus('error');
+        setCapiMessage(data.error || 'Could not load CAPI status');
+        return;
+      }
+      setCapiStatus((data.status as CapiVerifyStatus) || 'not_verified');
+      setCapiMessage(data.message || '');
+    } catch {
+      setCapiStatus('error');
+      setCapiMessage('Could not load CAPI status');
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    void refreshCapiStatus();
+  }, [refreshCapiStatus]);
 
   async function copyWebhook() {
     try {
@@ -71,6 +103,27 @@ export function TrackingReadinessChecklist({
       setTimeout(() => setCopied(false), 2000);
     } catch {
       setCopied(false);
+    }
+  }
+
+  async function verifyWebhook() {
+    setVerifying(true);
+    try {
+      const res = await fetch('/api/webhooks/shopify/capi/verify', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        setCapiStatus('error');
+        setCapiMessage(data.error || data.message || 'Verification failed');
+      } else {
+        setCapiStatus((data.status as CapiVerifyStatus) || 'test_ok');
+        setCapiMessage(data.message || 'Test Purchase sent.');
+      }
+      await refreshCapiStatus();
+    } catch {
+      setCapiStatus('error');
+      setCapiMessage('Verification request failed');
+    } finally {
+      setVerifying(false);
     }
   }
 
@@ -110,10 +163,15 @@ export function TrackingReadinessChecklist({
           detail={websiteUrl || 'Set your Shopify/store https URL'}
         />
         <Row
-          ok={false}
-          warn
+          ok={capiOk}
+          warn={!capiOk}
           label="Shopify CAPI (recommended — you set once in Shopify)"
-          detail="AdForge receives orders automatically after you add this webhook in Shopify Admin."
+          detail={
+            capiStatus === 'loading'
+              ? 'Checking webhook status…'
+              : capiMessage ||
+                'AdForge receives orders automatically after you add this webhook in Shopify Admin.'
+          }
         />
       </ul>
 
@@ -151,9 +209,30 @@ export function TrackingReadinessChecklist({
             {copied ? 'Copied' : 'Copy URL'}
           </button>
         </div>
+        <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center pt-1">
+          <button
+            type="button"
+            onClick={() => void verifyWebhook()}
+            disabled={!userId || !pixelOk || verifying}
+            className="btn-primary text-xs inline-flex items-center justify-center gap-1.5"
+          >
+            {verifying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+            {verifying ? 'Verifying…' : capiOk ? 'Re-verify webhook' : 'Verify webhook'}
+          </button>
+          {capiOk && (
+            <span className="text-[11px] text-green-800 font-medium">
+              {capiStatus === 'live_ok' ? 'Live order verified' : 'Test path verified'}
+            </span>
+          )}
+        </div>
         {!userId && (
           <p className="text-[10px] text-amber-900">
             Sign in to see your personal webhook URL (user_id is unique per subscriber).
+          </p>
+        )}
+        {!pixelOk && (
+          <p className="text-[10px] text-amber-900">
+            Link a website Pixel before Verify can send a test Purchase to Meta.
           </p>
         )}
       </div>

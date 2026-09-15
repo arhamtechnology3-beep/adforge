@@ -143,7 +143,8 @@ function detectCategory(input: AudienceSuggestInput): string {
   if (/beauty|skincare|cosmetic/.test(blob)) return 'beauty';
   if (/fashion|apparel|clothing|kurti/.test(blob)) return 'fashion';
   if (/jewel|jewellery|jewelry/.test(blob)) return 'jewellery';
-  if (/food|cuisine|grocery|organic/.test(blob)) return 'food';
+  // Match "foods" in domains like divyaprabhafoods.com and brand names
+  if (/foods?\b|cuisine|grocery|organic|d2c.?food/.test(blob)) return 'food';
   return 'default';
 }
 

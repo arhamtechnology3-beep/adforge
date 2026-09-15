@@ -91,7 +91,8 @@ export async function POST(request: Request) {
     testEventCode,
   });
 
-  // Best-effort log
+  // Best-effort log (mark Shopify vs unknown for Verify UI)
+  const shopifyTopic = request.headers.get('x-shopify-topic');
   try {
     await supabase.from('capi_event_logs').insert({
       user_id: userId,
@@ -100,7 +101,11 @@ export async function POST(request: Request) {
       dry_run: result.dryRun,
       ok: result.ok,
       estimated_emq: result.estimatedEmq,
-      payload: result.payload,
+      payload: {
+        ...(result.payload as object),
+        _source: shopifyTopic ? 'shopify' : 'webhook',
+        _shopify_topic: shopifyTopic || null,
+      },
       meta_response: result.metaResponse || null,
       error: result.error || null,
     });

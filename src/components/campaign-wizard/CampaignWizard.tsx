@@ -36,6 +36,7 @@ import {
   clearCampaignPrefill,
   type CampaignPrefill,
 } from '@/lib/campaign-prefill';
+import { suggestAudience } from '@/lib/audience-suggest';
 import type { CampaignValidationResult } from '@/lib/campaign-validation';
 import { formatCurrency } from '@/lib/utils';
 import { WizardStepper } from './WizardStepper';
@@ -64,6 +65,17 @@ const DEFAULT_PLACEMENTS: PlacementToggles = {
   fb_feed: true,
   stories: true,
 };
+
+/** Weak placeholders that must be replaced by Sales playbook / competitor suggest. */
+function isWeakAudience(locations: string, interests: string): boolean {
+  const loc = locations.trim().toLowerCase();
+  const ints = interests.trim().toLowerCase();
+  if (!loc || !ints) return true;
+  if (ints === 'online shopping, gifting' || ints === 'online shopping') return true;
+  if (loc === 'mumbai, delhi, bengaluru, hyderabad, pune') return true;
+  if (ints.split(',').filter(Boolean).length < 3) return true;
+  return false;
+}
 
 const META_CONNECT_ERRORS: Record<string, string> = {
   meta_demo_blocked: 'Meta connect needs a session. Refresh and try Connect with Facebook again.',
@@ -121,7 +133,12 @@ export function CampaignWizard({
     initialTimezoneId ?? null
   );
 
-  // Form state
+  // Form state — bootstrap Sales cities/interests immediately (never leave weak defaults)
+  const audienceBootstrap = suggestAudience({
+    websiteUrl: initialWebsiteUrl,
+    brandName: null,
+    category: null,
+  });
   const [name, setName] = useState('');
   const [objective, setObjective] = useState(DEFAULT_CAMPAIGN_OBJECTIVE);
   const [budgetType, setBudgetType] = useState<'daily' | 'lifetime'>('daily');
@@ -131,10 +148,8 @@ export function CampaignWizard({
   const [ageMin, setAgeMin] = useState('18');
   const [ageMax, setAgeMax] = useState('65');
   const [gender, setGender] = useState<'ALL' | 'MEN' | 'WOMEN'>('ALL');
-  const [locations, setLocations] = useState(
-    'Mumbai, Delhi, Bengaluru, Hyderabad, Pune'
-  );
-  const [interests, setInterests] = useState('Online shopping, Gifting');
+  const [locations, setLocations] = useState(audienceBootstrap.citiesCsv);
+  const [interests, setInterests] = useState(audienceBootstrap.interestsCsv);
   const [placements, setPlacements] = useState<PlacementToggles>(DEFAULT_PLACEMENTS);
   const [websiteUrl, setWebsiteUrl] = useState(initialWebsiteUrl);
   const [cta, setCta] = useState('SHOP_NOW');
@@ -175,6 +190,10 @@ export function CampaignWizard({
   }, [initialTimezoneName, initialTimezoneId]);
 
   useEffect(() => {
+    if (initialWebsiteUrl) setWebsiteUrl(initialWebsiteUrl);
+  }, [initialWebsiteUrl]);
+
+  useEffect(() => {
     const code = searchParams.get('error');
     if (code && META_CONNECT_ERRORS[code]) {
       setError(META_CONNECT_ERRORS[code]);
@@ -201,8 +220,15 @@ export function CampaignWizard({
     setAgeMin(String(t.age_min));
     setAgeMax(String(t.age_max));
     setGender(t.gender);
-    setLocations(t.locations);
-    setInterests(t.interests);
+    // Never let templates wipe in weak Online shopping-only audience
+    const playbook = suggestAudience({
+      websiteUrl: websiteUrl || initialWebsiteUrl,
+      category: null,
+    });
+    const nextLoc = isWeakAudience(t.locations, t.interests) ? playbook.citiesCsv : t.locations;
+    const nextInt = isWeakAudience(t.locations, t.interests) ? playbook.interestsCsv : t.interests;
+    setLocations(nextLoc);
+    setInterests(nextInt);
     setPlacements({ ...t.placements });
     if (t.link_description) setLinkDescription(t.link_description);
   }
@@ -225,22 +251,42 @@ export function CampaignWizard({
 
   async function autoFillAudience(opts?: { force?: boolean }) {
     setAudienceLoading(true);
+    // Instant local playbook so UI never stays on weak defaults while API loads
+    const storeUrl = websiteUrl || initialWebsiteUrl || '';
+    const local = suggestAudience({
+      websiteUrl: storeUrl || null,
+      brandName: null,
+      // Food D2C default when store URL not loaded yet — never leave Online shopping only
+      category: storeUrl ? null : 'pickles',
+    });
+    const replace =
+      !!opts?.force || isWeakAudience(locations, interests) || !locations.trim() || !interests.trim();
+    if (replace) {
+      setLocations(local.citiesCsv);
+      setInterests(local.interestsCsv);
+      setAudienceHint(
+        'Sales playbook audience applied (India metros + category interests). Refining from competitors…'
+      );
+    }
     try {
       const res = await fetch('/api/campaigns/audience-suggest');
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Audience suggest failed');
-      if (opts?.force || !locations.trim()) {
-        setLocations(data.citiesCsv || data.cities?.join(', ') || locations);
-      }
-      if (opts?.force || !interests.trim() || interests === 'Online shopping, Gifting') {
-        setInterests(data.interestsCsv || data.interests?.join(', ') || interests);
-      }
+      const nextCities = data.citiesCsv || data.cities?.join(', ');
+      const nextInterests = data.interestsCsv || data.interests?.join(', ');
+      // Always apply API result when forced/replacing — do not re-read stale React state
+      if (nextCities && replace) setLocations(nextCities);
+      if (nextInterests && replace) setInterests(nextInterests);
       const why = Array.isArray(data.rationale) ? data.rationale.slice(0, 2).join(' · ') : '';
-      setAudienceHint(
-        `Auto-filled from ${data.source === 'competitor_library' || data.source === 'competitor_intel' ? 'competitor Library / intel' : 'India D2C Sales playbook'}${why ? ` — ${why}` : ''}. Edit freely.`
-      );
+      const src =
+        data.source === 'competitor_library' || data.source === 'competitor_intel'
+          ? 'competitor Library / intel'
+          : 'India D2C Sales playbook';
+      setAudienceHint(`Auto-filled from ${src}${why ? ` — ${why}` : ''}. Edit freely.`);
     } catch {
-      setAudienceHint('Could not auto-suggest — using defaults. Edit cities/interests manually.');
+      setAudienceHint(
+        'Using Sales playbook cities/interests (competitor refresh unavailable). Edit if needed.'
+      );
     } finally {
       setAudienceLoading(false);
     }
@@ -256,25 +302,41 @@ export function CampaignWizard({
           `Sales playbook imported from competitor ads${brand} — Pixel + Purchase required. Review and launch.`
         );
       }
-      if (prefill.locations && prefill.interests) {
-        setAudienceHint(
-          'Cities & interests auto-filled from competitor Ad Library + India Sales playbook. You can edit before launch.'
-        );
-        clearCampaignPrefill();
-      } else {
-        clearCampaignPrefill();
-        // Prefill missing audience — pull from onboarding/competitor intel
-        void autoFillAudience({ force: true });
-      }
-    } else if (initialTemplateId) {
-      applyTemplate(initialTemplateId);
-      void autoFillAudience({ force: true });
-    } else if (!fromAds) {
-      applyTemplate(getDefaultSalesTemplate().id);
+      clearCampaignPrefill();
+      const weak = isWeakAudience(prefill.locations || '', prefill.interests || '');
+      // Always refresh when weak OR missing — from=ads with empty sessionStorage was the live bug
+      void autoFillAudience({ force: weak || !prefill.locations || !prefill.interests });
+    } else {
+      if (initialTemplateId) applyTemplate(initialTemplateId);
+      else applyTemplate(getDefaultSalesTemplate().id);
       void autoFillAudience({ force: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // When user opens Audience step, refresh if still weak (covers ?from=ads without prefill)
+  useEffect(() => {
+    if (step !== 1) return;
+    if (isWeakAudience(locations, interests)) {
+      void autoFillAudience({ force: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
+  // When store URL loads after mount, upgrade category-specific cities/interests
+  useEffect(() => {
+    if (!websiteUrl || !/^https?:\/\//i.test(websiteUrl)) return;
+    if (!isWeakAudience(locations, interests)) {
+      // Still enrich food brands that landed on default shopping-only pack
+      const ints = interests.toLowerCase();
+      if (!/cuisine|cooking|homemade|organic|pickle|foodie/.test(ints)) {
+        void autoFillAudience({ force: true });
+      }
+      return;
+    }
+    void autoFillAudience({ force: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [websiteUrl]);
   const previewAd =
     approvedAds.find((a) => a.id === previewAdId && selectedAds.includes(a.id)) ||
     approvedAds.find((a) => selectedAds.includes(a.id)) ||
@@ -686,18 +748,18 @@ export function CampaignWizard({
                   </label>
                   <button
                     type="button"
-                    className="text-xs font-medium text-[var(--meta-blue)] hover:underline disabled:opacity-50"
+                    className="text-xs font-semibold text-[var(--meta-blue)] hover:underline disabled:opacity-50"
                     disabled={audienceLoading}
-                    onClick={() => autoFillAudience({ force: true })}
+                    onClick={() => void autoFillAudience({ force: true })}
                   >
-                    {audienceLoading ? 'Suggesting…' : 'Auto-fill from competitors'}
+                    {audienceLoading ? 'Filling…' : 'Auto-fill Cities & Interests'}
                   </button>
                 </div>
                 <input
                   className="input"
                   value={locations}
                   onChange={(e) => setLocations(e.target.value)}
-                  placeholder="Mumbai, Delhi, Bengaluru"
+                  placeholder="Mumbai, Delhi, Bengaluru, Hyderabad, Pune, Ahmedabad"
                 />
                 <p className="text-xs text-[var(--muted)] mt-1">
                   Resolved to Meta city IDs automatically. Prefer metros + tier-2 for Sales.
@@ -709,7 +771,7 @@ export function CampaignWizard({
                   className="input"
                   value={interests}
                   onChange={(e) => setInterests(e.target.value)}
-                  placeholder="Online shopping, Indian cuisine, Gifting"
+                  placeholder="Indian cuisine, Cooking, Homemade food, Online shopping, Gifting"
                 />
                 {audienceHint && (
                   <p className="text-xs text-blue-800 bg-blue-50 border border-blue-100 rounded-lg px-2.5 py-2 mt-2">
@@ -718,7 +780,7 @@ export function CampaignWizard({
                 )}
                 {!audienceHint && (
                   <p className="text-xs text-[var(--muted)] mt-1">
-                    Auto-suggested from competitor Library copy + category. Edit if needed.
+                    Click <strong>Auto-fill Cities &amp; Interests</strong> if fields look empty or too thin.
                   </p>
                 )}
               </div>
