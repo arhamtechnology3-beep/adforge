@@ -37,9 +37,16 @@ export function metricsFromSnapshots(
   }
 
   const nameById = new Map((campaigns || []).map((c) => [c.id, c]));
+  const ids = new Set<string>([
+    ...byCamp.keys(),
+    ...(campaigns || []).map((c) => c.id),
+  ]);
 
-  return Array.from(byCamp.entries()).map(([id, rows]) => {
-    const latest = [...rows].sort((a, b) => b.date.localeCompare(a.date))[0];
+  return Array.from(ids).map((id) => {
+    const rows = byCamp.get(id) || [];
+    const latest = rows.length
+      ? [...rows].sort((a, b) => b.date.localeCompare(a.date))[0]
+      : null;
     const meta = nameById.get(id);
     const spend = rows.reduce((a, r) => a + Number(r.spend || 0), 0);
     const impressions = rows.reduce((a, r) => a + Number(r.impressions || 0), 0);
@@ -86,14 +93,20 @@ export function buildReport(opts: {
   snapshots?: PerformanceSnapshot[];
   recommendations?: AgentRecommendation[];
   campaigns?: ReportCampaignMeta[];
+  /**
+   * Sample/demo numbers ONLY when Meta is not linked.
+   * Never invent spend for a live Meta account (₹0 delivery must stay ₹0).
+   */
   forceDryRun?: boolean;
+  /** True when subscriber has Meta OAuth and/or campaigns with meta_campaign_id. */
+  liveMetaLinked?: boolean;
 }): ReportResult {
   const catalog = REPORT_CATALOG.find((c) => c.id === opts.view);
   const title = catalog?.title || opts.view;
-  const dry =
-    opts.forceDryRun ||
-    !opts.snapshots?.length ||
-    opts.snapshots.every((s) => !s.spend);
+  const liveLinked = opts.liveMetaLinked === true;
+  // Sample ONLY for unconnected preview. Live accounts always use real snapshots
+  // (empty / ₹0), never dry-run fiction like ₹13,501.
+  const dry = !!opts.forceDryRun && !liveLinked;
 
   const snaps = dry
     ? dryRunSnapshots(14).map((r, i) => ({
@@ -121,7 +134,7 @@ export function buildReport(opts: {
         raw_insights: {},
         breakdowns: r.breakdowns || {},
       }))
-    : opts.snapshots!;
+    : opts.snapshots || [];
 
   const sum = (key: keyof PerformanceSnapshot) =>
     snaps.reduce((a, s) => a + Number(s[key] || 0), 0);
@@ -174,7 +187,15 @@ export function buildReport(opts: {
     useDryRun: dry,
   });
   const chips: string[] = [];
-  if (dry) chips.push('Sample data — Connect Meta for live reports');
+  if (dry) {
+    chips.push('Sample data — Connect Meta for live reports');
+  } else if (!snaps.length) {
+    chips.push(
+      'Live Meta · No insights yet — click Sync latest from Meta (new ads often show ₹0 for hours)'
+    );
+  } else if (spend <= 0) {
+    chips.push('Live Meta · ₹0 spend so far — matches Ads Manager until delivery starts spending');
+  }
   if (catalog?.needs?.includes('shopify')) chips.push('Needs Shopify');
   if (catalog?.needs?.includes('phase2')) chips.push('Coming in Phase 2');
   if (catalog?.needs?.includes('meta') && dry) chips.push('Needs Meta breakdowns');

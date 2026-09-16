@@ -6,6 +6,16 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+### Fix: Reports must not invent ₹13k sample spend for live Meta campaigns
+**What / why**  
+After launching Sales · Prospecting live, Reports showed **₹13,501 sample** while Ads Manager correctly showed **₹0**. Cause: empty / zero-spend snapshots fell back to dry-run demo numbers. Live Meta-linked accounts now always show **real snapshots or ₹0** — sample data only when Meta is not connected. Chip copy: “Live Meta · ₹0 spend so far…”.
+
+**Paths:** `src/lib/reports/build.ts`, `src/app/api/reports/route.ts`, `scripts/tests/reports-live-empty.test.ts`
+
+**Manual:** Reports → select live Sales campaign → expect ₹0 (not ₹13k) until Meta delivery spends; use **Sync latest from Meta**.
+
+---
+
 ### Fix: Meta ad set create — required `advantage_audience`
 **What / why**  
 Launch failed with: *“enable or disable the Advantage audience feature… set advantage_audience to 0 or 1 in targeting_automation”*. Meta Marketing API now requires this flag on every ad set. Ad set targeting now always sends `targeting_automation.advantage_audience: 0` (off) so wizard city/interest selections are used as-is.

@@ -257,7 +257,13 @@ export default function ReportsClient() {
                 {report.chips?.map((c) => (
                   <span
                     key={c}
-                    className="inline-block mt-2 mr-2 text-xs font-medium px-2 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200"
+                    className={`inline-block mt-2 mr-2 text-xs font-medium px-2 py-1 rounded-full border ${
+                      /Sample data/i.test(c)
+                        ? 'bg-amber-50 text-amber-800 border-amber-200'
+                        : /Live Meta/i.test(c)
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                          : 'bg-amber-50 text-amber-800 border-amber-200'
+                    }`}
                   >
                     {c}
                   </span>

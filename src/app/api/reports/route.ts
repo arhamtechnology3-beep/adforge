@@ -56,6 +56,17 @@ export async function GET(request: Request) {
       ? (recommendations || []).filter((r) => r.meta_campaign_id === campaignId)
       : recommendations || [];
 
+  const { data: adAccount } = await supabase
+    .from('ad_accounts')
+    .select('id, meta_ad_account_id')
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  const liveMetaLinked = Boolean(
+    adAccount?.meta_ad_account_id ||
+      (allCampaigns || []).some((c) => c.meta_campaign_id)
+  );
+
   const report = buildReport({
     view,
     snapshots,
@@ -66,7 +77,9 @@ export async function GET(request: Request) {
       budget: c.budget != null ? Number(c.budget) : null,
       status: c.status,
     })),
-    forceDryRun: snapshots.length === 0,
+    // Sample numbers ONLY when Meta is not linked. Live ₹0 must stay ₹0.
+    liveMetaLinked,
+    forceDryRun: !liveMetaLinked && snapshots.length === 0,
   });
 
   const latestSnap = [...snapshots].sort((a, b) => b.date.localeCompare(a.date))[0];
