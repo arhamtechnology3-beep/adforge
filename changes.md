@@ -30,6 +30,10 @@ Meta's AI review of the live Divyaprabha carousel ("Sales · Prospecting") score
 3. `/ads` → Carousel + product URLs → (optional) hook / overlays → Generate → approve **both** the carousel and the Reels video → launch in one ad set with Advantage+ placements
 4. No SQL migration needed (new fields live inside `media_payload` JSON)
 
+---
+
+## 2026-09-16
+
 ### Fix: Reports must not invent ₹13k sample spend for live Meta campaigns
 **What / why**  
 After launching Sales · Prospecting live, Reports showed **₹13,501 sample** while Ads Manager correctly showed **₹0**. Cause: empty / zero-spend snapshots fell back to dry-run demo numbers. Live Meta-linked accounts now always show **real snapshots or ₹0** — sample data only when Meta is not connected. Chip copy: “Live Meta · ₹0 spend so far…”.
