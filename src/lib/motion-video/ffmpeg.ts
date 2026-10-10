@@ -78,8 +78,15 @@ async function isExecutable(filePath: string): Promise<boolean> {
 /** Resolve and verify ffmpeg without invoking a shell. */
 export async function resolveFfmpegPath(): Promise<string | null> {
   const configured = process.env.FFMPEG_PATH?.trim();
+  let packaged: string | null = null;
+  try {
+    packaged = (await import('ffmpeg-static')).default as unknown as string | null;
+  } catch {
+    // Package missing on this host — fall through to system ffmpeg.
+  }
   const candidates = [
     ...(configured ? [configured] : []),
+    ...(packaged ? [packaged] : []),
     path.join(process.cwd(), 'node_modules', 'ffmpeg-static', 'ffmpeg'),
     ...COMMON_FFMPEG_PATHS,
     // Let spawn perform the platform PATH lookup as the final fallback.

@@ -16,7 +16,6 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const MAX_HERO_BYTES = 3_500_000;
-const fontData = loadOgFonts();
 
 function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
   const controller = new AbortController();
@@ -106,6 +105,7 @@ async function readLocalUploadBuffer(publicPath: string): Promise<Buffer | null>
  */
 export async function GET(request: Request) {
   try {
+    const fontData = loadOgFonts();
     const { searchParams } = new URL(request.url);
     const origin = new URL(request.url).origin;
     const brand = ogSafeText(searchParams.get('brand') || 'Your Brand', 48);
@@ -431,6 +431,12 @@ export async function GET(request: Request) {
     );
   } catch (err) {
     console.error('[creative]', err);
-    return new Response('Creative render failed', { status: 500 });
+    return NextResponse.json(
+      {
+        error: 'Creative render failed',
+        detail: err instanceof Error ? err.message.slice(0, 300) : String(err),
+      },
+      { status: 500 }
+    );
   }
 }

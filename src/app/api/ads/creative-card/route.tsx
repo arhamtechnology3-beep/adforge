@@ -11,8 +11,6 @@ import { unwrapProxiedProductImage } from '@/lib/product-image-preference';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const fonts = loadOgFonts();
-
 const PALETTE = {
   bg: '#1c1209',
   accent: '#f59e0b',
@@ -72,6 +70,7 @@ function cleanPrice(price: string): string {
  */
 export async function GET(request: Request) {
   try {
+    const fonts = loadOgFonts();
     const url = new URL(request.url);
     const q = url.searchParams;
     const role = q.get('role') || 'benefit';
@@ -380,6 +379,12 @@ export async function GET(request: Request) {
     );
   } catch (error) {
     console.error('[creative-card]', error);
-    return new Response('Creative card render failed', { status: 500 });
+    return NextResponse.json(
+      {
+        error: 'Creative card render failed',
+        detail: error instanceof Error ? error.message.slice(0, 300) : String(error),
+      },
+      { status: 500 }
+    );
   }
 }

@@ -6,6 +6,8 @@ const nextConfig = {
       'playwright',
       'playwright-core',
       'tsx',
+      // Exports its binary path from __dirname — must not be bundled
+      'ffmpeg-static',
     ],
   },
 };

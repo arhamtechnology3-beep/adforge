@@ -1,26 +1,27 @@
-import fs from 'fs';
-import path from 'path';
+import {
+  NOTO_DEVANAGARI_400,
+  NOTO_DEVANAGARI_700,
+  NOTO_SANS_400,
+  NOTO_SANS_700,
+} from '@/lib/og-fonts-data';
 
-function readFont(pkg: string, file: string): ArrayBuffer {
-  return Uint8Array.from(
-    fs.readFileSync(path.join(process.cwd(), 'node_modules/@fontsource', pkg, 'files', file))
-  ).buffer;
+type OgFont = { name: string; data: ArrayBuffer; weight: 400 | 700 };
+
+function decode(base64: string): ArrayBuffer {
+  return Uint8Array.from(Buffer.from(base64, 'base64')).buffer;
 }
 
+let cached: OgFont[] | null = null;
+
 /** Noto Sans (Latin + Devanagari) for Satori ImageResponse creatives. */
-export function loadOgFonts() {
-  return [
-    { name: 'Noto Sans', data: readFont('noto-sans', 'noto-sans-latin-400-normal.woff'), weight: 400 as const },
-    { name: 'Noto Sans', data: readFont('noto-sans', 'noto-sans-latin-700-normal.woff'), weight: 700 as const },
-    {
-      name: 'Noto Sans Devanagari',
-      data: readFont('noto-sans-devanagari', 'noto-sans-devanagari-devanagari-400-normal.woff'),
-      weight: 400 as const,
-    },
-    {
-      name: 'Noto Sans Devanagari',
-      data: readFont('noto-sans-devanagari', 'noto-sans-devanagari-devanagari-700-normal.woff'),
-      weight: 700 as const,
-    },
-  ];
+export function loadOgFonts(): OgFont[] {
+  if (!cached) {
+    cached = [
+      { name: 'Noto Sans', data: decode(NOTO_SANS_400), weight: 400 },
+      { name: 'Noto Sans', data: decode(NOTO_SANS_700), weight: 700 },
+      { name: 'Noto Sans Devanagari', data: decode(NOTO_DEVANAGARI_400), weight: 400 },
+      { name: 'Noto Sans Devanagari', data: decode(NOTO_DEVANAGARI_700), weight: 700 },
+    ];
+  }
+  return cached;
 }
