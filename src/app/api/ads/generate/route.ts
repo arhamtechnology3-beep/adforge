@@ -47,6 +47,7 @@ import {
   parseCarouselProductUrls,
   resolveCarouselProductUrls,
 } from '@/lib/carousel-from-urls';
+import { buildCarouselScorecard, parseOverlayList } from '@/lib/carousel-story';
 import { rankProductImageUrls, unwrapProxiedProductImage } from '@/lib/product-image-preference';
 
 export const maxDuration = 300;
@@ -83,6 +84,10 @@ async function bakeAdRows(
 
   const output: AdRow[] = [];
   for (const row of rows) {
+    if (row.media_payload.companion_of) {
+      output.push(row);
+      continue;
+    }
     try {
       const payload = { ...row.media_payload };
       if (payload.cards?.length) {
@@ -182,7 +187,7 @@ async function renderMotionRows(
 
   const output: AdRow[] = [];
   for (const row of rows) {
-    if (row.ad_format !== 'video') {
+    if (row.ad_format !== 'video' || row.media_payload.video_url) {
       output.push(row);
       continue;
     }
@@ -230,6 +235,165 @@ async function renderMotionRows(
     }
   }
   return output;
+}
+
+function storyCarouselNote(
+  saved: Array<{ ad_format?: string | null; media_payload?: AdMediaPayload | null }>,
+  warnings: string[]
+): string {
+  const companion = saved.find((ad) => ad.media_payload?.companion_of);
+  const skipped = warnings.length ? ` (${warnings.length} note(s) on skipped URLs)` : '';
+  const reels =
+    companion?.ad_format === 'video'
+      ? ' + a 9:16 Reels video from the same cards'
+      : companion
+        ? ' + a 9:16 Stories card (Reels video needs ffmpeg on the server)'
+        : '';
+  return `Built a story carousel (hook card, benefit overlays, Shop Now end card)${reels}${skipped}. Approve both and launch them in the same ad set.`;
+}
+
+/**
+ * Bake hook / benefit / Shop Now cards, build the 9:16 Reels companion from the same story,
+ * and score both against Meta's Creative Scorecard checks.
+ */
+async function finalizeStoryCarousel(opts: {
+  ad: AdRow;
+  reelsFrames: string[];
+  wantReels: boolean;
+  request: Request;
+  ownerId: string;
+  persistToStorage: boolean;
+  product: ProductBrief;
+}): Promise<AdRow[]> {
+  const origin = resolveAppOrigin(opts.request);
+  const bake = async (url: string, aspect: '1:1' | '9:16') =>
+    (
+      await bakeCreativeAsset({
+        creativeUrl: url,
+        origin,
+        ownerId: opts.ownerId,
+        expectedAspect: aspect,
+        persistToStorage: opts.persistToStorage,
+      })
+    ).url;
+
+  const sourceCards = opts.ad.media_payload.cards || [];
+  const bakedCards = await Promise.all(
+    sourceCards.map(async (card) => {
+      try {
+        return { card: { ...card, image_url: await bake(card.image_url, '1:1') }, rendered: true };
+      } catch (error) {
+        console.warn(
+          '[story-carousel] card overlay failed',
+          card.overlay_role,
+          error instanceof Error ? error.message : error
+        );
+        return {
+          card: { ...card, image_url: card.source_image_url || card.image_url },
+          rendered: false,
+        };
+      }
+    })
+  );
+  // A failed end card would just repeat product 1's photo — drop it instead.
+  const kept = bakedCards.filter((item) => item.rendered || item.card.overlay_role !== 'cta');
+  const cards = kept.map((item) => item.card);
+  const productCards = cards.filter((card) => card.overlay_role !== 'cta');
+  const hasCtaEndCard = kept.some((item) => item.rendered && item.card.overlay_role === 'cta');
+  const story = opts.ad.media_payload.carousel_story;
+
+  const rows: AdRow[] = [];
+  let reelsRow: AdRow | null = null;
+  if (opts.wantReels && opts.reelsFrames.length >= 2) {
+    const frames: string[] = [];
+    for (const frame of opts.reelsFrames) {
+      try {
+        frames.push(await bake(frame, '9:16'));
+      } catch (error) {
+        console.warn('[story-reels] frame failed', error instanceof Error ? error.message : error);
+      }
+    }
+    if (frames.length >= 2) {
+      const base: AdRow = {
+        campaign_input_id: opts.ad.campaign_input_id,
+        variant_number: opts.ad.variant_number + 1,
+        copy_text: opts.ad.copy_text,
+        image_url: frames[0]!,
+        status: 'pending',
+        ad_format: 'video',
+        headline: opts.ad.headline,
+        angle: 'product-url-reels',
+        media_payload: {
+          placement: META_AD_FORMATS.video.placement,
+          aspect: '9:16',
+          frames: frames.map((url) => ({
+            image_url: url,
+            headline: opts.ad.headline,
+            duration_ms: 1700,
+          })),
+          product_id: opts.ad.media_payload.product_id,
+          product_name: opts.ad.media_payload.product_name,
+          primary_packshot: opts.ad.media_payload.primary_packshot,
+          template: 'Story Reels (from carousel)',
+          video_style: 'motion-template',
+          companion_of: 'product_url_carousel',
+          carousel_story: story ? { ...story, reels_frames: frames } : null,
+        },
+      };
+      const [rendered] = await renderMotionRows(
+        [base],
+        origin,
+        opts.product,
+        opts.ownerId,
+        opts.persistToStorage
+      );
+      reelsRow = rendered?.media_payload.video_url
+        ? { ...rendered, media_payload: { ...rendered.media_payload, quality_flags: [] } }
+        : {
+            ...base,
+            ad_format: 'stories',
+            angle: 'product-url-story',
+            media_payload: {
+              ...base.media_payload,
+              placement: META_AD_FORMATS.stories.placement,
+              template: 'Story hook card (Reels video unavailable)',
+              quality_flags: [
+                'Reels video could not be rendered on this server (ffmpeg) — using the 9:16 hook card as a Stories/Reels image.',
+              ],
+            },
+          };
+    }
+  }
+
+  const hasReelsVideo = reelsRow?.ad_format === 'video';
+  const scorecard = buildCarouselScorecard({
+    hook: story?.hook || opts.ad.headline,
+    productCards: productCards.filter((card) => card.overlay_role === 'benefit').length,
+    cardsWithBenefit: kept.filter(
+      (item) => item.rendered && item.card.overlay_role === 'benefit' && item.card.overlay_text
+    ).length,
+    cardsRendered: kept.filter((item) => item.rendered).length,
+    totalCards: sourceCards.length,
+    hasCtaEndCard,
+    primaryText: opts.ad.copy_text,
+    benefitsInCopy: story?.benefits || [],
+    hasReelsCompanion: hasReelsVideo,
+  });
+
+  rows.push({
+    ...opts.ad,
+    image_url: cards[0]?.image_url || opts.ad.image_url,
+    media_payload: {
+      ...opts.ad.media_payload,
+      cards,
+      quality_score: scorecard.score,
+      quality_valid: scorecard.valid,
+      quality_flags: scorecard.flags,
+      meta_scorecard: scorecard.checks,
+    },
+  });
+  if (reelsRow) rows.push(reelsRow);
+  return rows;
 }
 
 export async function POST(request: Request) {
@@ -514,6 +678,15 @@ export async function POST(request: Request) {
       brandName: brand,
       productId: product.id,
       variantNumber: 1,
+      hookOverride:
+        typeof body.generation_brief?.carousel_hook === 'string'
+          ? body.generation_brief.carousel_hook
+          : null,
+      overlays: parseOverlayList(body.generation_brief?.carousel_overlays),
+      approvedClaims: [...product.approved_claims, ...product.benefits],
+      category,
+      offer: product.offer,
+      storeUrl: resolvedInput.website_url,
     });
     carouselWarnings = built.warnings;
     if (!built.ad) {
@@ -527,7 +700,17 @@ export async function POST(request: Request) {
         { status: 422 }
       );
     }
-    ads.push(built.ad as AdRow);
+    ads.push(
+      ...(await finalizeStoryCarousel({
+        ad: built.ad as AdRow,
+        reelsFrames: built.reelsFrames,
+        wantReels: body.generation_brief?.carousel_reels !== false,
+        request,
+        ownerId: sessionUser.id,
+        persistToStorage: !sessionUser.isDemo,
+        product: productBrief,
+      }))
+    );
   }
 
   if (resolvedSelected.length > 0 && useCreativeEngine && engineFormats.length > 0) {
@@ -810,12 +993,14 @@ export async function POST(request: Request) {
       selected_count: resolvedSelected.length,
       formats: byFormat,
       note: wantsProductUrlCarousel
-        ? `Built a product-URL carousel with real store images${
-            carouselWarnings.length ? ` (${carouselWarnings.length} URL(s) skipped)` : ''
-          }.${
+        ? `${storyCarouselNote(savedAds, carouselWarnings)}${
             resolvedSelected.length > 0
               ? ` Also generated ${
-                  (savedAds?.length || 0) - (wantsProductUrlCarousel ? 1 : 0)
+                  savedAds.filter(
+                    (ad) =>
+                      ad.media_payload?.carousel_source !== 'product_urls' &&
+                      !ad.media_payload?.companion_of
+                  ).length
                 } other format creatives.`
               : ''
           }`
@@ -872,9 +1057,7 @@ export async function POST(request: Request) {
     selected_count: resolvedSelected.length,
     formats: byFormat,
     note: wantsProductUrlCarousel
-      ? `Built a product-URL carousel with real store images${
-          carouselWarnings.length ? ` (${carouselWarnings.length} URL(s) skipped)` : ''
-        }.`
+      ? storyCarouselNote(savedAds || [], carouselWarnings)
       : resolvedSelected.length > 0
         ? `Generated ${savedAds?.length || 0} original creatives from selected directions using the product-safe creative engine.`
         : 'Review Image, Carousel, Stories & Video options — approve what you want to launch.',

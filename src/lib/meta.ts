@@ -715,8 +715,53 @@ export type PublishableAd = {
   copy_text?: string | null;
   headline?: string | null;
   image_url?: string | null;
-  media_payload?: { cards?: MetaCreateAdCard[] } | null;
+  ad_format?: string | null;
+  media_payload?: {
+    cards?: MetaCreateAdCard[];
+    video_url?: string | null;
+    poster_url?: string | null;
+  } | null;
 };
+
+/** Upload an MP4 by public URL and wait until Meta finishes processing it. */
+async function uploadAdVideo(
+  accessToken: string,
+  adAccountId: string,
+  rawVideoUrl: string,
+  name: string
+): Promise<string> {
+  const fileUrl = resolvePublicCreativeImageUrl(rawVideoUrl);
+  if (!fileUrl) {
+    throw new Error('Video is not on a public URL Meta can fetch. Re-generate the Reels video.');
+  }
+  const body = new URLSearchParams();
+  body.set('file_url', fileUrl);
+  body.set('name', name.slice(0, 80));
+  body.set('access_token', accessToken);
+  const res = await fetch(`${META_BASE}/${normalizeMetaAdAccountId(adAccountId)}/advideos`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+  const payload = await readMetaJson(res);
+  const videoId = assertMetaMutationOk('Meta video upload failed', res, payload);
+
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    const statusRes = await fetch(
+      `${META_BASE}/${videoId}?fields=status&access_token=${encodeURIComponent(accessToken)}`,
+      { cache: 'no-store' }
+    );
+    const statusJson = (await readMetaJson(statusRes)) as {
+      status?: { video_status?: string };
+    } | null;
+    const state = statusJson?.status?.video_status;
+    if (state === 'ready') return videoId;
+    if (state === 'error') throw new Error('Meta could not process the Reels video (status: error).');
+    await new Promise((resolve) => setTimeout(resolve, 4000));
+  }
+  throw new Error('Meta is still processing the Reels video — try Confirm again in a minute.');
+}
 
 function extractMetaObjectId(payload: unknown): string | null {
   if (!payload || typeof payload !== 'object') return null;
@@ -828,7 +873,16 @@ export async function publishAdsToMeta(opts: {
         opts.linkDescription,
         ad.media_payload?.cards || undefined,
         creativeToken,
-        instagramUserId
+        instagramUserId,
+        {
+          video:
+            ad.ad_format === 'video' && ad.media_payload?.video_url
+              ? {
+                  url: ad.media_payload.video_url,
+                  posterUrl: ad.media_payload.poster_url || picture,
+                }
+              : undefined,
+        }
       );
       metaAdIds.push(created.id);
     } catch (error) {
@@ -846,6 +900,7 @@ export type MetaCreateAdCard = {
   headline?: string;
   description?: string;
   link?: string;
+  overlay_role?: string;
 };
 
 export async function createAd(
@@ -863,7 +918,8 @@ export async function createAd(
   /** Prefer Page token for object_story_spec creatives when available. */
   creativeAccessToken?: string,
   /** Instagram Business user id — improves IG placement identity / preview binding. */
-  instagramUserId?: string | null
+  instagramUserId?: string | null,
+  options?: { video?: { url: string; posterUrl?: string | null } }
 ): Promise<{ id: string; creative_id: string }> {
   const destination = String(link || '').trim();
   if (!isHttpsWebsiteUrl(destination)) {
@@ -911,8 +967,11 @@ export async function createAd(
       });
     }
     linkData.child_attachments = child_attachments;
-    linkData.multi_share_optimized = true;
-  } else {
+    // Story carousels (hook → benefits → Shop Now card) must keep their order and own end card.
+    const isStory = cardList.some((card) => card.overlay_role === 'cta');
+    linkData.multi_share_optimized = !isStory;
+    if (isStory) linkData.multi_share_end_card = false;
+  } else if (!options?.video) {
     const ref = await metaImageRef(
       accessToken,
       adAccountId,
@@ -927,10 +986,25 @@ export async function createAd(
   // (JSON posts sometimes drop `creative` / `object_story_spec` and return success without an id).
   const creativeBody = new URLSearchParams();
   creativeBody.set('name', `${adHeadline} · Creative`);
-  const storySpec: Record<string, unknown> = {
-    page_id: pageId,
-    link_data: linkData,
-  };
+  const storySpec: Record<string, unknown> = { page_id: pageId };
+  if (options?.video) {
+    const videoId = await uploadAdVideo(accessToken, adAccountId, options.video.url, adHeadline);
+    const thumb = await metaImageRef(
+      accessToken,
+      adAccountId,
+      options.video.posterUrl || imageUrl
+    );
+    storySpec.video_data = {
+      video_id: videoId,
+      ...(thumb.image_hash ? { image_hash: thumb.image_hash } : { image_url: thumb.picture }),
+      title: adHeadline,
+      message: primaryText.slice(0, 2200),
+      ...(linkDescription ? { link_description: linkDescription.slice(0, 30) } : {}),
+      call_to_action: { type: cta, value: { link: destination } },
+    };
+  } else {
+    storySpec.link_data = linkData;
+  }
   const igUser = String(instagramUserId || '').trim();
   if (igUser) storySpec.instagram_user_id = igUser;
   creativeBody.set('object_story_spec', JSON.stringify(storySpec));

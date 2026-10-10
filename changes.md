@@ -6,6 +6,30 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+## 2026-10-10
+
+### Story carousel + Reels companion (Meta Creative Scorecard fixes)
+**What / why**  
+Meta's AI review of the live Divyaprabha carousel ("Sales · Prospecting") scored it *Opportunity for improvement*: no hook on card 1, no visible CTA, weak value proposition, no text overlays, redundant cards, and only a single static carousel (no Reels asset). Cause: product-URL carousels used the raw store photos, the product name as headline, and copy "Shop X — swipe to explore N products". Also, `video` ads were being published to Meta as still images (there was no video upload).
+
+- **Card 1 hook**: auto-derived from approved claims / product pages (e.g. *Authentic Saurashtra Flavours*), or typed by the user in Step 2
+- **Benefit overlays**: each product card gets a chip mined only from **its own product page** (Traditional Recipe, Handmade, No Preservatives…), or user-typed overlays
+- **Shop Now end card**: product grid + big CTA + domain; links to the store home
+- **Redundant cards**: duplicate photos/products dropped; max 6 product cards + end card
+- **Copy**: headline = hook; primary text leads with hook + benefits + "Tap Shop Now"
+- **Reels companion**: same story rendered as 9:16 frames (text kept inside Reels safe zones) → 10s MP4, added as a second ad to approve into the same ad set (falls back to a 9:16 Stories image when ffmpeg is unavailable)
+- **Meta publish**: video ads now upload via `advideos` and use `video_data`; story carousels keep card order (`multi_share_optimized=false`, `multi_share_end_card=false`)
+- **Scorecard**: Meta-style checks stored in `media_payload.meta_scorecard` and shown on `/ads` cards
+- Removed the internal "Feed / Square · 1080×1080" label that was baked into `/api/ads/creative` images
+
+**Paths:** `src/lib/carousel-story.ts`, `src/lib/carousel-from-urls.ts`, `src/app/api/ads/creative-card/route.tsx`, `src/lib/og-fonts.ts`, `src/app/api/ads/generate/route.ts`, `src/lib/meta.ts`, `src/components/ads/Step2Studio.tsx`, `src/app/(dashboard)/ads/page.tsx`, `src/types/database.ts`, `src/app/api/ads/creative/route.tsx`, `scripts/tests/carousel-from-urls.test.ts`
+
+**Manual**
+1. `npm run test:preflight` → GREEN, then deploy
+2. Hostinger needs ffmpeg (or `FFMPEG_PATH`) for the Reels MP4; without it you get the 9:16 Stories image instead
+3. `/ads` → Carousel + product URLs → (optional) hook / overlays → Generate → approve **both** the carousel and the Reels video → launch in one ad set with Advantage+ placements
+4. No SQL migration needed (new fields live inside `media_payload` JSON)
+
 ### Fix: Reports must not invent ₹13k sample spend for live Meta campaigns
 **What / why**  
 After launching Sales · Prospecting live, Reports showed **₹13,501 sample** while Ads Manager correctly showed **₹0**. Cause: empty / zero-spend snapshots fell back to dry-run demo numbers. Live Meta-linked accounts now always show **real snapshots or ₹0** — sample data only when Meta is not connected. Chip copy: “Live Meta · ₹0 spend so far…”.

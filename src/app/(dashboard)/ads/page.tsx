@@ -703,6 +703,9 @@ export default function AdsPage() {
     'video',
   ]);
   const [carouselProductUrls, setCarouselProductUrls] = useState('');
+  const [carouselHook, setCarouselHook] = useState('');
+  const [carouselOverlays, setCarouselOverlays] = useState('');
+  const [carouselReels, setCarouselReels] = useState(true);
   const [resolvingCarousel, setResolvingCarousel] = useState(false);
   const [carouselPreviewNote, setCarouselPreviewNote] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
@@ -1042,6 +1045,9 @@ export default function AdsPage() {
             tone,
             variant_count: variantCount,
             formats: desiredFormats,
+            carousel_hook: carouselHook,
+            carousel_overlays: carouselOverlays,
+            carousel_reels: carouselReels,
           },
           selected_ads,
           selected_competitor_ad_ids: selectedCompetitorAdIds,
@@ -1757,6 +1763,9 @@ export default function AdsPage() {
           variantCount={variantCount}
           formats={desiredFormats}
           carouselProductUrls={carouselProductUrls}
+          carouselHook={carouselHook}
+          carouselOverlays={carouselOverlays}
+          carouselReels={carouselReels}
           generating={generating}
           resolvingCarousel={resolvingCarousel}
           carouselPreviewNote={carouselPreviewNote}
@@ -1766,6 +1775,9 @@ export default function AdsPage() {
           onVariantCountChange={setVariantCount}
           onFormatsChange={setDesiredFormats}
           onCarouselProductUrlsChange={setCarouselProductUrls}
+          onCarouselHookChange={setCarouselHook}
+          onCarouselOverlaysChange={setCarouselOverlays}
+          onCarouselReelsChange={setCarouselReels}
           onPreviewCarouselUrls={handlePreviewCarouselUrls}
           onGenerate={handleGenerate}
         >
@@ -2135,6 +2147,29 @@ export default function AdsPage() {
                       <AlertTriangle className="w-3 h-3" /> Needs attention
                     </p>
                     <p>{ad.media_payload.quality_flags.join(' · ')}</p>
+                  </div>
+                ) : null}
+
+                {ad.media_payload?.meta_scorecard?.length ? (
+                  <div className="rounded-lg border border-slate-200 px-2.5 py-2">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1">
+                      Meta creative scorecard
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {ad.media_payload.meta_scorecard.map((check) => (
+                        <span
+                          key={check.key}
+                          title={check.note}
+                          className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                            check.pass
+                              ? 'bg-emerald-50 text-emerald-800'
+                              : 'bg-rose-50 text-rose-800'
+                          }`}
+                        >
+                          {check.pass ? '✓' : '✗'} {check.label}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 ) : null}
 

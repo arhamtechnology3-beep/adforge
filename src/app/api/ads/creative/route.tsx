@@ -7,6 +7,7 @@ import {
 } from '@/lib/creatives';
 import { optimizeProductImageUrl } from '@/lib/creatives';
 import { ogSafeText } from '@/lib/og-text';
+import { loadOgFonts } from '@/lib/og-fonts';
 import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
@@ -15,56 +16,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const MAX_HERO_BYTES = 3_500_000;
-const fontData = [
-  {
-    name: 'Noto Sans',
-    data: Uint8Array.from(
-      fs.readFileSync(
-        path.join(
-          process.cwd(),
-          'node_modules/@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff'
-        )
-      )
-    ).buffer,
-    weight: 400 as const,
-  },
-  {
-    name: 'Noto Sans',
-    data: Uint8Array.from(
-      fs.readFileSync(
-        path.join(
-          process.cwd(),
-          'node_modules/@fontsource/noto-sans/files/noto-sans-latin-700-normal.woff'
-        )
-      )
-    ).buffer,
-    weight: 700 as const,
-  },
-  {
-    name: 'Noto Sans Devanagari',
-    data: Uint8Array.from(
-      fs.readFileSync(
-        path.join(
-          process.cwd(),
-          'node_modules/@fontsource/noto-sans-devanagari/files/noto-sans-devanagari-devanagari-400-normal.woff'
-        )
-      )
-    ).buffer,
-    weight: 400 as const,
-  },
-  {
-    name: 'Noto Sans Devanagari',
-    data: Uint8Array.from(
-      fs.readFileSync(
-        path.join(
-          process.cwd(),
-          'node_modules/@fontsource/noto-sans-devanagari/files/noto-sans-devanagari-devanagari-700-normal.woff'
-        )
-      )
-    ).buffer,
-    weight: 700 as const,
-  },
-];
+const fontData = loadOgFonts();
 
 function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
   const controller = new AbortController();
@@ -466,16 +418,6 @@ export async function GET(request: Request) {
                 }}
               >
                 {cta}
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  color: 'rgba(255,255,255,0.8)',
-                  fontSize: isStory ? 22 : 20,
-                  fontWeight: 600,
-                }}
-              >
-                {spec.label} · {spec.width}×{spec.height}
               </div>
             </div>
           </div>

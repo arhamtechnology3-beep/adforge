@@ -1,3 +1,5 @@
+import type { MetaScorecardCheck } from '@/lib/carousel-story';
+
 export type PlanTier = 'starter' | 'growth' | 'scale';
 export type CompetitorType = 'website' | 'facebook' | 'instagram';
 export type AdStatus = 'pending' | 'approved' | 'rejected';
@@ -18,6 +20,10 @@ export interface CarouselCard {
   product_url?: string;
   product_name?: string;
   price?: string;
+  /** Raw store photo before overlay rendering (fallback when the overlay card fails) */
+  source_image_url?: string;
+  overlay_role?: 'hook' | 'benefit' | 'cta';
+  overlay_text?: string;
 }
 
 export interface VideoFrame {
@@ -64,6 +70,16 @@ export interface AdMediaPayload {
   concept_id?: string | null;
   qa_scores?: Record<string, number> | null;
   scene_plan?: Record<string, unknown> | null;
+  /** Hook / benefit overlays / CTA end card plan for product-URL carousels */
+  carousel_story?: {
+    hook: string;
+    benefits: string[];
+    reels_frames?: string[];
+  } | null;
+  /** Pre-launch checks mirroring Meta's Creative Scorecard */
+  meta_scorecard?: MetaScorecardCheck[] | null;
+  /** Reels video built from the same story cards as this carousel */
+  companion_of?: 'product_url_carousel' | null;
 }
 
 export interface User {

@@ -17,6 +17,9 @@ export function Step2Studio(props: {
   variantCount: number;
   formats: MetaAdFormat[];
   carouselProductUrls: string;
+  carouselHook: string;
+  carouselOverlays: string;
+  carouselReels: boolean;
   generating: boolean;
   resolvingCarousel?: boolean;
   carouselPreviewNote?: string | null;
@@ -26,6 +29,9 @@ export function Step2Studio(props: {
   onVariantCountChange: (value: number) => void;
   onFormatsChange: (value: MetaAdFormat[]) => void;
   onCarouselProductUrlsChange: (value: string) => void;
+  onCarouselHookChange: (value: string) => void;
+  onCarouselOverlaysChange: (value: string) => void;
+  onCarouselReelsChange: (value: boolean) => void;
   onPreviewCarouselUrls?: () => void;
   onGenerate: () => void;
   children: ReactNode;
@@ -137,8 +143,9 @@ export function Step2Studio(props: {
               <div>
                 <label className="label text-xs mb-0">Carousel product URLs</label>
                 <p className="text-[11px] text-slate-500">
-                  Paste 2–10 product page links (one per line). Each card uses that product’s store
-                  image — no AI image generation — and Shop Now opens that URL.
+                  Paste 2–10 product page links (one per line). Card 1 gets a hook headline, the
+                  next cards get a benefit overlay from each product page, and a final Shop Now card
+                  is added. Up to 6 products are kept so the story stays tight.
                 </p>
               </div>
               {props.onPreviewCarouselUrls && (
@@ -161,6 +168,38 @@ export function Step2Studio(props: {
             {props.carouselPreviewNote && (
               <p className="text-[11px] text-slate-600">{props.carouselPreviewNote}</p>
             )}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="label text-xs">Card 1 hook (optional)</label>
+                <input
+                  className="input text-sm"
+                  maxLength={40}
+                  placeholder="Auto from approved claims, e.g. Authentic Saurashtra Flavours"
+                  value={props.carouselHook}
+                  onChange={(event) => props.onCarouselHookChange(event.target.value)}
+                />
+              </div>
+              <div>
+                <label className="label text-xs">Benefit overlays (optional, comma separated)</label>
+                <input
+                  className="input text-sm"
+                  placeholder="Auto from each product page, e.g. Traditional Recipe, Handmade"
+                  value={props.carouselOverlays}
+                  onChange={(event) => props.onCarouselOverlaysChange(event.target.value)}
+                />
+                <p className="mt-1 text-[10px] text-slate-500">
+                  Typed overlays go on every product card — only use claims true for all products.
+                </p>
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-[11px] text-slate-700">
+              <input
+                type="checkbox"
+                checked={props.carouselReels}
+                onChange={(event) => props.onCarouselReelsChange(event.target.checked)}
+              />
+              Also build a 9:16 Reels video from the same cards (launch both in one ad set)
+            </label>
           </div>
         )}
       </div>
