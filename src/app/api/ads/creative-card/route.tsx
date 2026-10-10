@@ -19,45 +19,77 @@ const PALETTE = {
   muted: '#fde7c2',
 };
 
+// Shared hosting fails image decoding when many cards render at once — cap in-flight work.
+const MAX_IMAGE_JOBS = 2;
+let activeImageJobs = 0;
+const imageQueue: Array<() => void> = [];
+
+async function withImageSlot<T>(job: () => Promise<T>): Promise<T> {
+  if (activeImageJobs >= MAX_IMAGE_JOBS) {
+    await new Promise<void>((resolve) => imageQueue.push(resolve));
+  }
+  activeImageJobs += 1;
+  try {
+    return await job();
+  } finally {
+    activeImageJobs -= 1;
+    imageQueue.shift()?.();
+  }
+}
+
+async function readCoverImage(
+  raw: string,
+  origin: string,
+  width: number,
+  height: number
+): Promise<string> {
+  const unwrapped = unwrapProxiedProductImage(raw);
+  let buf: Buffer;
+  if (unwrapped.startsWith('/uploads/')) {
+    buf = await fs.promises.readFile(
+      path.join(process.cwd(), 'public', unwrapped.replace(/^\//, ''))
+    );
+  } else {
+    const absolute = unwrapped.startsWith('/') ? `${origin}${unwrapped}` : unwrapped;
+    const res = await fetch(optimizeProductImageUrl(absolute, 1080), {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+      },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) throw new Error(`image HTTP ${res.status}`);
+    buf = Buffer.from(await res.arrayBuffer());
+  }
+  if (!buf.length) throw new Error('image empty');
+  const jpeg = await sharp(buf)
+    .rotate()
+    .resize(width, height, { fit: 'cover', position: 'centre' })
+    .flatten({ background: '#ffffff' })
+    .jpeg({ quality: 84 })
+    .toBuffer();
+  return `data:image/jpeg;base64,${jpeg.toString('base64')}`;
+}
+
 async function loadCoverDataUrl(
   raw: string,
   origin: string,
   width: number,
   height: number
-): Promise<string | null> {
-  try {
-    const unwrapped = unwrapProxiedProductImage(raw);
-    let buf: Buffer;
-    if (unwrapped.startsWith('/uploads/')) {
-      buf = await fs.promises.readFile(
-        path.join(process.cwd(), 'public', unwrapped.replace(/^\//, ''))
-      );
-    } else {
-      const absolute = unwrapped.startsWith('/') ? `${origin}${unwrapped}` : unwrapped;
-      const res = await fetch(optimizeProductImageUrl(absolute, 1080), {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-        },
-        cache: 'no-store',
-        signal: AbortSignal.timeout(12_000),
-      });
-      if (!res.ok) return null;
-      buf = Buffer.from(await res.arrayBuffer());
+): Promise<{ data: string | null; error?: string }> {
+  let lastError = '';
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return { data: await withImageSlot(() => readCoverImage(raw, origin, width, height)) };
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      console.warn('[creative-card] image attempt failed', attempt + 1, lastError);
+      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    if (!buf.length) return null;
-    const jpeg = await sharp(buf)
-      .rotate()
-      .resize(width, height, { fit: 'cover', position: 'centre' })
-      .flatten({ background: '#ffffff' })
-      .jpeg({ quality: 84 })
-      .toBuffer();
-    return `data:image/jpeg;base64,${jpeg.toString('base64')}`;
-  } catch (error) {
-    console.warn('[creative-card] image skipped', error instanceof Error ? error.message : error);
-    return null;
   }
+  return { data: null, error: lastError };
 }
 
 function cleanPrice(price: string): string {
@@ -95,7 +127,9 @@ export async function GET(request: Request) {
         await Promise.all(
           images.slice(0, 4).map((src) => loadCoverDataUrl(src, url.origin, thumbSize, thumbSize))
         )
-      ).filter((src): src is string => Boolean(src));
+      )
+        .map((result) => result.data)
+        .filter((src): src is string => Boolean(src));
       const grid = thumbs.length >= 4 ? thumbs.slice(0, 4) : thumbs.slice(0, Math.min(2, thumbs.length));
 
       return new ImageResponse(
@@ -188,9 +222,15 @@ export async function GET(request: Request) {
       );
     }
 
-    const photo = images[0] ? await loadCoverDataUrl(images[0], url.origin, width, height) : null;
+    const loaded = images[0]
+      ? await loadCoverDataUrl(images[0], url.origin, width, height)
+      : { data: null, error: 'no img param' };
+    const photo = loaded.data;
     if (!photo) {
-      return NextResponse.json({ error: 'Product image could not be loaded' }, { status: 422 });
+      return NextResponse.json(
+        { error: 'Product image could not be loaded', detail: loaded.error },
+        { status: 422 }
+      );
     }
 
     const isHook = role === 'hook';

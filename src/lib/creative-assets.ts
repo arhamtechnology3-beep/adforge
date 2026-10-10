@@ -610,7 +610,10 @@ export async function bakeCreativeAsset(input: {
     ? input.creativeUrl
     : `${input.origin.replace(/\/$/, '')}${input.creativeUrl}`;
   const response = await fetch(source, { cache: 'no-store' });
-  if (!response.ok) throw new Error(`Creative render failed: HTTP ${response.status}`);
+  if (!response.ok) {
+    const body = (await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200);
+    throw new Error(`Creative render failed: HTTP ${response.status}${body ? ` ${body}` : ''}`);
+  }
   let bytes = Buffer.from(await response.arrayBuffer());
   const metadata = await sharp(bytes).metadata();
   if (!metadata.width || !metadata.height) throw new Error('Rendered creative has no dimensions');

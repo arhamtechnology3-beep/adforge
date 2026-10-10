@@ -8,6 +8,19 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-11
 
+### Fix: story carousel cards 2–6 and end-card grid came out plain on live
+**What / why**  
+After the font fix, the hook card rendered but benefit cards 2–6 fell back to plain photos, and the Shop Now card had no product grid. Live probes showed every card renders on its own (200), but around 4 of 7 fail when rendered in parallel. Shared hosting drops image fetch/processing under that load.
+
+- `/api/ads/creative-card`: at most 2 product-image loads at once per process, each retried once (15 s timeout). A 422 response now includes `detail` with the reason the image failed
+- Generator bakes carousel cards and Reels frames one at a time, retrying each once. The first render failure is saved to the ad's quality flags (`Render error — …`) so it shows on `/ads`
+- `bakeCreativeAsset` errors include the renderer's response body, not just the HTTP status
+- The Reels → Stories fallback flag keeps the actual video-render error (e.g. ffmpeg missing)
+
+**Paths:** `src/app/api/ads/creative-card/route.tsx`, `src/app/api/ads/generate/route.ts`, `src/lib/creative-assets.ts`
+
+**Manual:** after deploy, click **Regenerate pack** on the Divyaprabha campaign.
+
 ### Fix: creative renderers crashed on Hostinger (fonts read from process.cwd())
 **What / why**  
 On live, `/api/ads/creative` and `/api/ads/creative-card` returned an instant Next 500 page. Story carousels fell back to plain store photos (scorecard 33/100, no Shop Now card, no Reels), and single-image ads showed bare packshots. Cause: both routes read Noto `.woff` files at module load from `process.cwd()/node_modules/@fontsource/…`. Hostinger starts Next from a different working directory, so the read threw `ENOENT` on import. Reproduced locally by running `next start <app>` from `/tmp`.

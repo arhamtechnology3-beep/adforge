@@ -266,35 +266,47 @@ async function finalizeStoryCarousel(opts: {
   product: ProductBrief;
 }): Promise<AdRow[]> {
   const origin = resolveAppOrigin(opts.request);
-  const bake = async (url: string, aspect: '1:1' | '9:16') =>
-    (
-      await bakeCreativeAsset({
-        creativeUrl: url,
-        origin,
-        ownerId: opts.ownerId,
-        expectedAspect: aspect,
-        persistToStorage: opts.persistToStorage,
-      })
-    ).url;
+  const bakeErrors: string[] = [];
+  // One render at a time, one retry: shared hosting drops images when renders overlap.
+  const bake = async (url: string, aspect: '1:1' | '9:16', label: string) => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        return (
+          await bakeCreativeAsset({
+            creativeUrl: url,
+            origin,
+            ownerId: opts.ownerId,
+            expectedAspect: aspect,
+            persistToStorage: opts.persistToStorage,
+          })
+        ).url;
+      } catch (error) {
+        lastError = error;
+        if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 800));
+      }
+    }
+    const message = lastError instanceof Error ? lastError.message : String(lastError);
+    console.warn('[story-carousel] render failed', label, message);
+    bakeErrors.push(`${label}: ${message}`.slice(0, 220));
+    throw lastError;
+  };
 
   const sourceCards = opts.ad.media_payload.cards || [];
-  const bakedCards = await Promise.all(
-    sourceCards.map(async (card) => {
-      try {
-        return { card: { ...card, image_url: await bake(card.image_url, '1:1') }, rendered: true };
-      } catch (error) {
-        console.warn(
-          '[story-carousel] card overlay failed',
-          card.overlay_role,
-          error instanceof Error ? error.message : error
-        );
-        return {
-          card: { ...card, image_url: card.source_image_url || card.image_url },
-          rendered: false,
-        };
-      }
-    })
-  );
+  const bakedCards: Array<{ card: (typeof sourceCards)[number]; rendered: boolean }> = [];
+  for (const [index, card] of sourceCards.entries()) {
+    try {
+      bakedCards.push({
+        card: { ...card, image_url: await bake(card.image_url, '1:1', `card ${index + 1}`) },
+        rendered: true,
+      });
+    } catch {
+      bakedCards.push({
+        card: { ...card, image_url: card.source_image_url || card.image_url },
+        rendered: false,
+      });
+    }
+  }
   // A failed end card would just repeat product 1's photo — drop it instead.
   const kept = bakedCards.filter((item) => item.rendered || item.card.overlay_role !== 'cta');
   const cards = kept.map((item) => item.card);
@@ -306,11 +318,11 @@ async function finalizeStoryCarousel(opts: {
   let reelsRow: AdRow | null = null;
   if (opts.wantReels && opts.reelsFrames.length >= 2) {
     const frames: string[] = [];
-    for (const frame of opts.reelsFrames) {
+    for (const [index, frame] of opts.reelsFrames.entries()) {
       try {
-        frames.push(await bake(frame, '9:16'));
-      } catch (error) {
-        console.warn('[story-reels] frame failed', error instanceof Error ? error.message : error);
+        frames.push(await bake(frame, '9:16', `reels frame ${index + 1}`));
+      } catch {
+        // recorded in bakeErrors
       }
     }
     if (frames.length >= 2) {
@@ -358,7 +370,8 @@ async function finalizeStoryCarousel(opts: {
               placement: META_AD_FORMATS.stories.placement,
               template: 'Story hook card (Reels video unavailable)',
               quality_flags: [
-                'Reels video could not be rendered on this server (ffmpeg) — using the 9:16 hook card as a Stories/Reels image.',
+                'Reels video could not be rendered on this server — using the 9:16 hook card as a Stories/Reels image.',
+                ...(rendered?.media_payload.quality_flags || []).slice(-1),
               ],
             },
           };
@@ -388,7 +401,9 @@ async function finalizeStoryCarousel(opts: {
       cards,
       quality_score: scorecard.score,
       quality_valid: scorecard.valid,
-      quality_flags: scorecard.flags,
+      quality_flags: bakeErrors.length
+        ? [...scorecard.flags, `Render error — ${bakeErrors[0]}`]
+        : scorecard.flags,
       meta_scorecard: scorecard.checks,
     },
   });
