@@ -8,6 +8,18 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-12
 
+### Fix: old Hostinger deploys kept running and used up the account's thread cap (ffmpeg starved)
+**What / why**  
+The live diagnostics showed 9 Node servers running: the current deploy plus 8 left over from earlier deploys (`hbuilds/versions/<id>`), the oldest about 3.3 days old. Each holds about 11 threads, about 100 in total, which is at the account's thread cap. As a result, ffmpeg could not start even one input thread, and every deploy leaked another server.
+
+- `src/lib/stale-deploys.ts`: lists account processes by deploy folder. A process counts as stale only when its version is known, differs from the running one, and it started earlier. Stale ones get SIGTERM
+- Runs at server start (`instrumentation-node.ts`) and right before each motion-video render. Disable with `REAP_STALE_DEPLOYS=0`
+- `/api/ads/creative-status` lists `deploys` (pid, short version, age, stale)
+
+**Paths:** `src/lib/stale-deploys.ts`, `src/instrumentation-node.ts`, `src/lib/motion-video/service.ts`, `src/app/api/ads/creative-status/route.ts`
+
+**Manual:** none. After deploy, `/api/ads/creative-status?probe=1` should show `render_probe: "ok"`; then **Regenerate pack**.
+
 ### Fix (cont.): free threads for ffmpeg + thread diagnostics on live
 **What / why**  
 Even with ffmpeg limited to one thread per stage, live still failed at the 3rd image input (`pthread_create … Resource temporarily unavailable`). So the account's thread limit is mostly used by the app itself. libvips (`sharp`) keeps a worker per CPU core in every Next process.

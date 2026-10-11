@@ -2,6 +2,7 @@ import { access, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
+import { reapStaleDeploys } from '@/lib/stale-deploys';
 import { ffmpegDownloadIssue, resolveFfmpegPath, spawnProcess } from './ffmpeg';
 import { prepareImageInputs } from './inputs';
 import type {
@@ -189,6 +190,8 @@ export async function renderMotionTemplateVideo(
       }). Set FFMPEG_PATH to an ffmpeg binary on the server.`,
     };
   }
+
+  await reapStaleDeploys().catch(() => undefined);
 
   const duration = Math.max(8, Math.min(12, Number(input.durationSeconds) || 10));
   const aspect = input.aspect && DIMENSIONS[input.aspect] ? input.aspect : '1:1';
