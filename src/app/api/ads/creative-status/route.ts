@@ -3,6 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { cpus } from 'node:os';
 import sharp from 'sharp';
 import { ffmpegDownloadIssue, resolveFfmpegPath, spawnProcess } from '@/lib/motion-video/ffmpeg';
+import { listDeployProcesses } from '@/lib/stale-deploys';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -108,5 +109,9 @@ export async function GET(request: Request) {
     max_processes: await readProcField('/proc/self/limits', /^Max processes\s+(\S+)/m),
     render_probe: probe && ffmpeg ? await probeRender(ffmpeg) : undefined,
     processes,
+    deploys: (await listDeployProcesses().catch(() => [])).map((row) => ({
+      ...row,
+      version: row.version?.slice(0, 8) ?? null,
+    })),
   });
 }
