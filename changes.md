@@ -6,6 +6,20 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+## 2026-10-12
+
+### Fix: Reels companion fell back to a Stories image ("ffmpeg was not found") on Hostinger
+**What / why**  
+The story carousel now renders fully on live (89/100, all overlays + Shop Now grid). The only failing Meta check was **Format diversity**: the Reels video could not render because Hostinger installs `ffmpeg-static` without running its download script, so there is no ffmpeg binary.
+
+- `resolveFfmpegPath` now falls back to downloading the same static build (`ffmpeg-static` release b6.1.1, linux/darwin x64/arm64) once into a writable cache dir, verifies it with `-version`, and reuses it afterwards
+- Cache dir order: `FFMPEG_CACHE_DIR` → `~/.cache/adforge-ffmpeg` → OS temp dir. Disable with `FFMPEG_AUTO_DOWNLOAD=0`
+- Story-carousel generation starts this lookup while cards are baking, so the first download (~30 MB) doesn't add to the wait
+
+**Paths:** `src/lib/motion-video/ffmpeg.ts`, `src/app/api/ads/generate/route.ts`
+
+**Manual:** after deploy, click **Regenerate pack**. The first run on a fresh server downloads ffmpeg; the Reels row should then be `video` with a playable MP4, and Format diversity should turn green. Optional env: `FFMPEG_PATH` if you install ffmpeg yourself.
+
 ## 2026-10-11
 
 ### Fix: story carousel cards 2–6 and end-card grid came out plain on live

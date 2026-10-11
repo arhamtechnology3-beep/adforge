@@ -35,6 +35,7 @@ import { readDemoProducts, type Product } from '@/lib/product-catalog';
 import type { ProductBrief } from '@/lib/creative-quality';
 import {
   renderMotionTemplateVideo,
+  resolveFfmpegPath,
   type MotionVideoImage,
   type MotionVideoSuccess,
 } from '@/lib/motion-video';
@@ -266,6 +267,8 @@ async function finalizeStoryCarousel(opts: {
   product: ProductBrief;
 }): Promise<AdRow[]> {
   const origin = resolveAppOrigin(opts.request);
+  // First run on a fresh host may download ffmpeg; overlap that with card baking.
+  if (opts.wantReels) void resolveFfmpegPath().catch(() => null);
   const bakeErrors: string[] = [];
   // One render at a time, one retry: shared hosting drops images when renders overlap.
   const bake = async (url: string, aspect: '1:1' | '9:16', label: string) => {

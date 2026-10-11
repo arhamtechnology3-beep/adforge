@@ -94,13 +94,80 @@ export async function resolveFfmpegPath(): Promise<string | null> {
   ];
 
   for (const candidate of [...new Set(candidates)]) {
-    if (candidate.includes('/') && !(await isExecutable(candidate))) continue;
-    try {
-      await spawnProcess(candidate, ['-version'], { timeoutMs: 5_000 });
-      return candidate;
-    } catch {
-      // Try the next known location.
-    }
+    if (await isWorkingFfmpeg(candidate)) return candidate;
   }
-  return null;
+  return downloadFfmpeg();
+}
+
+async function isWorkingFfmpeg(candidate: string): Promise<boolean> {
+  if (candidate.includes('/') && !(await isExecutable(candidate))) return false;
+  try {
+    await spawnProcess(candidate, ['-version'], { timeoutMs: 5_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const FFMPEG_STATIC_RELEASE = 'b6.1.1';
+let downloadInFlight: Promise<string | null> | null = null;
+
+/**
+ * Hosts that install with scripts disabled (Hostinger) get `ffmpeg-static` without its binary.
+ * Fetch the same static build once into a writable cache dir. Disable with FFMPEG_AUTO_DOWNLOAD=0.
+ */
+export function downloadFfmpeg(): Promise<string | null> {
+  if (process.env.FFMPEG_AUTO_DOWNLOAD === '0') return Promise.resolve(null);
+  if (!['linux', 'darwin'].includes(process.platform)) return Promise.resolve(null);
+  if (!['x64', 'arm64'].includes(process.arch)) return Promise.resolve(null);
+  downloadInFlight ??= (async () => {
+    const { mkdir, rename, chmod, rm } = await import('node:fs/promises');
+    const { createWriteStream } = await import('node:fs');
+    const { homedir, tmpdir } = await import('node:os');
+    const { Readable } = await import('node:stream');
+    const { pipeline } = await import('node:stream/promises');
+    const { createGunzip } = await import('node:zlib');
+
+    const dirs = [
+      process.env.FFMPEG_CACHE_DIR?.trim(),
+      path.join(homedir(), '.cache', 'adforge-ffmpeg'),
+      path.join(tmpdir(), 'adforge-ffmpeg'),
+    ].filter((dir): dir is string => Boolean(dir));
+    const binaryName = `ffmpeg-${FFMPEG_STATIC_RELEASE}-${process.platform}-${process.arch}`;
+
+    for (const dir of dirs) {
+      const target = path.join(dir, binaryName);
+      if (await isWorkingFfmpeg(target)) return target;
+    }
+
+    const url = `https://github.com/eugeneware/ffmpeg-static/releases/download/${FFMPEG_STATIC_RELEASE}/ffmpeg-${process.platform}-${process.arch}.gz`;
+    for (const dir of dirs) {
+      const target = path.join(dir, binaryName);
+      const partial = `${target}.${process.pid}.part`;
+      try {
+        await mkdir(dir, { recursive: true });
+        const response = await fetch(url, { signal: AbortSignal.timeout(180_000) });
+        if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+        await pipeline(
+          Readable.fromWeb(response.body as import('node:stream/web').ReadableStream),
+          createGunzip(),
+          createWriteStream(partial, { mode: 0o755 })
+        );
+        await chmod(partial, 0o755);
+        await rename(partial, target);
+        if (await isWorkingFfmpeg(target)) {
+          console.info('[ffmpeg] downloaded static build to', target);
+          return target;
+        }
+        console.warn('[ffmpeg] downloaded binary will not execute in', dir);
+      } catch (error) {
+        console.warn('[ffmpeg] download failed for', dir, error instanceof Error ? error.message : error);
+        await rm(partial, { force: true }).catch(() => undefined);
+      }
+    }
+    return null;
+  })().finally(() => {
+    downloadInFlight = null;
+  });
+  return downloadInFlight;
 }
