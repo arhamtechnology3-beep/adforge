@@ -450,6 +450,7 @@ export function CampaignWizard({
     if (!ad) return undefined;
     const raw =
       ad.media_payload?.poster_url ||
+      ad.media_payload?.cards?.[0]?.image_url ||
       ad.media_payload?.frames?.[0]?.image_url ||
       ad.media_payload?.primary_packshot ||
       ad.image_url ||

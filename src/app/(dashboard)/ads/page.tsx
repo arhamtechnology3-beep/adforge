@@ -766,7 +766,19 @@ export default function AdsPage() {
       return;
     }
 
-    const salesName = `Sales · from ${competitorBrand} · ${new Date().toLocaleDateString('en-IN')}`;
+    // Name, CTA and link copy come from our own approved creatives; competitor headlines
+    // (e.g. "As seen on Shark Tank") must never end up on this brand's ad.
+    const ownBrand = products.find(
+      (product) => product.id === launchAssets[0]?.media_payload?.product_id
+    )?.brand_name;
+    const story = launchAssets.find((ad) => ad.media_payload?.carousel_story)?.media_payload
+      ?.carousel_story;
+    const salesName = `Sales · ${ownBrand || `from ${competitorBrand}`} · ${new Date().toLocaleDateString('en-IN')}`;
+    const ownLinkDescription = story?.benefits?.length
+      ? story.benefits.join(' · ').slice(0, 120)
+      : ownBrand
+        ? `Order online from ${ownBrand}`
+        : null;
 
     saveCampaignPrefill({
       fromAds: true,
@@ -777,10 +789,11 @@ export default function AdsPage() {
       objective: 'OUTCOME_SALES',
       budget: hasWinner ? 3500 : 1500,
       budget_type: 'daily',
-      cta: allowed.includes(ctaRaw) ? ctaRaw : 'SHOP_NOW',
-      link_description: hooks.length
-        ? hooks.join(' · ').slice(0, 120)
-        : `Shop now — strategy inspired by ${competitorBrand}`,
+      // Story carousels end on a "Shop Now" card and the copy says "Tap Shop Now".
+      cta: story ? 'SHOP_NOW' : allowed.includes(ctaRaw) ? ctaRaw : 'SHOP_NOW',
+      link_description:
+        ownLinkDescription ||
+        (hooks.length ? hooks.join(' · ').slice(0, 120) : `Shop now — strategy inspired by ${competitorBrand}`),
       age_min: 21,
       age_max: 55,
       gender: 'ALL',

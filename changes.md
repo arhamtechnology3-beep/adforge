@@ -8,6 +8,26 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-12
 
+### Fix: launch wizard took CTA / name / link copy from the competitor ad; carousel preview showed raw photo
+**What / why**  
+Going from `/ads` to `/campaigns`, the prefill used the selected competitor Library ad for:
+- the CTA ("Order Now", although our end card and copy say Shop Now)
+- the campaign name ("Sales · from As seen on Shark Tank")
+- the link description (competitor headlines joined together), which could put a competitor's claim on our ad
+
+The live preview also showed the raw product packshot for carousels instead of the baked hook card.
+
+- Prefill now uses our own approved creatives:
+  - Name: `Sales · {our brand} · {date}`
+  - CTA: `SHOP_NOW` whenever a story carousel is in the pack
+  - Link description: the carousel's benefit chips, or `Order online from {brand}`
+  - Competitor values remain only as a fallback
+- Wizard preview image order: video poster → carousel card 1 (hook) → video frame → packshot → image
+
+**Paths:** `src/app/(dashboard)/ads/page.tsx`, `src/components/campaign-wizard/CampaignWizard.tsx`
+
+**Manual:** an already-open campaign draft keeps the old prefill. Go back to `/ads` and click Launch again, or set the CTA to Shop Now and rename the campaign in the wizard.
+
 ### Verified live: story carousel 100/100 + Reels video; reaper safety tweak
 - Live `/ads` regenerate: the carousel scores **100/100** with every Meta scorecard check green, including Format diversity. The Reels companion is a real 9:16 motion video (`UGC-style motion video`)
 - `stale-deploys`: a process is stale only if its deploy folder (UUIDv7, time-ordered) is **older** than the running one, as well as having started earlier. A server from an older deploy that Hostinger restarts can never stop the current deploy
