@@ -1,7 +1,12 @@
 import { spawn } from 'node:child_process';
-import { access } from 'node:fs/promises';
-import { constants } from 'node:fs';
+import { access, chmod, mkdir, rename, rm } from 'node:fs/promises';
+import { constants, createWriteStream } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import type { ReadableStream as WebReadableStream } from 'node:stream/web';
+import { createGunzip } from 'node:zlib';
 
 const COMMON_FFMPEG_PATHS = [
   '/opt/homebrew/bin/ffmpeg',
@@ -100,34 +105,46 @@ export async function resolveFfmpegPath(): Promise<string | null> {
 }
 
 async function isWorkingFfmpeg(candidate: string): Promise<boolean> {
-  if (candidate.includes('/') && !(await isExecutable(candidate))) return false;
+  return (await probeFfmpeg(candidate)) === null;
+}
+
+/** null when the binary runs; otherwise the reason it does not. */
+async function probeFfmpeg(candidate: string): Promise<string | null> {
+  if (candidate.includes('/') && !(await isExecutable(candidate))) return 'not executable';
   try {
     await spawnProcess(candidate, ['-version'], { timeoutMs: 5_000 });
-    return true;
-  } catch {
-    return false;
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
   }
 }
 
 const FFMPEG_STATIC_RELEASE = 'b6.1.1';
 let downloadInFlight: Promise<string | null> | null = null;
+let lastDownloadIssue: string | null = null;
+
+/** Why the runtime ffmpeg download did not produce a usable binary (for user-facing flags). */
+export function ffmpegDownloadIssue(): string | null {
+  return lastDownloadIssue;
+}
 
 /**
  * Hosts that install with scripts disabled (Hostinger) get `ffmpeg-static` without its binary.
  * Fetch the same static build once into a writable cache dir. Disable with FFMPEG_AUTO_DOWNLOAD=0.
  */
 export function downloadFfmpeg(): Promise<string | null> {
-  if (process.env.FFMPEG_AUTO_DOWNLOAD === '0') return Promise.resolve(null);
-  if (!['linux', 'darwin'].includes(process.platform)) return Promise.resolve(null);
-  if (!['x64', 'arm64'].includes(process.arch)) return Promise.resolve(null);
+  if (process.env.FFMPEG_AUTO_DOWNLOAD === '0') {
+    lastDownloadIssue = 'auto-download disabled (FFMPEG_AUTO_DOWNLOAD=0)';
+    return Promise.resolve(null);
+  }
+  if (
+    !['linux', 'darwin'].includes(process.platform) ||
+    !['x64', 'arm64'].includes(process.arch)
+  ) {
+    lastDownloadIssue = `no static build for ${process.platform}-${process.arch}`;
+    return Promise.resolve(null);
+  }
   downloadInFlight ??= (async () => {
-    const { mkdir, rename, chmod, rm } = await import('node:fs/promises');
-    const { createWriteStream } = await import('node:fs');
-    const { homedir, tmpdir } = await import('node:os');
-    const { Readable } = await import('node:stream');
-    const { pipeline } = await import('node:stream/promises');
-    const { createGunzip } = await import('node:zlib');
-
     const dirs = [
       process.env.FFMPEG_CACHE_DIR?.trim(),
       path.join(homedir(), '.cache', 'adforge-ffmpeg'),
@@ -140,6 +157,7 @@ export function downloadFfmpeg(): Promise<string | null> {
       if (await isWorkingFfmpeg(target)) return target;
     }
 
+    const issues: string[] = [];
     const url = `https://github.com/eugeneware/ffmpeg-static/releases/download/${FFMPEG_STATIC_RELEASE}/ffmpeg-${process.platform}-${process.arch}.gz`;
     for (const dir of dirs) {
       const target = path.join(dir, binaryName);
@@ -149,22 +167,26 @@ export function downloadFfmpeg(): Promise<string | null> {
         const response = await fetch(url, { signal: AbortSignal.timeout(180_000) });
         if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
         await pipeline(
-          Readable.fromWeb(response.body as import('node:stream/web').ReadableStream),
+          Readable.fromWeb(response.body as WebReadableStream),
           createGunzip(),
           createWriteStream(partial, { mode: 0o755 })
         );
         await chmod(partial, 0o755);
         await rename(partial, target);
-        if (await isWorkingFfmpeg(target)) {
+        const problem = await probeFfmpeg(target);
+        if (!problem) {
           console.info('[ffmpeg] downloaded static build to', target);
+          lastDownloadIssue = null;
           return target;
         }
-        console.warn('[ffmpeg] downloaded binary will not execute in', dir);
+        issues.push(`${dir}: binary will not run (${problem.slice(0, 120)})`);
       } catch (error) {
-        console.warn('[ffmpeg] download failed for', dir, error instanceof Error ? error.message : error);
+        issues.push(`${dir}: ${error instanceof Error ? error.message : String(error)}`);
         await rm(partial, { force: true }).catch(() => undefined);
       }
     }
+    lastDownloadIssue = issues.join('; ').slice(0, 400);
+    console.warn('[ffmpeg] runtime download failed:', lastDownloadIssue);
     return null;
   })().finally(() => {
     downloadInFlight = null;

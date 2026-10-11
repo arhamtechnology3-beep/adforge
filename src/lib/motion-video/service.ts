@@ -2,7 +2,7 @@ import { access, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { resolveFfmpegPath, spawnProcess } from './ffmpeg';
+import { ffmpegDownloadIssue, resolveFfmpegPath, spawnProcess } from './ffmpeg';
 import { prepareImageInputs } from './inputs';
 import type {
   MotionVideoAspect,
@@ -184,8 +184,9 @@ export async function renderMotionTemplateVideo(
     return {
       ok: false,
       code: 'FFMPEG_UNAVAILABLE',
-      error:
-        'Motion video rendering is unavailable because ffmpeg was not found. Set FFMPEG_PATH or install ffmpeg on the server.',
+      error: `ffmpeg not found and auto-download failed (${
+        ffmpegDownloadIssue() || 'unknown reason'
+      }). Set FFMPEG_PATH to an ffmpeg binary on the server.`,
     };
   }
 

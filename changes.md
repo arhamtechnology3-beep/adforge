@@ -18,7 +18,11 @@ The story carousel now renders fully on live (89/100, all overlays + Shop Now gr
 
 **Paths:** `src/lib/motion-video/ffmpeg.ts`, `src/app/api/ads/generate/route.ts`
 
-**Manual:** after deploy, click **Regenerate pack**. The first run on a fresh server downloads ffmpeg; the Reels row should then be `video` with a playable MP4, and Format diversity should turn green. Optional env: `FFMPEG_PATH` if you install ffmpeg yourself.
+- Follow-up: the first deploy failed on Hostinger with `Cannot read properties of undefined (reading 'fromWeb')`. Dynamic `import('node:stream')` is mangled by the Next server bundle, so Node built-ins are now imported statically (verified with a production build started from `/tmp`)
+- If the download fails, the Reels flag now says why (e.g. HTTP error, read-only dir, binary won't execute) instead of a generic "ffmpeg was not found"
+- New public probe `GET /api/ads/creative-status` → `{ ffmpeg, ffmpeg_issue }` (no paths). Calling it also warms the download
+
+**Manual:** after deploy, open `/api/ads/creative-status` (should show `"ffmpeg": true`), then click **Regenerate pack**. The first run on a fresh server downloads ffmpeg; the Reels row should then be `video` with a playable MP4, and Format diversity should turn green. Optional env: `FFMPEG_PATH` if you install ffmpeg yourself.
 
 ## 2026-10-11
 
