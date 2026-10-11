@@ -16,16 +16,33 @@ async function readProcField(file: string, pattern: RegExp): Promise<string | nu
   }
 }
 
-/** Threads across every process visible to this account (CageFS only shows our own). */
-async function accountThreads(): Promise<number | null> {
+/** Processes visible to this account (CageFS only shows our own): name, threads, age — no args/paths. */
+async function accountProcesses(): Promise<Array<{
+  pid: number;
+  name: string;
+  threads: number;
+  age_s: number | null;
+  current: boolean;
+}> | null> {
   try {
+    const uptime = Number((await readFile('/proc/uptime', 'utf8')).split(' ')[0]);
+    const ticks = 100;
     const pids = (await readdir('/proc')).filter((entry) => /^\d+$/.test(entry));
-    let total = 0;
+    const rows = [];
     for (const pid of pids) {
-      const threads = await readProcField(`/proc/${pid}/status`, /^Threads:\s*(\d+)/m);
-      if (threads) total += Number(threads);
+      const status = await readFile(`/proc/${pid}/status`, 'utf8').catch(() => null);
+      if (!status) continue;
+      const stat = await readFile(`/proc/${pid}/stat`, 'utf8').catch(() => '');
+      const startTicks = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]);
+      rows.push({
+        pid: Number(pid),
+        name: status.match(/^Name:\s*(.+)$/m)?.[1]?.trim() ?? '?',
+        threads: Number(status.match(/^Threads:\s*(\d+)/m)?.[1] ?? 0),
+        age_s: Number.isFinite(startTicks) ? Math.round(uptime - startTicks / ticks) : null,
+        current: Number(pid) === process.pid,
+      });
     }
-    return total;
+    return rows.sort((a, b) => b.threads - a.threads);
   } catch {
     return null;
   }
@@ -80,14 +97,16 @@ async function probeRender(ffmpeg: string): Promise<string> {
 export async function GET(request: Request) {
   const ffmpeg = await resolveFfmpegPath();
   const probe = new URL(request.url).searchParams.get('probe') === '1';
+  const processes = await accountProcesses();
   return NextResponse.json({
     ffmpeg: Boolean(ffmpeg),
     ffmpeg_issue: ffmpeg ? null : ffmpegDownloadIssue(),
     cpus: cpus().length,
     sharp_concurrency: sharp.concurrency(),
     process_threads: Number(await readProcField('/proc/self/status', /^Threads:\s*(\d+)/m)) || null,
-    account_threads: await accountThreads(),
+    account_threads: processes ? processes.reduce((sum, row) => sum + row.threads, 0) : null,
     max_processes: await readProcField('/proc/self/limits', /^Max processes\s+(\S+)/m),
     render_probe: probe && ffmpeg ? await probeRender(ffmpeg) : undefined,
+    processes,
   });
 }
