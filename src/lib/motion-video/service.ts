@@ -226,7 +226,20 @@ export async function renderMotionTemplateVideo(
       workingDirectory,
       useText: supportsDrawText,
     });
+    // Shared hosts cap threads per account; ffmpeg otherwise sizes every decoder/encoder pool to the CPU count.
+    const threads = String(Math.max(1, Number(process.env.FFMPEG_THREADS) || 1));
+    const globalArgs = [
+      '-hide_banner',
+      '-loglevel',
+      'warning',
+      '-filter_threads',
+      threads,
+      '-filter_complex_threads',
+      threads,
+    ];
     const imageArgs = imagePaths.flatMap((imagePath) => [
+      '-threads',
+      threads,
       '-loop',
       '1',
       '-framerate',
@@ -246,6 +259,8 @@ export async function renderMotionTemplateVideo(
       String(FPS),
       '-pix_fmt',
       'yuv420p',
+      '-threads',
+      threads,
       '-movflags',
       '+faststart',
       '-y',
@@ -255,7 +270,7 @@ export async function renderMotionTemplateVideo(
     try {
       await spawnProcess(
         ffmpeg,
-        ['-hide_banner', '-loglevel', 'warning', ...imageArgs, ...commonOutputArgs.slice(0, -2), '-c:v', 'libx264', '-preset', 'medium', '-crf', '21', ...commonOutputArgs.slice(-2)],
+        [...globalArgs, ...imageArgs, ...commonOutputArgs.slice(0, -2), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', ...commonOutputArgs.slice(-2)],
         { timeoutMs: 180_000 }
       );
     } catch (firstError) {
@@ -263,7 +278,7 @@ export async function renderMotionTemplateVideo(
       try {
         await spawnProcess(
           ffmpeg,
-          ['-hide_banner', '-loglevel', 'warning', ...imageArgs, ...commonOutputArgs.slice(0, -2), '-c:v', 'mpeg4', '-q:v', '3', ...commonOutputArgs.slice(-2)],
+          [...globalArgs, ...imageArgs, ...commonOutputArgs.slice(0, -2), '-c:v', 'mpeg4', '-q:v', '3', ...commonOutputArgs.slice(-2)],
           { timeoutMs: 180_000 }
         );
       } catch (fallbackError) {
@@ -283,12 +298,16 @@ export async function renderMotionTemplateVideo(
         '-hide_banner',
         '-loglevel',
         'warning',
+        '-threads',
+        threads,
         '-ss',
         '0.5',
         '-i',
         temporaryVideo,
         '-frames:v',
         '1',
+        '-threads',
+        threads,
         '-q:v',
         '2',
         '-y',

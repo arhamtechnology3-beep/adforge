@@ -8,6 +8,18 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-12
 
+### Fix: Reels render failed on Hostinger with `pthread_create() failed: Resource temporarily unavailable`
+**What / why**  
+With ffmpeg now present on live, the motion render still failed because ffmpeg sizes thread pools to the CPU count for every input decoder, the filter graph and the encoder. On a shared host, that runs past the account's thread limit. Measured locally on a 6-image 1080×1920 render, threads went from up to 106 down to 8 after the change. The render took about 5 s.
+
+- Motion renders pass `-threads` per input and on the output, plus `-filter_threads` / `-filter_complex_threads`. The poster frame is limited the same way
+- x264 preset `medium` → `veryfast` so a single-threaded encode stays well inside the 180 s timeout
+- Optional env `FFMPEG_THREADS` (default 1) to raise the limit on a bigger host
+
+**Paths:** `src/lib/motion-video/service.ts`
+
+**Manual:** after deploy, click **Regenerate pack**.
+
 ### Fix: Reels companion fell back to a Stories image ("ffmpeg was not found") on Hostinger
 **What / why**  
 The story carousel now renders fully on live (89/100, all overlays + Shop Now grid). The only failing Meta check was **Format diversity**: the Reels video could not render because Hostinger installs `ffmpeg-static` without running its download script, so there is no ffmpeg binary.
