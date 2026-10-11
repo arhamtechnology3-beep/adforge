@@ -8,6 +8,15 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-12
 
+### Fix (cont.): free threads for ffmpeg + thread diagnostics on live
+**What / why**  
+Even with ffmpeg limited to one thread per stage, live still failed at the 3rd image input (`pthread_create … Resource temporarily unavailable`). So the account's thread limit is mostly used by the app itself. libvips (`sharp`) keeps a worker per CPU core in every Next process.
+
+- `src/instrumentation.ts` (+ `instrumentation-node.ts`, `experimental.instrumentationHook`) sets `sharp.concurrency(1)` at server start. Optional env `SHARP_CONCURRENCY` to raise it
+- `GET /api/ads/creative-status` now also reports `cpus`, `sharp_concurrency`, `process_threads`, `account_threads`, `max_processes`. With `?probe=1` it runs a 6-input, single-threaded ffmpeg test encode (`render_probe: "ok"` or the error). No paths or secrets
+
+**Paths:** `src/instrumentation.ts`, `src/instrumentation-node.ts`, `next.config.mjs`, `src/app/api/ads/creative-status/route.ts`
+
 ### Fix: Reels render failed on Hostinger with `pthread_create() failed: Resource temporarily unavailable`
 **What / why**  
 With ffmpeg now present on live, the motion render still failed because ffmpeg sizes thread pools to the CPU count for every input decoder, the filter graph and the encoder. On a shared host, that runs past the account's thread limit. Measured locally on a 6-image 1080×1920 render, threads went from up to 106 down to 8 after the change. The render took about 5 s.
