@@ -24,7 +24,7 @@ async function processVersion(pid: number): Promise<string | null> {
 /**
  * Hostinger leaves Node servers from earlier deploys running; each holds ~11 threads against the
  * account's thread cap, which starves ffmpeg. A process is stale only when its deploy folder is
- * known, differs from ours, and it started before us.
+ * known, is older than ours, and it started before us.
  */
 export async function listDeployProcesses(): Promise<DeployProcess[]> {
   const current = await processVersion(process.pid);
@@ -47,9 +47,10 @@ export async function listDeployProcesses(): Promise<DeployProcess[]> {
       pid,
       version,
       ageSeconds,
+      // Version folders are UUIDv7 (time-ordered), so an older deploy never stops a newer one.
       stale:
         pid !== process.pid &&
-        version !== current &&
+        version.toLowerCase() < current.toLowerCase() &&
         ageSeconds !== null &&
         ownAge !== null &&
         ageSeconds > ownAge,

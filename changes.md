@@ -8,6 +8,12 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-12
 
+### Verified live: story carousel 100/100 + Reels video; reaper safety tweak
+- Live `/ads` regenerate: the carousel scores **100/100** with every Meta scorecard check green, including Format diversity. The Reels companion is a real 9:16 motion video (`UGC-style motion video`)
+- `stale-deploys`: a process is stale only if its deploy folder (UUIDv7, time-ordered) is **older** than the running one, as well as having started earlier. A server from an older deploy that Hostinger restarts can never stop the current deploy
+
+**Paths:** `src/lib/stale-deploys.ts`
+
 ### Fix: motion video `xfade` "Failed to configure output pad" on live; normalized inputs
 **What / why**  
 Once threads were freed, the live render reached the filter graph and failed at the first crossfade (`Parsed_xfade_30 … Failed to configure output pad`). xfade needs both clips to match in pixel format, frame rate and timebase. The line naming the mismatch was cut off because only the last 8 stderr lines were kept. Local tests also showed AVIF inputs failed outright (`Option loop not found`).
