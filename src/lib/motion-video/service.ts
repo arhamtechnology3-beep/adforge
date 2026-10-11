@@ -128,7 +128,9 @@ async function buildFilterGraph(options: {
         `crop=${width}:${height},setsar=1,` +
         `zoompan=z='${zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'` +
         `:d=${clipFrames}:s=${width}x${height}:fps=${FPS},` +
-        `trim=duration=${clipDuration.toFixed(3)},setpts=PTS-STARTPTS[v${index}]`
+        `trim=duration=${clipDuration.toFixed(3)},setpts=PTS-STARTPTS,` +
+        // xfade rejects inputs whose pixel format, frame rate or timebase differ.
+        `format=yuv420p,fps=${FPS},settb=1/${FPS}[v${index}]`
     );
   }
 

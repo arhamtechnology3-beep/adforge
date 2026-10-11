@@ -3,6 +3,7 @@ import { lstat, mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable, Transform } from 'node:stream';
+import sharp from 'sharp';
 import type { MotionVideoImage } from './types';
 
 const MAX_REMOTE_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -77,7 +78,21 @@ async function downloadRemoteImage(urlValue: string, destination: string): Promi
   }
 }
 
-/** Materialize local/remote normalized inputs into ffmpeg-readable paths. */
+/**
+ * Re-encode as an upright, opaque 8-bit JPEG so every ffmpeg input decodes the same way
+ * (ffmpeg's image2 path chokes on AVIF, and mixed alpha/CMYK/16-bit inputs vary by build).
+ */
+async function normalizeImage(source: string, destination: string): Promise<void> {
+  await sharp(source, { failOn: 'none', animated: false })
+    .rotate()
+    .resize({ width: 2160, height: 2160, fit: 'inside', withoutEnlargement: true })
+    .flatten({ background: '#ffffff' })
+    .toColourspace('srgb')
+    .jpeg({ quality: 92, chromaSubsampling: '4:2:0' })
+    .toFile(destination);
+}
+
+/** Materialize local/remote inputs as normalized JPEGs ffmpeg can read uniformly. */
 export async function prepareImageInputs(
   images: MotionVideoImage[],
   workingDirectory: string
@@ -86,16 +101,23 @@ export async function prepareImageInputs(
   const prepared: string[] = [];
 
   for (const [index, image] of images.entries()) {
+    let source: string;
     if (image.kind === 'local') {
-      const imagePath = localImagePath(image.path);
-      const stats = await lstat(imagePath);
+      source = localImagePath(image.path);
+      const stats = await lstat(source);
       if (!stats.isFile()) throw new Error(`Local image ${index + 1} is not a file`);
-      prepared.push(imagePath);
-      continue;
+    } else {
+      source = path.join(workingDirectory, `remote-${index}.image`);
+      await downloadRemoteImage(image.url, source);
     }
-
-    const destination = path.join(workingDirectory, `remote-${index}.image`);
-    await downloadRemoteImage(image.url, destination);
+    const destination = path.join(workingDirectory, `input-${index}.jpg`);
+    try {
+      await normalizeImage(source, destination);
+    } catch (error) {
+      throw new Error(
+        `Image ${index + 1} could not be decoded: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
     prepared.push(destination);
   }
   return prepared;

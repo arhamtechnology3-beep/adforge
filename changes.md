@@ -8,6 +8,17 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-12
 
+### Fix: motion video `xfade` "Failed to configure output pad" on live; normalized inputs
+**What / why**  
+Once threads were freed, the live render reached the filter graph and failed at the first crossfade (`Parsed_xfade_30 … Failed to configure output pad`). xfade needs both clips to match in pixel format, frame rate and timebase. The line naming the mismatch was cut off because only the last 8 stderr lines were kept. Local tests also showed AVIF inputs failed outright (`Option loop not found`).
+
+- Every input image (local or remote) is re-encoded with sharp before ffmpeg: EXIF rotation applied, capped at 2160 px, transparency flattened on white, written as an sRGB 8-bit JPEG. This also fixes AVIF, CMYK, 16-bit and animated WebP inputs
+- Each clip ends in `format=yuv420p,fps=30,settb=1/30` before xfade
+- ffmpeg errors keep the first matching cause lines (match / invalid / error / failed) plus the tail
+- `/api/ads/creative-status?probe=1` adds `motion_probe`: a real 9:16 render on the server from mixed synthetic inputs (files removed afterwards)
+
+**Paths:** `src/lib/motion-video/inputs.ts`, `src/lib/motion-video/service.ts`, `src/lib/motion-video/ffmpeg.ts`, `src/app/api/ads/creative-status/route.ts`
+
 ### Fix: old Hostinger deploys kept running and used up the account's thread cap (ffmpeg starved)
 **What / why**  
 The live diagnostics showed 9 Node servers running: the current deploy plus 8 left over from earlier deploys (`hbuilds/versions/<id>`), the oldest about 3.3 days old. Each holds about 11 threads, about 100 in total, which is at the account's thread cap. As a result, ffmpeg could not start even one input thread, and every deploy leaked another server.

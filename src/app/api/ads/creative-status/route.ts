@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
-import { readdir, readFile } from 'node:fs/promises';
-import { cpus } from 'node:os';
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { cpus, tmpdir } from 'node:os';
+import path from 'node:path';
 import sharp from 'sharp';
+import { renderMotionTemplateVideo, type MotionVideoImage } from '@/lib/motion-video';
 import { ffmpegDownloadIssue, resolveFfmpegPath, spawnProcess } from '@/lib/motion-video/ffmpeg';
 import { listDeployProcesses } from '@/lib/stale-deploys';
 
@@ -94,6 +96,51 @@ async function probeRender(ffmpeg: string): Promise<string> {
   }
 }
 
+/** Full motion render from mixed synthetic inputs (PNG with alpha, JPEG, odd sizes); files are removed after. */
+async function probeMotionRender(): Promise<string> {
+  const directory = await mkdtemp(path.join(tmpdir(), 'motion-probe-'));
+  try {
+    const specs = [
+      { width: 1080, height: 1920, file: 'a.png', alpha: 0.6 },
+      { width: 1001, height: 777, file: 'b.jpg', alpha: 1 },
+      { width: 1200, height: 1500, file: 'c.png', alpha: 1 },
+      { width: 640, height: 640, file: 'd.webp', alpha: 0.3 },
+      { width: 1080, height: 1350, file: 'e.jpg', alpha: 1 },
+    ];
+    const images: MotionVideoImage[] = [];
+    for (const [index, spec] of specs.entries()) {
+      const file = path.join(directory, spec.file);
+      await sharp({
+        create: {
+          width: spec.width,
+          height: spec.height,
+          channels: 4,
+          background: { r: 40 * index, g: 120, b: 200 - 30 * index, alpha: spec.alpha },
+        },
+      }).toFile(file);
+      images.push({ kind: 'local', path: file });
+    }
+    const result = await renderMotionTemplateVideo({
+      images,
+      aspect: '9:16',
+      durationSeconds: 10,
+      filenamePrefix: 'probe',
+      text: { headline: 'Probe', callToAction: 'Shop Now' },
+    });
+    if (!result.ok) return result.error.slice(0, 600);
+    await Promise.all(
+      [result.videoPath, result.posterPath].map((relative) =>
+        rm(path.join(process.cwd(), 'public', relative.replace(/^\//, '')), { force: true })
+      )
+    );
+    return `ok (${result.durationSeconds}s)`;
+  } catch (error) {
+    return (error instanceof Error ? error.message : String(error)).slice(-600);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
 /** Public readiness probe for the creative renderers (no paths or secrets in the response). */
 export async function GET(request: Request) {
   const ffmpeg = await resolveFfmpegPath();
@@ -108,6 +155,7 @@ export async function GET(request: Request) {
     account_threads: processes ? processes.reduce((sum, row) => sum + row.threads, 0) : null,
     max_processes: await readProcField('/proc/self/limits', /^Max processes\s+(\S+)/m),
     render_probe: probe && ffmpeg ? await probeRender(ffmpeg) : undefined,
+    motion_probe: probe && ffmpeg ? await probeMotionRender() : undefined,
     processes,
     deploys: (await listDeployProcesses().catch(() => [])).map((row) => ({
       ...row,

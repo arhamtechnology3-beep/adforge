@@ -59,7 +59,10 @@ export function spawnProcess(
         resolve({ stdout, stderr });
         return;
       }
-      const detail = stderr.trim().split('\n').slice(-8).join('\n');
+      const lines = stderr.trim().split('\n');
+      // The root cause is usually an early "do not match"/"Invalid" line, not the last few.
+      const cause = lines.filter((line) => /match|invalid|error|failed|not found/i.test(line)).slice(0, 4);
+      const detail = [...new Set([...cause, ...lines.slice(-6)])].join('\n');
       reject(
         new Error(
           `Process exited with ${signal ? `signal ${signal}` : `code ${code}`}${
