@@ -29,6 +29,11 @@ type SuiteResponse = {
   diversity?: { diversityScore: number; formatCount: number; conceptCount: number; recommendations: string[] };
   budget?: { recommendedModel: string; biddingStrategy: string; notes: string[]; perCampaign: Array<{ name: string; action: string; rationale: string }> };
   ppc?: { breakEvenCpa: number; targetCpa: number; targetRoas: number; notes: string[] };
+  orderGoal?: {
+    targetCpa: number;
+    goals: Array<{ ordersPerDay: number; dailyBudget: number }>;
+    note: string;
+  };
   attribution?: { score: number; recommendedWindow: string; recommendations: string[] };
   audiences?: { lookalikes: Array<{ name: string; ready: boolean; rationale: string }>; notes: string[] };
   brandDna?: { voice: string; tone_keywords: string[]; messaging_pillars: string[]; color_palette: string[] };
@@ -233,6 +238,33 @@ export default function OptimizeClient() {
           </ul>
         </Card>
       </div>
+
+      <section className="rounded-2xl border border-gray-200 bg-white p-5 mb-6">
+        <h2 className="font-semibold flex items-center gap-2 mb-2">
+          <Target className="w-4 h-4" /> Website order goal planner
+        </h2>
+        <p className="text-sm text-muted mb-3">
+          Budget needed for website purchases at target CPA ₹
+          {data?.orderGoal?.targetCpa != null
+            ? Math.round(data.orderGoal.targetCpa).toLocaleString('en-IN')
+            : '—'}
+          . Fix CPA first — then scale spend.
+        </p>
+        <div className="grid sm:grid-cols-3 gap-3">
+          {(data?.orderGoal?.goals || []).map((g) => (
+            <div key={g.ordersPerDay} className="rounded-xl bg-gray-50 p-3">
+              <div className="text-xs uppercase text-muted">{g.ordersPerDay} orders / day</div>
+              <div className="text-2xl font-bold mt-1">
+                ₹{Math.round(g.dailyBudget).toLocaleString('en-IN')}
+              </div>
+              <div className="text-xs text-muted">daily ad spend</div>
+            </div>
+          ))}
+        </div>
+        {data?.orderGoal?.note && (
+          <p className="text-xs text-amber-800 mt-3">{data.orderGoal.note}</p>
+        )}
+      </section>
 
       <div className="grid lg:grid-cols-2 gap-6 mb-6">
         <Card title="Budget advisor" icon={<Activity className="w-4 h-4" />}>

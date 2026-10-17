@@ -16,6 +16,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const view = (searchParams.get('view') || 'executive') as ReportViewId;
   const campaignId = searchParams.get('campaignId');
+  const rangeParam = (searchParams.get('range') || 'last_30d').toLowerCase();
   const catalogOnly = searchParams.get('catalog') === '1';
 
   if (catalogOnly) {
@@ -34,13 +35,27 @@ export async function GET(request: Request) {
       : allCampaigns || [];
 
   const ids = campaigns.map((c) => c.id);
+  let sinceDate: string | null = null;
+  if (rangeParam === 'last_7d') {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - 6);
+    sinceDate = d.toISOString().split('T')[0];
+  } else if (rangeParam === 'last_30d' || rangeParam === '30' || rangeParam === 'default') {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - 29);
+    sinceDate = d.toISOString().split('T')[0];
+  }
+  // range=all → no sinceDate filter
+
   let snapshots = [];
   if (ids.length) {
-    const { data } = await supabase
+    let q = supabase
       .from('performance_snapshots')
       .select('*')
       .in('meta_campaign_id', ids)
       .order('date', { ascending: true });
+    if (sinceDate) q = q.gte('date', sinceDate);
+    const { data } = await q;
     snapshots = data || [];
   }
 
@@ -95,6 +110,9 @@ export async function GET(request: Request) {
       hasMeta: Boolean(c.meta_campaign_id),
     })),
     selectedCampaignId: campaignId && campaignId !== 'all' ? campaignId : 'all',
+    range: rangeParam === 'all' ? 'all' : rangeParam === 'last_7d' ? 'last_7d' : 'last_30d',
+    rangeSince: sinceDate,
     lastSyncedAt: latestSnap?.date || null,
+    snapshotDays: new Set(snapshots.map((s: { date: string }) => s.date)).size,
   });
 }

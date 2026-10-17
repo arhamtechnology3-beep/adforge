@@ -100,9 +100,28 @@ export async function loadOptimizeAccount(
     byCamp.set(s.meta_campaign_id, list);
   }
 
+  const since30 = (() => {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - 29);
+    return d.toISOString().split('T')[0];
+  })();
+
   const optimizeCampaigns: OptimizeCampaignInput[] = campaigns.map((c) => {
     const rows = byCamp.get(c.id) || [];
+    const window = rows.filter((r) => String(r.date) >= since30);
     const latest = rows[0];
+    const sum = (key: string) =>
+      window.reduce((a, r) => a + Number((r as Record<string, unknown>)[key] || 0), 0);
+    const spend = sum('spend');
+    const impressions = sum('impressions');
+    const clicks = sum('clicks');
+    const purchases = sum('purchases');
+    const revenue = sum('revenue');
+    const addToCart = sum('add_to_cart');
+    const initiateCheckout = sum('initiate_checkout');
+    const cpa = purchases > 0 ? spend / purchases : null;
+    const roas = spend > 0 && revenue > 0 ? revenue / spend : null;
+    const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
     const lc = (c.launch_config || {}) as Record<string, unknown>;
     return {
       id: c.id,
@@ -112,21 +131,21 @@ export async function loadOptimizeAccount(
       budgetType: (lc.budget_type as OptimizeCampaignInput['budgetType']) || 'unknown',
       biddingStrategy: (lc.bidding_strategy as string) || null,
       dailyBudget: c.budget != null ? Number(c.budget) : null,
-      spend: Number(latest?.spend || 0),
-      impressions: Number(latest?.impressions || 0),
-      clicks: Number(latest?.clicks || 0),
-      cpc: Number(latest?.cpc || 0),
-      cpm: Number(latest?.cpm || 0),
-      ctr: Number(latest?.ctr || 0),
-      cpa: latest?.cost_per_purchase != null ? Number(latest.cost_per_purchase) : null,
-      roas: latest?.roas != null ? Number(latest.roas) : null,
+      spend,
+      impressions,
+      clicks,
+      cpc: clicks > 0 ? spend / clicks : Number(latest?.cpc || 0),
+      cpm: impressions > 0 ? (spend / impressions) * 1000 : Number(latest?.cpm || 0),
+      ctr,
+      cpa,
+      roas,
       frequency: Number(latest?.frequency || 0),
-      purchases: Number(latest?.purchases || 0),
-      addToCart: Number(latest?.add_to_cart || 0),
-      initiateCheckout: Number(latest?.initiate_checkout || 0),
-      conversionRate: latest?.conversion_rate != null ? Number(latest.conversion_rate) : null,
-      revenue: Number(latest?.revenue || 0),
-      reach: Number(latest?.reach || 0),
+      purchases,
+      addToCart,
+      initiateCheckout,
+      conversionRate: clicks > 0 ? (purchases / clicks) * 100 : null,
+      revenue,
+      reach: sum('reach'),
       attributionWindow: (lc.attribution_window as string) || '7d_click_1d_view',
       hasExclusions: Boolean(lc.has_exclusions),
       hasLookalike: Boolean(lc.has_lookalike),

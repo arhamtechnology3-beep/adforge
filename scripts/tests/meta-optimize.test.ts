@@ -256,6 +256,36 @@ async function main() {
     assert.ok(recs.some((r) => r.type === 'scale_budget' && (r.proposed_action as { pct?: number }).pct === 20));
     assert.ok(recs.some((r) => r.type === 'kill_3x'));
     assert.ok(recs.some((r) => r.type === 'learning_protect'));
+    // Zero-purchase waste (spend floor) — separate from 3× kill
+    const zeroRecs = analyzePerformanceV2(
+      [
+        {
+          campaignId: 'zero',
+          campaignName: 'Zero orders',
+          status: 'active',
+          budget: 500,
+          spend: 2000,
+          impressions: 8000,
+          clicks: 100,
+          cpc: 20,
+          cpm: 250,
+          ctr: 1.2,
+          cpa: null,
+          roas: null,
+          frequency: 1.4,
+          purchases: 0,
+          add_to_cart: 1,
+          initiate_checkout: 0,
+          conversion_rate: null,
+          video_views: 0,
+          engagement_rate: null,
+          revenue: 0,
+          reach: 6000,
+        },
+      ],
+      targets
+    );
+    assert.ok(zeroRecs.some((r) => r.type === 'kill_zero_purchase'));
 
     const lists = buildKillScaleLists(metrics, targets);
     assert.ok(lists.killList.some((k) => k.id === 'lose'));

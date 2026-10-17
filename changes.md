@@ -6,6 +6,24 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+## 2026-10-18
+
+### P0: Website-orders data + waste kill + order goal planner
+**What / why**  
+Reports showed ₹0 purchases / understated spend vs Meta Ads Manager because Sync only wrote yesterday+today, purchase parsing took the first `*purchase` action (often `omni_purchase`), and Optimize used a single latest day. Brands chasing website orders need Meta Website Purchases, a 30-day window, and kill rules when spend has zero orders.
+
+- **Purchase/revenue mapping:** prefer `offsite_conversion.fb_pixel_purchase` (+ matching `action_values`); Insights use `use_unified_attribution_setting=true`
+- **Sync:** backfill last **30 days** with `time_increment=1` (re-attributes late purchases); returns unique dates / total spend / purchases
+- **Reports:** default **Last 30 days** range filter; stay on **All campaigns** (no auto single-campaign pick); honest Sync status copy
+- **Ops / Optimize:** kill/pause when spend past floor with **0 purchases**; Optimize rollup = last 30d snapshots; worker re-syncs last 7d
+- **Order goal planner** on `/optimize`: daily budget for 5 / 10 / 20 orders at target CPA
+
+**Paths:** `src/lib/meta.ts`, `src/lib/sync-meta-performance.ts`, `src/app/api/reports/route.ts`, `src/app/(dashboard)/reports/ReportsClient.tsx`, `src/lib/meta-optimize/ops-v2.ts`, `src/lib/meta-optimize/load-account.ts`, `src/lib/meta-optimize/orchestrate.ts`, `src/app/api/optimize/route.ts`, `src/app/(dashboard)/optimize/OptimizeClient.tsx`, `src/workers/jobs/ops-monitor.ts`, `scripts/tests/insights-purchase-parse.test.ts`
+
+**Manual (live):** Deploy → open `/reports` → **Sync latest from Meta** (pulls ~30 days) → confirm Purchases/Revenue vs Ads Manager Last 30 days → `/optimize` for kill list + order goal planner. Still pause zero-order ad sets in Meta today if they are burning budget.
+
+---
+
 ## 2026-10-12
 
 ### Fix: launch wizard took CTA / name / link copy from the competitor ad; carousel preview showed raw photo

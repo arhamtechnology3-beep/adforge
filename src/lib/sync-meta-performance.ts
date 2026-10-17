@@ -1,13 +1,16 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   retrieveToken,
-  getCampaignInsights,
+  getCampaignInsightsRows,
   parseInsightsPayload,
   getCampaignInsightBreakdowns,
 } from '@/lib/meta';
 import type { InsightBreakdowns } from '@/types/database';
 
 const GRAPH = 'https://graph.facebook.com/v21.0';
+
+/** How many calendar days to backfill + re-attribute on each Sync. */
+export const INSIGHTS_BACKFILL_DAYS = 30;
 
 async function fetchMetaCampaignStatus(token: string, metaCampaignId: string) {
   const res = await fetch(
@@ -39,6 +42,21 @@ export function mapMetaCampaignStatus(
     return 'paused';
   }
   return null;
+}
+
+function isoDateUtc(d: Date): string {
+  return d.toISOString().split('T')[0];
+}
+
+/** Inclusive last-N-days window in UTC (Meta still returns ad-account TZ dates in rows). */
+export function insightsTimeRange(days: number = INSIGHTS_BACKFILL_DAYS): {
+  since: string;
+  until: string;
+} {
+  const until = new Date();
+  const since = new Date(until);
+  since.setUTCDate(since.getUTCDate() - (days - 1));
+  return { since: isoDateUtc(since), until: isoDateUtc(until) };
 }
 
 async function buildBreakdowns(
@@ -85,6 +103,9 @@ export type SyncCampaignResult = {
   spend?: number;
   impressions?: number;
   clicks?: number;
+  purchases?: number;
+  revenue?: number;
+  daysWritten?: number;
   error?: string;
 };
 
@@ -92,18 +113,25 @@ export type SyncMetaPerformanceResult = {
   date: string;
   statusSynced: number;
   snapshotsWritten: number;
+  uniqueDates: number;
+  totalSpend: number;
+  totalPurchases: number;
+  totalRevenue: number;
+  range: { since: string; until: string };
   campaigns: SyncCampaignResult[];
 };
 
 /**
- * Pull Meta status + today's insights into performance_snapshots for one user
- * (or a single campaign). Used by Reports Sync button and CLI script.
+ * Pull Meta status + last N days of daily insights (re-attribution refresh)
+ * into performance_snapshots. Used by Reports Sync and CLI.
  */
 export async function syncMetaPerformanceForUser(
   supabase: SupabaseClient,
-  opts: { userId: string; campaignId?: string | null }
+  opts: { userId: string; campaignId?: string | null; days?: number }
 ): Promise<SyncMetaPerformanceResult> {
-  const today = new Date().toISOString().split('T')[0];
+  const days = opts.days ?? INSIGHTS_BACKFILL_DAYS;
+  const range = insightsTimeRange(days);
+  const today = range.until;
   const { data: account, error: accErr } = await supabase
     .from('ad_accounts')
     .select('*')
@@ -129,12 +157,26 @@ export async function syncMetaPerformanceForUser(
   const { data: campaigns, error: cErr } = await campQuery;
   if (cErr) throw new Error(cErr.message);
   if (!campaigns?.length) {
-    return { date: today, statusSynced: 0, snapshotsWritten: 0, campaigns: [] };
+    return {
+      date: today,
+      statusSynced: 0,
+      snapshotsWritten: 0,
+      uniqueDates: 0,
+      totalSpend: 0,
+      totalPurchases: 0,
+      totalRevenue: 0,
+      range,
+      campaigns: [],
+    };
   }
 
   const token = retrieveToken(account.access_token_encrypted);
   let statusSynced = 0;
   let snapshotsWritten = 0;
+  let totalSpend = 0;
+  let totalPurchases = 0;
+  let totalRevenue = 0;
+  const datesSeen = new Set<string>();
   const results: SyncCampaignResult[] = [];
 
   for (const campaign of campaigns) {
@@ -167,19 +209,31 @@ export async function syncMetaPerformanceForUser(
         row.status = mapped;
       }
 
-      // Meta "today" is the ad-account timezone — use the insight date_start, and
-      // also persist yesterday so Reports is not stuck on a stale first-day row.
-      let lastParsed: ReturnType<typeof parseInsightsPayload> = null;
-      for (const preset of ['yesterday', 'today'] as const) {
-        const raw = await getCampaignInsights(token, metaId, preset);
+      const rawRows = await getCampaignInsightsRows(token, metaId, {
+        timeRange: range,
+        timeIncrement: 1,
+      });
+
+      let campSpend = 0;
+      let campPurchases = 0;
+      let campRevenue = 0;
+      let campClicks = 0;
+      let campImps = 0;
+      let daysWritten = 0;
+      let latestDate = '';
+
+      const todayBreakdowns =
+        rawRows.some((r) => String(r.date_start || '') === today)
+          ? await buildBreakdowns(token, metaId)
+          : {};
+
+      for (const raw of rawRows) {
         const parsed = parseInsightsPayload(raw);
         if (!parsed) continue;
-        lastParsed = parsed;
-        const snapDate = String(parsed.raw.date_start || (preset === 'today' ? today : ''));
+        const snapDate = String(parsed.raw.date_start || '');
         if (!snapDate) continue;
 
-        const breakdowns =
-          preset === 'today' ? await buildBreakdowns(token, metaId) : {};
+        const breakdowns = snapDate === today ? todayBreakdowns : {};
         const { error: sErr } = await supabase.from('performance_snapshots').upsert(
           {
             meta_campaign_id: campaign.id,
@@ -208,18 +262,34 @@ export async function syncMetaPerformanceForUser(
           { onConflict: 'meta_campaign_id,date' }
         );
         if (sErr) throw new Error(sErr.message);
+
         snapshotsWritten += 1;
+        daysWritten += 1;
+        datesSeen.add(snapDate);
+        campSpend += parsed.spend;
+        campPurchases += parsed.purchases;
+        campRevenue += parsed.revenue;
+        campClicks += parsed.clicks;
+        campImps += parsed.impressions;
+        if (snapDate > latestDate) latestDate = snapDate;
       }
 
-      if (!lastParsed) {
+      totalSpend += campSpend;
+      totalPurchases += campPurchases;
+      totalRevenue += campRevenue;
+
+      if (!daysWritten) {
         results.push(row);
         continue;
       }
 
       row.snapshot = true;
-      row.spend = lastParsed.spend;
-      row.impressions = lastParsed.impressions;
-      row.clicks = lastParsed.clicks;
+      row.spend = campSpend;
+      row.impressions = campImps;
+      row.clicks = campClicks;
+      row.purchases = campPurchases;
+      row.revenue = campRevenue;
+      row.daysWritten = daysWritten;
       results.push(row);
     } catch (err) {
       row.error = err instanceof Error ? err.message : String(err);
@@ -227,5 +297,15 @@ export async function syncMetaPerformanceForUser(
     }
   }
 
-  return { date: today, statusSynced, snapshotsWritten, campaigns: results };
+  return {
+    date: today,
+    statusSynced,
+    snapshotsWritten,
+    uniqueDates: datesSeen.size,
+    totalSpend,
+    totalPurchases,
+    totalRevenue,
+    range,
+    campaigns: results,
+  };
 }

@@ -1134,8 +1134,32 @@ export type ParsedInsights = {
   raw: Record<string, unknown>;
 };
 
+type ActionRow = { action_type: string; value: string };
+
+/** Prefer Website Purchases (Pixel) over omni/onsite — matches Ads Manager "Website purchases". */
+const PURCHASE_ACTION_PRIORITY = [
+  'offsite_conversion.fb_pixel_purchase',
+  'web_in_store_purchase',
+  'omni_purchase',
+  'purchase',
+  'onsite_web_purchase',
+  'onsite_web_app_purchase',
+] as const;
+
+const ATC_ACTION_PRIORITY = [
+  'offsite_conversion.fb_pixel_add_to_cart',
+  'omni_add_to_cart',
+  'add_to_cart',
+] as const;
+
+const IC_ACTION_PRIORITY = [
+  'offsite_conversion.fb_pixel_initiate_checkout',
+  'omni_initiated_checkout',
+  'initiate_checkout',
+] as const;
+
 function actionValue(
-  actions: Array<{ action_type: string; value: string }> | undefined,
+  actions: ActionRow[] | undefined,
   type: string
 ): number {
   if (!actions) return 0;
@@ -1143,28 +1167,75 @@ function actionValue(
   return hit ? parseFloat(hit.value) : 0;
 }
 
+/** Pick first matching action_type from priority list; never blind first `*purchase`. */
+export function prioritizedActionValue(
+  actions: ActionRow[] | undefined,
+  priority: readonly string[],
+  fallbackSuffix?: string
+): number {
+  if (!actions?.length) return 0;
+  for (const type of priority) {
+    const hit = actions.find((a) => a.action_type === type);
+    if (hit) return parseFloat(hit.value) || 0;
+  }
+  if (fallbackSuffix) {
+    const hit = actions.find(
+      (a) =>
+        a.action_type === fallbackSuffix ||
+        a.action_type.endsWith(`.${fallbackSuffix}`) ||
+        a.action_type.endsWith(`_${fallbackSuffix}`)
+    );
+    if (hit) return parseFloat(hit.value) || 0;
+  }
+  return 0;
+}
+
+const INSIGHT_FIELDS = [
+  'spend',
+  'impressions',
+  'reach',
+  'clicks',
+  'inline_link_clicks',
+  'ctr',
+  'cpc',
+  'cpm',
+  'frequency',
+  'actions',
+  'action_values',
+  'cost_per_action_type',
+  'video_play_actions',
+  'inline_post_engagement',
+  'date_start',
+  'date_stop',
+].join(',');
+
+/** Match Ads Manager attribution (ad set window) instead of a mismatched API default. */
+function insightsAttributionQuery(): string {
+  return '&use_unified_attribution_setting=true';
+}
+
 export function parseInsightsPayload(raw: Record<string, unknown> | null): ParsedInsights | null {
   if (!raw) return null;
-  const actions = raw.actions as Array<{ action_type: string; value: string }> | undefined;
-  const actionValues = raw.action_values as
-    | Array<{ action_type: string; value: string }>
-    | undefined;
-  const costPerAction = raw.cost_per_action_type as
-    | Array<{ action_type: string; value: string }>
-    | undefined;
+  const actions = raw.actions as ActionRow[] | undefined;
+  const actionValues = raw.action_values as ActionRow[] | undefined;
+  const costPerAction = raw.cost_per_action_type as ActionRow[] | undefined;
 
   const spend = parseFloat(String(raw.spend || '0'));
   const impressions = parseInt(String(raw.impressions || '0'), 10);
   const clicks = parseInt(String(raw.clicks || raw.inline_link_clicks || '0'), 10);
-  const purchases = actionValue(actions, 'purchase');
-  const add_to_cart = actionValue(actions, 'add_to_cart');
-  const initiate_checkout = actionValue(actions, 'initiate_checkout');
-  const revenue = actionValue(actionValues, 'purchase');
-  const cpaPurchase = costPerAction?.find(
-    (a) => a.action_type === 'purchase' || a.action_type.endsWith('purchase')
-  )?.value;
+  const purchases = prioritizedActionValue(actions, PURCHASE_ACTION_PRIORITY, 'purchase');
+  const add_to_cart = prioritizedActionValue(actions, ATC_ACTION_PRIORITY, 'add_to_cart');
+  const initiate_checkout = prioritizedActionValue(
+    actions,
+    IC_ACTION_PRIORITY,
+    'initiate_checkout'
+  );
+  const revenue = prioritizedActionValue(actionValues, PURCHASE_ACTION_PRIORITY, 'purchase');
+  const cpaPurchase =
+    prioritizedActionValue(costPerAction, PURCHASE_ACTION_PRIORITY, 'purchase') ||
+    null;
   const video_views = actionValue(
-    (raw.video_play_actions as Array<{ action_type: string; value: string }>) || actions,
+    (raw.video_play_actions as ActionRow[]) || actions,
     'video_view'
   );
   const engagements = parseFloat(String(raw.inline_post_engagement || '0'));
@@ -1182,7 +1253,12 @@ export function parseInsightsPayload(raw: Record<string, unknown> | null): Parse
     purchases,
     add_to_cart,
     initiate_checkout,
-    cost_per_purchase: cpaPurchase ? parseFloat(cpaPurchase) : purchases > 0 ? spend / purchases : null,
+    cost_per_purchase:
+      cpaPurchase && cpaPurchase > 0
+        ? cpaPurchase
+        : purchases > 0
+          ? spend / purchases
+          : null,
     revenue,
     roas: spend > 0 && revenue > 0 ? revenue / spend : null,
     conversion_rate: clicks > 0 ? (purchases / clicks) * 100 : null,
@@ -1192,34 +1268,50 @@ export function parseInsightsPayload(raw: Record<string, unknown> | null): Parse
   };
 }
 
+export type CampaignInsightsOpts = {
+  datePreset?: string;
+  /** When set with timeIncrement, overrides date_preset for a calendar window. */
+  timeRange?: { since: string; until: string };
+  timeIncrement?: 1;
+};
+
 export async function getCampaignInsights(
   accessToken: string,
   campaignId: string,
   datePreset: string = 'last_7d'
 ) {
-  const fields = [
-    'spend',
-    'impressions',
-    'reach',
-    'clicks',
-    'inline_link_clicks',
-    'ctr',
-    'cpc',
-    'cpm',
-    'frequency',
-    'actions',
-    'action_values',
-    'cost_per_action_type',
-    'video_play_actions',
-    'inline_post_engagement',
-  ].join(',');
+  const rows = await getCampaignInsightsRows(accessToken, campaignId, { datePreset });
+  return rows[0] || null;
+}
+
+/** Daily (or single) insight rows — use time_increment=1 for backfill. */
+export async function getCampaignInsightsRows(
+  accessToken: string,
+  campaignId: string,
+  opts: CampaignInsightsOpts = {}
+): Promise<Record<string, unknown>[]> {
+  const params = new URLSearchParams();
+  params.set('fields', INSIGHT_FIELDS);
+  params.set('access_token', accessToken);
+  if (opts.timeRange) {
+    params.set(
+      'time_range',
+      JSON.stringify({ since: opts.timeRange.since, until: opts.timeRange.until })
+    );
+  } else {
+    params.set('date_preset', opts.datePreset || 'last_7d');
+  }
+  if (opts.timeIncrement === 1) {
+    params.set('time_increment', '1');
+  }
 
   const res = await fetch(
-    `${META_BASE}/${campaignId}/insights?fields=${fields}&date_preset=${datePreset}&access_token=${accessToken}`
+    `${META_BASE}/${campaignId}/insights?${params.toString()}${insightsAttributionQuery()}`
   );
   if (!res.ok) throw new Error('Failed to fetch insights');
   const data = await res.json();
-  return data.data?.[0] || null;
+  if (data.error) throw new Error(data.error.message || 'Failed to fetch insights');
+  return (data.data || []) as Record<string, unknown>[];
 }
 
 export async function getCampaignInsightBreakdowns(
@@ -1230,7 +1322,7 @@ export async function getCampaignInsightBreakdowns(
 ) {
   const fields = 'spend,impressions,ctr,cpc,actions,action_values';
   const res = await fetch(
-    `${META_BASE}/${campaignId}/insights?fields=${fields}&breakdowns=${breakdown}&date_preset=${datePreset}&access_token=${accessToken}`
+    `${META_BASE}/${campaignId}/insights?fields=${fields}&breakdowns=${breakdown}&date_preset=${datePreset}${insightsAttributionQuery()}&access_token=${accessToken}`
   );
   if (!res.ok) return [];
   const data = await res.json();

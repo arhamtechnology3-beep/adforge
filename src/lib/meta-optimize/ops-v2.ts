@@ -296,7 +296,40 @@ export function analyzePerformanceV2(
       }
     }
 
-    if (m.spend >= 500 && m.clicks >= 50 && m.purchases === 0 && m.add_to_cart === 0) {
+    // Zero-purchase waste: spent past floor with no orders — pause (does not require purchases≥1 like 3× kill).
+    const zeroPurchaseFloor = Math.max(500, (targets.cpaTarget || 300) * 2);
+    if (
+      !learning &&
+      m.purchases === 0 &&
+      m.spend >= zeroPurchaseFloor &&
+      (m.clicks >= 30 || m.impressions >= 1500)
+    ) {
+      out.push(
+        withGuide(
+          {
+            source: 'performance',
+            type: 'kill_zero_purchase',
+            severity: 'critical',
+            title: `No website orders: ${m.campaignName}`,
+            body: `₹${m.spend.toFixed(0)} spend with 0 purchases (floor ₹${zeroPurchaseFloor.toFixed(0)}). Pause and rebuild offer/creative/audience.`,
+            proposed_action: {
+              action: 'pause_campaign',
+              campaignId: m.campaignId,
+              reason: 'zero_purchase_spend_floor',
+              threshold: zeroPurchaseFloor,
+            },
+            meta_campaign_id: m.campaignId,
+            auto_apply: false,
+          },
+          guide(
+            'This campaign spent past your learning floor without a single website purchase.',
+            'Continuing spend will not create orders — fix tracking, landing, or creative first.',
+            'Pauses the campaign on Meta.',
+            'Confirm to stop waste. Reject only if you are still verifying Pixel/CAPI today.'
+          )
+        )
+      );
+    } else if (m.spend >= 500 && m.clicks >= 50 && m.purchases === 0 && m.add_to_cart === 0) {
       out.push(
         withGuide(
           {
@@ -415,7 +448,19 @@ export function buildKillScaleLists(
 
   for (const m of metrics) {
     if (m.status !== 'active') continue;
-    if (m.cpa != null && m.cpa > cpaTarget * 3 && m.spend >= Math.max(300, cpaTarget * 2)) {
+    const zeroFloor = Math.max(500, cpaTarget * 2);
+    if (m.purchases === 0 && m.spend >= zeroFloor && (m.clicks >= 30 || m.impressions >= 1500)) {
+      killList.push({
+        id: m.campaignId,
+        name: m.campaignName,
+        reason: 'Spend with 0 website purchases',
+        metric: `₹${m.spend.toFixed(0)} spend · 0 purchases`,
+      });
+    } else if (
+      m.cpa != null &&
+      m.cpa > cpaTarget * 3 &&
+      m.spend >= Math.max(300, cpaTarget * 2)
+    ) {
       killList.push({
         id: m.campaignId,
         name: m.campaignName,

@@ -2,7 +2,7 @@ import { adviseBudget } from './budget-advisor';
 import { analyzeCreativeDiversity } from './creative-diversity';
 import { computeHealthScore } from './health-score';
 import { assessTrackingHealth } from './tracking-health';
-import { computePpcMath } from './ppc-math';
+import { budgetForPurchases, computePpcMath } from './ppc-math';
 import { assessAttribution } from './attribution';
 import { planAudiences } from './audiences';
 import { extractBrandDna } from './brand-dna';
@@ -75,6 +75,16 @@ export function runOptimizeSuite(account: OptimizeAccountInput) {
     ltv: account.targets.ltv,
   });
 
+  const orderGoal = {
+    targetCpa: ppc.targetCpa,
+    goals: [5, 10, 20].map((ordersPerDay) => ({
+      ordersPerDay,
+      dailyBudget: budgetForPurchases(ordersPerDay, ppc.targetCpa),
+    })),
+    note:
+      'Daily ad budget needed only after CPA is at/under target. Raising budget while CPA is broken increases losses.',
+  };
+
   const attribution = assessAttribution({
     window: account.campaigns.find((c) => c.attributionWindow)?.attributionWindow,
     dedupRate: account.tracking.dedupRate,
@@ -130,6 +140,7 @@ export function runOptimizeSuite(account: OptimizeAccountInput) {
     diversity,
     budget,
     ppc,
+    orderGoal,
     attribution,
     audiences,
     brandDna,

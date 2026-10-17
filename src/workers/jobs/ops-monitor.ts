@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import {
   retrieveToken,
-  getCampaignInsights,
+  getCampaignInsightsRows,
   parseInsightsPayload,
   getCampaignInsightBreakdowns,
   pauseCampaign,
@@ -9,6 +9,7 @@ import {
   getAdEffectiveStatus,
   pauseAd,
 } from '@/lib/meta';
+import { insightsTimeRange } from '@/lib/sync-meta-performance';
 import { runOpsAnalysis } from '@/lib/ops-agent';
 import { notifyAgentChange } from '@/lib/ops-agent/change-email';
 import { sendEmail, formatPolicyAlertEmail } from '@/lib/email';
@@ -164,10 +165,90 @@ export async function runOpsMonitorSlot(slot: AgentSlot = 'morning') {
             campaign.launch_config = launchConfig;
           }
 
-          const raw = await getCampaignInsights(token, campaign.meta_campaign_id, 'today');
-          parsed = parseInsightsPayload(raw);
+          // Re-sync last 7 days so late Website Purchases land; Ops uses 7d rollup.
+          const range7 = insightsTimeRange(7);
+          const rawRows = await getCampaignInsightsRows(token, campaign.meta_campaign_id, {
+            timeRange: range7,
+            timeIncrement: 1,
+          });
           breakdowns = await buildBreakdowns(token, campaign.meta_campaign_id);
           hasLiveMeta = true;
+
+          let rollSpend = 0;
+          let rollImps = 0;
+          let rollClicks = 0;
+          let rollPurchases = 0;
+          let rollRevenue = 0;
+          let rollAtc = 0;
+          let rollIc = 0;
+          let rollReach = 0;
+          let rollVideo = 0;
+          let lastParsed: ReturnType<typeof parseInsightsPayload> = null;
+
+          for (const raw of rawRows) {
+            const day = parseInsightsPayload(raw);
+            if (!day) continue;
+            const snapDate = String(day.raw.date_start || '');
+            if (!snapDate) continue;
+            await supabase.from('performance_snapshots').upsert(
+              {
+                meta_campaign_id: campaign.id,
+                date: snapDate,
+                cpc: day.cpc,
+                cpa: day.cost_per_purchase,
+                ctr: day.ctr,
+                spend: day.spend,
+                impressions: day.impressions,
+                reach: day.reach,
+                clicks: day.clicks,
+                cpm: day.cpm,
+                frequency: day.frequency,
+                purchases: day.purchases,
+                add_to_cart: day.add_to_cart,
+                initiate_checkout: day.initiate_checkout,
+                cost_per_purchase: day.cost_per_purchase,
+                roas: day.roas,
+                conversion_rate: day.conversion_rate,
+                video_views: day.video_views,
+                engagement_rate: day.engagement_rate,
+                revenue: day.revenue,
+                raw_insights: day.raw,
+                breakdowns: snapDate === today ? breakdowns : {},
+              },
+              { onConflict: 'meta_campaign_id,date' }
+            );
+            rollSpend += day.spend;
+            rollImps += day.impressions;
+            rollClicks += day.clicks;
+            rollPurchases += day.purchases;
+            rollRevenue += day.revenue;
+            rollAtc += day.add_to_cart;
+            rollIc += day.initiate_checkout;
+            rollReach += day.reach;
+            rollVideo += day.video_views;
+            if (!lastParsed || snapDate >= String(lastParsed.raw.date_start || '')) {
+              lastParsed = day;
+            }
+          }
+
+          parsed = lastParsed
+            ? {
+                ...lastParsed,
+                spend: rollSpend,
+                impressions: rollImps,
+                clicks: rollClicks,
+                purchases: rollPurchases,
+                revenue: rollRevenue,
+                add_to_cart: rollAtc,
+                initiate_checkout: rollIc,
+                reach: rollReach,
+                video_views: rollVideo,
+                cost_per_purchase: rollPurchases > 0 ? rollSpend / rollPurchases : null,
+                roas: rollSpend > 0 && rollRevenue > 0 ? rollRevenue / rollSpend : null,
+                ctr: rollImps > 0 ? (rollClicks / rollImps) * 100 : 0,
+                conversion_rate: rollClicks > 0 ? (rollPurchases / rollClicks) * 100 : null,
+              }
+            : null;
 
           const ads = await getCampaignAds(token, campaign.meta_campaign_id);
           for (const ad of ads.slice(0, 20)) {
@@ -184,34 +265,6 @@ export async function runOpsMonitorSlot(slot: AgentSlot = 'morning') {
       }
 
       if (parsed) {
-        await supabase.from('performance_snapshots').upsert(
-          {
-            meta_campaign_id: campaign.id,
-            date: today,
-            cpc: parsed.cpc,
-            cpa: parsed.cost_per_purchase,
-            ctr: parsed.ctr,
-            spend: parsed.spend,
-            impressions: parsed.impressions,
-            reach: parsed.reach,
-            clicks: parsed.clicks,
-            cpm: parsed.cpm,
-            frequency: parsed.frequency,
-            purchases: parsed.purchases,
-            add_to_cart: parsed.add_to_cart,
-            initiate_checkout: parsed.initiate_checkout,
-            cost_per_purchase: parsed.cost_per_purchase,
-            roas: parsed.roas,
-            conversion_rate: parsed.conversion_rate,
-            video_views: parsed.video_views,
-            engagement_rate: parsed.engagement_rate,
-            revenue: parsed.revenue,
-            raw_insights: parsed.raw,
-            breakdowns,
-          },
-          { onConflict: 'meta_campaign_id,date' }
-        );
-
         metrics.push({
           campaignId: campaign.id,
           campaignName: campaign.name || campaign.objective || 'Campaign',

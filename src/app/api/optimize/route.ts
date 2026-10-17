@@ -39,6 +39,7 @@ export async function GET(request: Request) {
     diversity: suite.diversity,
     budget: suite.budget,
     ppc: suite.ppc,
+    orderGoal: suite.orderGoal,
     attribution: suite.attribution,
     audiences: suite.audiences,
     brandDna: suite.brandDna,

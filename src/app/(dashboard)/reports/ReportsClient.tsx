@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -40,42 +40,40 @@ type ReportCampaignOption = {
   hasMeta: boolean;
 };
 
-function pickDefaultCampaign(list: ReportCampaignOption[]) {
-  const ranked = [...list].sort((a, b) => {
-    const score = (c: ReportCampaignOption) =>
-      (c.status === 'active' ? 4 : 0) + (c.hasMeta ? 2 : 0);
-    return score(b) - score(a);
-  });
-  return ranked[0]?.id || 'all';
-}
+type ReportRange = 'last_7d' | 'last_30d' | 'all';
 
 export default function ReportsClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initial = (searchParams.get('view') as ReportViewId) || 'executive';
   const initialCampaign = searchParams.get('campaign') || '';
+  const initialRange = (searchParams.get('range') as ReportRange) || 'last_30d';
   const [view, setView] = useState<ReportViewId>(initial);
   const [campaignId, setCampaignId] = useState<string>(initialCampaign || 'all');
+  const [range, setRange] = useState<ReportRange>(
+    initialRange === 'last_7d' || initialRange === 'all' ? initialRange : 'last_30d'
+  );
   const [campaigns, setCampaigns] = useState<ReportCampaignOption[]>([]);
   const [catalog, setCatalog] = useState<ReportCatalogItem[]>([]);
   const [report, setReport] = useState<ReportResult | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [snapshotDays, setSnapshotDays] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
-  const autoPicked = useRef(Boolean(initialCampaign));
 
   useEffect(() => {
     const params = new URLSearchParams();
     params.set('view', view);
+    params.set('range', range);
     if (campaignId && campaignId !== 'all') params.set('campaign', campaignId);
     router.replace(`/reports?${params.toString()}`, { scroll: false });
-  }, [view, campaignId, router]);
+  }, [view, campaignId, range, router]);
 
   const loadReport = useCallback(async () => {
     setLoading(true);
     try {
-      const qs = new URLSearchParams({ view });
+      const qs = new URLSearchParams({ view, range });
       if (campaignId && campaignId !== 'all') qs.set('campaignId', campaignId);
       const res = await fetch(`/api/reports?${qs}`);
       const data = await res.json();
@@ -84,17 +82,13 @@ export default function ReportsClient() {
       const list = (data.campaigns || []) as ReportCampaignOption[];
       setCampaigns(list);
       setLastSyncedAt(data.lastSyncedAt || null);
-      if (!autoPicked.current && list.length && campaignId === 'all') {
-        autoPicked.current = true;
-        const preferred = pickDefaultCampaign(list);
-        if (preferred !== 'all') setCampaignId(preferred);
-      }
+      setSnapshotDays(Number(data.snapshotDays || 0));
     } catch {
       /* keep prior */
     } finally {
       setLoading(false);
     }
-  }, [view, campaignId]);
+  }, [view, campaignId, range]);
 
   useEffect(() => {
     loadReport();
@@ -117,12 +111,15 @@ export default function ReportsClient() {
         return;
       }
       const written = data.snapshotsWritten ?? 0;
-      const first = (data.campaigns || []).find((c: { snapshot?: boolean }) => c.snapshot);
-      const spend = Number(first?.spend || 0);
+      const unique = data.uniqueDates ?? 0;
+      const spend = Number(data.totalSpend || 0);
+      const purchases = Number(data.totalPurchases || 0);
+      const since = data.range?.since;
+      const until = data.range?.until;
       setSyncMessage(
         written > 0
-          ? `Synced ${written} day${written === 1 ? '' : 's'} from Meta · latest ₹${Math.round(spend).toLocaleString('en-IN')}`
-          : data.error || 'Sync finished — no new insights for today yet'
+          ? `Synced ${unique || written} day(s) · ${since || '?'}→${until || '?'} · ₹${Math.round(spend).toLocaleString('en-IN')} spend · ${purchases} purchases`
+          : data.error || 'Sync finished — no insights in this window yet'
       );
       await loadReport();
     } catch {
@@ -206,8 +203,33 @@ export default function ReportsClient() {
               View by campaign
             </p>
             <p className="text-xs text-muted">
-              {lastSyncedAt ? `Last snapshot ${lastSyncedAt}` : 'No snapshot yet — sync to fetch Meta'}
+              {lastSyncedAt
+                ? `Last snapshot ${lastSyncedAt}${snapshotDays ? ` · ${snapshotDays} day(s) in range` : ''}`
+                : 'No snapshot yet — sync to fetch Meta'}
             </p>
+          </div>
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-xs text-muted mr-1">Date range</span>
+            {(
+              [
+                ['last_7d', 'Last 7 days'],
+                ['last_30d', 'Last 30 days'],
+                ['all', 'All stored'],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setRange(id)}
+                className={`px-3 py-1.5 rounded-full text-sm font-medium ${
+                  range === id
+                    ? 'bg-gray-900 text-white'
+                    : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
           <div className="flex flex-wrap gap-2">
             <button
