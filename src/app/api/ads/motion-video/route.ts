@@ -83,6 +83,10 @@ export async function POST(request: Request) {
       typeof body.aspect === 'string' && ASPECTS.has(body.aspect as MotionVideoAspect)
         ? (body.aspect as MotionVideoAspect)
         : undefined;
+    const audioBed =
+      body.audioBed === 'none' || body.audioBed === 'soft'
+        ? body.audioBed
+        : undefined;
     const result = await renderMotionTemplateVideo({
       images,
       text: parseText(body.text),
@@ -91,6 +95,7 @@ export async function POST(request: Request) {
       aspect,
       filenamePrefix: `ad-${user.id.slice(0, 8)}`,
       publicOrigin: new URL(request.url).origin,
+      audioBed,
     });
 
     if (!result.ok) {

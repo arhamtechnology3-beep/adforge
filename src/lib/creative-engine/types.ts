@@ -40,6 +40,8 @@ export type VideoGenerationRequest = {
   scenePlan?: VideoScenePlan;
   publicOrigin: string;
   filenamePrefix: string;
+  /** Soft ambient bed on MP4. Default soft for 9:16. */
+  audioBed?: 'none' | 'soft';
 };
 
 export type VideoScenePlan = {

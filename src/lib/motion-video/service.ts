@@ -7,6 +7,7 @@ import { ffmpegDownloadIssue, resolveFfmpegPath, spawnProcess } from './ffmpeg';
 import { prepareImageInputs } from './inputs';
 import type {
   MotionVideoAspect,
+  MotionVideoAudioBed,
   MotionVideoResult,
   MotionVideoText,
   RenderMotionVideoInput,
@@ -168,6 +169,88 @@ function publicUrl(relativePath: string, origin?: string): string {
   return `${origin.replace(/\/+$/, '')}${relativePath}`;
 }
 
+function resolveAudioBed(
+  requested: MotionVideoAudioBed | undefined,
+  aspect: MotionVideoAspect
+): MotionVideoAudioBed {
+  if (requested === 'none' || requested === 'soft') return requested;
+  return aspect === '9:16' ? 'soft' : 'none';
+}
+
+/**
+ * Original soft ambient pad (not Instagram Music). Safe for ads; volume stays low.
+ */
+async function renderSoftAudioBed(
+  ffmpeg: string,
+  workingDirectory: string,
+  duration: number,
+  threads: string
+): Promise<string> {
+  const out = path.join(workingDirectory, 'soft-bed.m4a');
+  const fadeOutStart = Math.max(0.5, duration - 1.25);
+  const expr =
+    '0.05*sin(2*PI*196*t)+0.04*sin(2*PI*247*t)+0.03*sin(2*PI*294*t)+0.025*sin(2*PI*370*t)+0.02*sin(2*PI*440*t)';
+  await spawnProcess(
+    ffmpeg,
+    [
+      '-hide_banner',
+      '-loglevel',
+      'warning',
+      '-threads',
+      threads,
+      '-f',
+      'lavfi',
+      '-i',
+      `aevalsrc=exprs=${expr}:d=${duration.toFixed(3)}`,
+      '-af',
+      `afade=t=in:st=0:d=0.9,afade=t=out:st=${fadeOutStart.toFixed(3)}:d=1.2,volume=0.7`,
+      '-c:a',
+      'aac',
+      '-b:a',
+      '128k',
+      '-y',
+      out,
+    ],
+    { timeoutMs: 45_000 }
+  );
+  return out;
+}
+
+async function muxVideoWithAudio(
+  ffmpeg: string,
+  videoPath: string,
+  audioPath: string,
+  outputPath: string,
+  threads: string
+): Promise<void> {
+  await spawnProcess(
+    ffmpeg,
+    [
+      '-hide_banner',
+      '-loglevel',
+      'warning',
+      '-threads',
+      threads,
+      '-i',
+      videoPath,
+      '-i',
+      audioPath,
+      '-c:v',
+      'copy',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '128k',
+      '-shortest',
+      '-movflags',
+      '+faststart',
+      '-y',
+      outputPath,
+    ],
+    { timeoutMs: 60_000 }
+  );
+}
+
 /**
  * Render an ad-ready motion-template MP4 from normalized images and text.
  * The function is intentionally independent of API/auth code so generate routes can call it directly.
@@ -197,6 +280,7 @@ export async function renderMotionTemplateVideo(
 
   const duration = Math.max(8, Math.min(12, Number(input.durationSeconds) || 10));
   const aspect = input.aspect && DIMENSIONS[input.aspect] ? input.aspect : '1:1';
+  const audioBed = resolveAudioBed(input.audioBed, aspect);
   const { width, height } = DIMENSIONS[aspect];
   const text = cleanText(input.text);
   const id = randomUUID();
@@ -210,7 +294,8 @@ export async function renderMotionTemplateVideo(
   const filename = `${prefix}-${Date.now()}-${id.slice(0, 8)}`;
   const videoFilename = `${filename}.mp4`;
   const posterFilename = `${filename}-poster.jpg`;
-  const temporaryVideo = path.join(workingDirectory, videoFilename);
+  const temporaryVideo = path.join(workingDirectory, `silent-${videoFilename}`);
+  const temporaryVideoWithAudio = path.join(workingDirectory, videoFilename);
   const temporaryPoster = path.join(workingDirectory, posterFilename);
   const finalVideo = path.join(outputDirectory, videoFilename);
   const finalPoster = path.join(outputDirectory, posterFilename);
@@ -320,8 +405,34 @@ export async function renderMotionTemplateVideo(
       ],
       { timeoutMs: 30_000 }
     );
+
+    let hasAudio = false;
+    let deliverableVideo = temporaryVideo;
+    if (audioBed === 'soft') {
+      try {
+        const bed = await renderSoftAudioBed(ffmpeg, workingDirectory, duration, threads);
+        await muxVideoWithAudio(
+          ffmpeg,
+          temporaryVideo,
+          bed,
+          temporaryVideoWithAudio,
+          threads
+        );
+        deliverableVideo = temporaryVideoWithAudio;
+        hasAudio = true;
+      } catch (audioErr) {
+        // Keep silent MP4 rather than failing the whole creative pack.
+        console.warn(
+          '[motion-video] soft audio mux failed — shipping silent video:',
+          audioErr instanceof Error ? audioErr.message : audioErr
+        );
+        deliverableVideo = temporaryVideo;
+        hasAudio = false;
+      }
+    }
+
     await mkdir(outputDirectory, { recursive: true });
-    await rename(temporaryVideo, finalVideo);
+    await rename(deliverableVideo, finalVideo);
     await rename(temporaryPoster, finalPoster);
 
     const videoPath = `/uploads/motion/${videoFilename}`;
@@ -337,6 +448,7 @@ export async function renderMotionTemplateVideo(
       height,
       mimeType: 'video/mp4',
       text,
+      hasAudio,
     };
   } finally {
     await rm(workingDirectory, { recursive: true, force: true });

@@ -8,6 +8,19 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-18
 
+### Reels crop warning + soft audio on motion Video
+**What / why**  
+Launching Reels with a square Feed creative crops the product in preview/live. Users also asked for audio on Post/Reel — Meta Music library is not available via our API, so we mux an original soft ambient bed into 9:16 motion MP4s.
+
+- Wizard Budget/Ads: amber warning when Reels/Stories are on without a Stories/Video (9:16) creative
+- Validation item `reels_vertical_creative` (warn, still launchable)
+- `/ads` studio: **Add soft background audio** checkbox (default on) → `generation_brief.reels_audio`
+- Motion render: `audioBed: soft|none` — ffmpeg ambient pad muxed into MP4; `has_audio` on media_payload
+
+**Paths:** `src/lib/motion-video/service.ts`, `types.ts`, `src/lib/campaign-validation.ts`, `CampaignWizard.tsx`, `Step2Studio.tsx`, `ads/page.tsx`, `api/ads/generate`, `api/ads/[id]/regenerate`, `api/campaigns/validate`
+
+**Manual:** On `/ads` include **Video** (or carousel Reels), leave soft audio on → **Regenerate pack**. In campaign wizard select that Video/Stories creative before enabling Reels. Soft bed ≠ Instagram Music.
+
 ### P0: Website-orders data + waste kill + order goal planner
 **What / why**  
 Reports showed ₹0 purchases / understated spend vs Meta Ads Manager because Sync only wrote yesterday+today, purchase parsing took the first `*purchase` action (often `omni_purchase`), and Optimize used a single latest day. Brands chasing website orders need Meta Website Purchases, a 30-day window, and kill rules when spend has zero orders.

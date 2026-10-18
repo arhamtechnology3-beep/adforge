@@ -151,7 +151,8 @@ async function renderMotionRows(
   origin: string,
   product: ProductBrief,
   ownerId: string,
-  persistToStorage: boolean
+  persistToStorage: boolean,
+  audioBed: 'none' | 'soft' = 'soft'
 ): Promise<AdRow[]> {
   const persist = async (result: MotionVideoSuccess) => {
     if (!persistToStorage) {
@@ -207,6 +208,10 @@ async function renderMotionRows(
         durationSeconds: 10,
         publicOrigin: origin,
         filenamePrefix: `${product.brandName}-${product.productName}`,
+        audioBed:
+          row.media_payload.aspect === '9:16' || row.ad_format === 'video'
+            ? audioBed
+            : 'none',
       });
       if (!result.ok) throw new Error(result.error);
       const persisted = await persist(result);
@@ -218,6 +223,7 @@ async function renderMotionRows(
           video_url: persisted.videoUrl,
           poster_url: persisted.posterUrl,
           duration_ms: Math.round(result.durationSeconds * 1000),
+          has_audio: Boolean(result.hasAudio),
         },
       });
     } catch (error) {
@@ -265,6 +271,7 @@ async function finalizeStoryCarousel(opts: {
   ownerId: string;
   persistToStorage: boolean;
   product: ProductBrief;
+  audioBed?: 'none' | 'soft';
 }): Promise<AdRow[]> {
   const origin = resolveAppOrigin(opts.request);
   // First run on a fresh host may download ffmpeg; overlap that with card baking.
@@ -360,7 +367,8 @@ async function finalizeStoryCarousel(opts: {
         origin,
         opts.product,
         opts.ownerId,
-        opts.persistToStorage
+        opts.persistToStorage,
+        opts.audioBed ?? 'soft'
       );
       reelsRow = rendered?.media_payload.video_url
         ? { ...rendered, media_payload: { ...rendered.media_payload, quality_flags: [] } }
@@ -727,6 +735,7 @@ export async function POST(request: Request) {
         ownerId: sessionUser.id,
         persistToStorage: !sessionUser.isDemo,
         product: productBrief,
+        audioBed: body.generation_brief?.reels_audio === false ? 'none' : 'soft',
       }))
     );
   }
@@ -982,6 +991,9 @@ export async function POST(request: Request) {
     }
   }
 
+  const reelsAudioBed: 'none' | 'soft' =
+    body.generation_brief?.reels_audio === false ? 'none' : 'soft';
+
   if (!usedCreativeEngine) {
     ads = await bakeAdRows(ads, request, sessionUser.id, !sessionUser.isDemo);
     ads = await renderMotionRows(
@@ -989,7 +1001,8 @@ export async function POST(request: Request) {
       origin,
       productBrief,
       sessionUser.id,
-      !sessionUser.isDemo
+      !sessionUser.isDemo,
+      reelsAudioBed
     );
   }
 

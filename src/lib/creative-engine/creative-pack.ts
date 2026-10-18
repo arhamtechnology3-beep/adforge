@@ -574,6 +574,7 @@ export async function buildCreativePack(
         scenePlan,
         publicOrigin: request.origin,
         filenamePrefix: `${request.truth.brandName}-${request.truth.productName}`,
+        audioBed: 'soft',
         userId: request.ownerId,
       });
 
@@ -593,6 +594,7 @@ export async function buildCreativePack(
           video_url: video?.url || null,
           poster_url: frames[0]?.image_url || productImage,
           duration_ms: scenePlan.duration * 1000,
+          has_audio: Boolean(video?.url),
           video_style: 'ugc-motion',
           product_id: request.truth.productId,
           product_name: request.truth.productName,

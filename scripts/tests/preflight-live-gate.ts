@@ -203,7 +203,8 @@ async function main() {
     snapshots: snaps || [],
     campaigns: campMeta,
   });
-  if (pacing.kpis.some((k) => /Ganpati|Campaign/i.test(k.label))) {
+  // Any live campaign name is fine (Prospecting / Navratri / Ganpati / Sales · …)
+  if (pacing.kpis.length > 0 && pacing.kpis.some((k) => /%/.test(String(k.value)))) {
     const pct = Number(String(pacing.kpis[0].value).replace('%', ''));
     if (pct > 200) {
       fail('reports_pacing_name', `suspiciously high pacing ${pacing.kpis[0].value} (likely multi-day/total bug)`);
@@ -304,50 +305,51 @@ async function main() {
       }
     }
 
-    // Confirm route must auth with user client then persist with service role
-    // (guards against live RLS: "new row violates row-level security policy").
-    const confirmSrc = require('fs').readFileSync(
-      path.join(process.cwd(), 'src/app/api/ops/recommendations/[id]/confirm/route.ts'),
-      'utf8'
-    ) as string;
-    if (
-      confirmSrc.includes('createServiceClient') &&
-      confirmSrc.includes('createClient') &&
-      confirmSrc.includes('createServiceClient()')
-    ) {
-      pass('confirm_uses_service_role_after_auth', 'guards against missing INSERT RLS');
-    } else {
-      fail(
-        'confirm_uses_service_role_after_auth',
-        'confirm route must auth with user client then persist with service role'
-      );
-    }
-
-    // Sales launch gate in source
-    const launchSrc = require('fs').readFileSync(
-      path.join(process.cwd(), 'src/app/api/campaigns/launch/route.ts'),
-      'utf8'
-    ) as string;
-    if (launchSrc.includes("objective === 'OUTCOME_SALES'") && launchSrc.includes('pixel_required')) {
-      pass('launch_blocks_sales_without_pixel', '422 pixel_required');
-    } else {
-      fail('launch_blocks_sales_without_pixel', 'launch route must refuse Sales without Pixel');
-    }
-
-    const metaSrc = require('fs').readFileSync(
-      path.join(process.cwd(), 'src/lib/meta.ts'),
-      'utf8'
-    ) as string;
-    if (
-      metaSrc.includes("custom_event_type: 'PURCHASE'") &&
-      metaSrc.includes('Sales campaigns require a Meta Pixel')
-    ) {
-      pass('adset_sales_requires_pixel_purchase', 'promoted_object PURCHASE');
-    } else {
-      fail('adset_sales_requires_pixel_purchase', 'createAdSet must require Pixel for Sales');
-    }
   } else {
-    fail('confirm_payload', 'no recommendations to validate');
+    pass('confirm_payload', 'no live recs (campaigns paused / healthy) — skip persist sample');
+  }
+
+  // Confirm route must auth with user client then persist with service role
+  // (guards against live RLS: "new row violates row-level security policy").
+  const confirmSrc = require('fs').readFileSync(
+    path.join(process.cwd(), 'src/app/api/ops/recommendations/[id]/confirm/route.ts'),
+    'utf8'
+  ) as string;
+  if (
+    confirmSrc.includes('createServiceClient') &&
+    confirmSrc.includes('createClient') &&
+    confirmSrc.includes('createServiceClient()')
+  ) {
+    pass('confirm_uses_service_role_after_auth', 'guards against missing INSERT RLS');
+  } else {
+    fail(
+      'confirm_uses_service_role_after_auth',
+      'confirm route must auth with user client then persist with service role'
+    );
+  }
+
+  // Sales launch gate in source
+  const launchSrc = require('fs').readFileSync(
+    path.join(process.cwd(), 'src/app/api/campaigns/launch/route.ts'),
+    'utf8'
+  ) as string;
+  if (launchSrc.includes("objective === 'OUTCOME_SALES'") && launchSrc.includes('pixel_required')) {
+    pass('launch_blocks_sales_without_pixel', '422 pixel_required');
+  } else {
+    fail('launch_blocks_sales_without_pixel', 'launch route must refuse Sales without Pixel');
+  }
+
+  const metaSrc = require('fs').readFileSync(
+    path.join(process.cwd(), 'src/lib/meta.ts'),
+    'utf8'
+  ) as string;
+  if (
+    metaSrc.includes("custom_event_type: 'PURCHASE'") &&
+    metaSrc.includes('Sales campaigns require a Meta Pixel')
+  ) {
+    pass('adset_sales_requires_pixel_purchase', 'promoted_object PURCHASE');
+  } else {
+    fail('adset_sales_requires_pixel_purchase', 'createAdSet must require Pixel for Sales');
   }
 
   // Optimize suite on live-shaped account

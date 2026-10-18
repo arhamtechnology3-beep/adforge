@@ -25,9 +25,25 @@ export type CampaignValidationResult = {
 
 const VALID_CTAS = new Set(META_CTA_OPTIONS.map((c) => c.value));
 
+/** True Stories / Reels creatives (9:16) — square Feed images will crop on Reels. */
+export function isVerticalNineSixteenCreative(ad: {
+  ad_format?: string | null;
+  media_payload?: { aspect?: string | null; video_url?: string | null } | null;
+}): boolean {
+  const format = String(ad.ad_format || '').toLowerCase();
+  if (format === 'stories' || format === 'video') return true;
+  const aspect = String(ad.media_payload?.aspect || '');
+  return aspect === '9:16';
+}
+
 export function validateCampaignLaunch(opts: {
   input: Partial<CampaignLaunchInput>;
-  ads?: Pick<GeneratedAd, 'id' | 'copy_text' | 'headline' | 'image_url' | 'status'>[];
+  ads?: Array<
+    Pick<GeneratedAd, 'id' | 'copy_text' | 'headline' | 'image_url' | 'status'> & {
+      ad_format?: string | null;
+      media_payload?: { aspect?: string | null; video_url?: string | null } | null;
+    }
+  >;
   meta_connected?: boolean;
   has_pixel?: boolean;
   page_id?: string | null;
@@ -279,6 +295,31 @@ export function validateCampaignLaunch(opts: {
       status: 'pass',
       message: `${selectedAds.length} ad${selectedAds.length > 1 ? 's' : ''} selected`,
     });
+
+    const placements = input.audience?.placements;
+    const wantsReelsOrStories = Boolean(placements?.reels || placements?.stories);
+    if (wantsReelsOrStories) {
+      const hasVertical = selectedAds.some((ad) => isVerticalNineSixteenCreative(ad));
+      if (!hasVertical) {
+        items.push({
+          id: 'reels_vertical_creative',
+          label: 'Reels / Stories creative',
+          status: 'warn',
+          message:
+            'Reels/Stories are on but no 9:16 Stories or Video creative is selected — Feed images will crop the product. Add a Stories/Video creative or turn Reels off.',
+        });
+        warnings.push(
+          'Select a 9:16 Stories or Video creative for Reels, or disable Reels placements'
+        );
+      } else {
+        items.push({
+          id: 'reels_vertical_creative',
+          label: 'Reels / Stories creative',
+          status: 'pass',
+          message: 'At least one 9:16 Stories/Video creative selected',
+        });
+      }
+    }
 
     for (const ad of selectedAds) {
       const headline = (ad.headline || '').trim();

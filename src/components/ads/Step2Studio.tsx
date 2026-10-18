@@ -20,6 +20,7 @@ export function Step2Studio(props: {
   carouselHook: string;
   carouselOverlays: string;
   carouselReels: boolean;
+  reelsAudio: boolean;
   generating: boolean;
   resolvingCarousel?: boolean;
   carouselPreviewNote?: string | null;
@@ -32,6 +33,7 @@ export function Step2Studio(props: {
   onCarouselHookChange: (value: string) => void;
   onCarouselOverlaysChange: (value: string) => void;
   onCarouselReelsChange: (value: boolean) => void;
+  onReelsAudioChange: (value: boolean) => void;
   onPreviewCarouselUrls?: () => void;
   onGenerate: () => void;
   children: ReactNode;
@@ -136,6 +138,21 @@ export function Step2Studio(props: {
             {props.generating ? 'Generating…' : 'Regenerate pack'}
           </button>
         </div>
+
+        {(props.formats.includes('video') || props.formats.includes('stories') || props.carouselReels) && (
+          <label className="mt-3 flex items-start gap-2 text-[11px] text-slate-700">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={props.reelsAudio}
+              onChange={(event) => props.onReelsAudioChange(event.target.checked)}
+            />
+            <span>
+              Add soft background audio on Reels / Video MP4 (original ambient bed — not Instagram
+              Music). Uncheck for silent video.
+            </span>
+          </label>
+        )}
 
         {carouselSelected && (
           <div className="mt-4 space-y-2 border-t border-slate-100 pt-4">

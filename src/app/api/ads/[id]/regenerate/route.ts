@@ -197,6 +197,7 @@ export async function POST(
         durationSeconds: 10,
         publicOrigin: origin,
         filenamePrefix: product.product_name,
+        audioBed: 'soft',
       });
       if (video.ok) {
         const [videoUrl, posterUrl] = user.isDemo
@@ -217,6 +218,7 @@ export async function POST(
         candidate.media_payload.video_url = videoUrl;
         candidate.media_payload.poster_url = posterUrl;
         candidate.media_payload.duration_ms = video.durationSeconds * 1000;
+        candidate.media_payload.has_audio = Boolean(video.hasAudio);
       }
     }
   }

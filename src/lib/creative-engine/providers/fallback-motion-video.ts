@@ -30,6 +30,7 @@ export class FallbackMotionVideoProvider implements VideoGenerationProvider {
       durationSeconds: request.durationSeconds,
       publicOrigin: request.publicOrigin,
       filenamePrefix: request.filenamePrefix,
+      audioBed: request.audioBed,
     });
     if (!result.ok) return null;
     const videoBuffer = await readFile(

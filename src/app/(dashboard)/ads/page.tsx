@@ -706,6 +706,7 @@ export default function AdsPage() {
   const [carouselHook, setCarouselHook] = useState('');
   const [carouselOverlays, setCarouselOverlays] = useState('');
   const [carouselReels, setCarouselReels] = useState(true);
+  const [reelsAudio, setReelsAudio] = useState(true);
   const [resolvingCarousel, setResolvingCarousel] = useState(false);
   const [carouselPreviewNote, setCarouselPreviewNote] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
@@ -1061,6 +1062,7 @@ export default function AdsPage() {
             carousel_hook: carouselHook,
             carousel_overlays: carouselOverlays,
             carousel_reels: carouselReels,
+            reels_audio: reelsAudio,
           },
           selected_ads,
           selected_competitor_ad_ids: selectedCompetitorAdIds,
@@ -1779,6 +1781,7 @@ export default function AdsPage() {
           carouselHook={carouselHook}
           carouselOverlays={carouselOverlays}
           carouselReels={carouselReels}
+          reelsAudio={reelsAudio}
           generating={generating}
           resolvingCarousel={resolvingCarousel}
           carouselPreviewNote={carouselPreviewNote}
@@ -1791,6 +1794,7 @@ export default function AdsPage() {
           onCarouselHookChange={setCarouselHook}
           onCarouselOverlaysChange={setCarouselOverlays}
           onCarouselReelsChange={setCarouselReels}
+          onReelsAudioChange={setReelsAudio}
           onPreviewCarouselUrls={handlePreviewCarouselUrls}
           onGenerate={handleGenerate}
         >

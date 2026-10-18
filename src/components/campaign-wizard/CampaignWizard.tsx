@@ -1032,6 +1032,14 @@ export function CampaignWizard({
                     </button>
                   ))}
                 </div>
+                {(placements.reels || placements.stories) && (
+                  <p className="mt-2 text-xs rounded-lg border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2">
+                    Reels/Stories need a <strong>9:16 Stories or Video</strong> creative. Square Feed
+                    images will crop the product. On the Ads step, select Stories/Video — or turn
+                    Reels off. Soft audio is added when you regenerate a Video creative on{' '}
+                    <strong>/ads</strong>.
+                  </p>
+                )}
               </div>
               <div>
                 <label className="label">Website / Shopify URL</label>
@@ -1072,6 +1080,18 @@ export function CampaignWizard({
                   Select creatives ({selectedAds.length}/{approvedAds.length})
                 </h2>
               </div>
+              {(placements.reels || placements.stories) &&
+                !approvedAds.some(
+                  (ad) =>
+                    selectedAds.includes(ad.id) &&
+                    (ad.ad_format === 'stories' || ad.ad_format === 'video')
+                ) && (
+                  <p className="text-xs rounded-lg border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2">
+                    No 9:16 Stories/Video selected while Reels/Stories placements are on — product
+                    will look cropped. Select a Stories or Video creative below (regenerate on /ads
+                    if you only have Feed images).
+                  </p>
+                )}
               <div className="space-y-2 max-h-[480px] overflow-y-auto">
                 {approvedAds.map((ad) => {
                   const selected = selectedAds.includes(ad.id);

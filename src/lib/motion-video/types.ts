@@ -20,6 +20,9 @@ export interface MotionVideoText {
   brand?: string;
 }
 
+/** Soft original bed (ffmpeg-generated) — not Meta Music library. */
+export type MotionVideoAudioBed = 'none' | 'soft';
+
 export interface RenderMotionVideoInput {
   images: MotionVideoImage[];
   text?: MotionVideoText;
@@ -30,6 +33,11 @@ export interface RenderMotionVideoInput {
   filenamePrefix?: string;
   /** Used to produce absolute video and poster URLs when provided. */
   publicOrigin?: string;
+  /**
+   * Background audio for Reels/video ads.
+   * Default: `soft` for 9:16, `none` otherwise.
+   */
+  audioBed?: MotionVideoAudioBed;
 }
 
 export interface MotionVideoSuccess {
@@ -43,6 +51,8 @@ export interface MotionVideoSuccess {
   height: number;
   mimeType: 'video/mp4';
   text: MotionVideoText;
+  /** True when a soft original bed was muxed into the MP4. */
+  hasAudio?: boolean;
 }
 
 export interface MotionVideoUnavailable {

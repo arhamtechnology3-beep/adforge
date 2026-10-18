@@ -50,6 +50,8 @@ export async function POST(request: Request) {
     headline: string | null;
     image_url: string | null;
     status: string;
+    ad_format?: string | null;
+    media_payload?: { aspect?: string | null; video_url?: string | null } | null;
   }> = [];
 
   if (ad_ids?.length) {
@@ -63,12 +65,17 @@ export async function POST(request: Request) {
           headline: ad.headline,
           image_url: ad.image_url,
           status: ad.status,
+          ad_format: ad.ad_format,
+          media_payload: ad.media_payload as
+            | { aspect?: string | null; video_url?: string | null }
+            | null
+            | undefined,
         }));
     } else {
       const supabase = await createClient();
       const { data } = await supabase
         .from('generated_ads')
-        .select('id, copy_text, headline, image_url, status')
+        .select('id, copy_text, headline, image_url, status, ad_format, media_payload')
         .in('id', ad_ids);
       ads = data || [];
     }

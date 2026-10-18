@@ -28,6 +28,7 @@ const baseAds = [
     headline: 'Shop Divyaprabha',
     image_url: 'https://cdn.example.com/product.jpg',
     status: 'approved' as const,
+    ad_format: 'single_image' as const,
   },
 ];
 
@@ -88,6 +89,61 @@ const traffic = validateCampaignLaunch({
 assert(
   traffic.warnings.some((w) => /Sales|Purchase|ATC/i.test(w)),
   'traffic_warns_prefer_sales'
+);
+
+const reelsNoVertical = validateCampaignLaunch({
+  input: {
+    name: 'Sales reels',
+    objective: 'OUTCOME_SALES',
+    budget: 500,
+    website_url: 'https://divyaprabhafoods.com',
+    ad_ids: ['ad1'],
+    cta: 'SHOP_NOW',
+    audience: {
+      placements: { reels: true, ig_feed: true, fb_feed: false, stories: false },
+    },
+  },
+  ads: baseAds,
+  meta_connected: true,
+  has_pixel: true,
+  page_id: '123',
+});
+assert(reelsNoVertical.can_launch, 'reels_warn_still_launchable');
+assert(
+  reelsNoVertical.items.some((i) => i.id === 'reels_vertical_creative' && i.status === 'warn'),
+  'reels_warns_without_9x16'
+);
+
+const reelsWithVideo = validateCampaignLaunch({
+  input: {
+    name: 'Sales reels video',
+    objective: 'OUTCOME_SALES',
+    budget: 500,
+    website_url: 'https://divyaprabhafoods.com',
+    ad_ids: ['ad2'],
+    cta: 'SHOP_NOW',
+    audience: {
+      placements: { reels: true, ig_feed: true, fb_feed: true, stories: true },
+    },
+  },
+  ads: [
+    {
+      id: 'ad2',
+      copy_text: 'Shop authentic Saurashtra flavours.',
+      headline: 'Homemade pickle',
+      image_url: 'https://cdn.example.com/story.jpg',
+      status: 'approved' as const,
+      ad_format: 'video' as const,
+      media_payload: { aspect: '9:16' },
+    },
+  ],
+  meta_connected: true,
+  has_pixel: true,
+  page_id: '123',
+});
+assert(
+  reelsWithVideo.items.some((i) => i.id === 'reels_vertical_creative' && i.status === 'pass'),
+  'reels_pass_with_video'
 );
 
 if (failed) {
