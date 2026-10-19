@@ -8,6 +8,20 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-19
 
+### Diwali campaign creatives + brand-intact pack
+**What / why**  
+New Diwali Meta creative pack (4 taglines / 4 scenes) so campaigns stop reusing one static image. Scenes are background-only; real packshot composite keeps logo, brand colors, and label intact.
+
+- MD presets #12–#15: thali incomplete, flavours of home, taste of tradition, ghar ka swaad Stories
+- Visible **Campaign pack → Diwali (4 creatives)** on `/ads` Step 2 (tagline chips + Tone **Diwali festive**)
+- Per-ad visual dropdown: Diwali scene options; regenerate uses creative engine for those presets
+- Wizard template **Diwali Achaar Creative Test** (`diwali-achaar`)
+- Stronger brand-integrity prompts + negatives; publish checklist in `docs/diwali-campaign.md`
+
+**Paths:** `docs/facebook_meta_product_ad_prompts.md`, `docs/diwali-campaign.md`, `src/lib/creative-engine/diwali-campaign.ts`, `meta-ad-prompt-library.ts`, `creative-directions.ts`, `campaign-templates.ts`, `Step2Studio.tsx`, `ads/page.tsx`, `api/ads/[id]/regenerate/route.ts`, `scripts/build-diwali-creative-pack.ts`
+
+**Manual:** Deploy this build to Hostinger (live `adforge.arhamtechnology.com` will not show Diwali until deploy). Then `/ads` → **Diwali (4 creatives)** → **Generate Diwali pack** → QA logo/colors → publish.
+
 ### Fix: carousel product URLs wiped on refresh
 **What / why**  
 Carousel URLs were only prefilled from onboarding into **sessionStorage** and never re-saved when edited on `/ads`, so refresh / new tab cleared the box (users thought AdForge “auto-removed” them). Grey `store.com` placeholder looked like saved URLs.

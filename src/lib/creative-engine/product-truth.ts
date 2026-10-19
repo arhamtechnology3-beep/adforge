@@ -65,7 +65,18 @@ export function productSpecificNegativePrompt(truth: ProductTruthSheet): string 
     'Do not change bottle or jar dimensions.',
     `Do not alter ${truth.productName} packaging.`,
     `Preserve ${truth.brandName} logo exactly.`,
+    'Do not recolor brand packaging or shift label colors for festival themes.',
+    'Do not beautify, redraw, or invent logos — real packshot is composited.',
   ];
+  if (truth.visualRules.preserveLogo) {
+    parts.push('Logo pixel-true to approved packshot.');
+  }
+  if (truth.visualRules.preserveProductColor) {
+    parts.push('Product and label brand colors unchanged.');
+  }
+  if (truth.visualRules.preservePrintedText) {
+    parts.push('Printed label text unchanged.');
+  }
   for (const claim of truth.forbiddenClaims) {
     parts.push(`Do not claim: ${claim}`);
   }

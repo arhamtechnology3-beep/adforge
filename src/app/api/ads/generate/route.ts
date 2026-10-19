@@ -742,6 +742,16 @@ export async function POST(request: Request) {
 
   if (resolvedSelected.length > 0 && useCreativeEngine && engineFormats.length > 0) {
     usedCreativeEngine = true;
+    const engineTone =
+      typeof body.generation_brief?.tone === 'string'
+        ? body.generation_brief.tone
+        : 'Trustworthy';
+    const engineTheme =
+      typeof body.generation_brief?.campaign_theme === 'string'
+        ? body.generation_brief.campaign_theme
+        : /diwali/i.test(engineTone)
+          ? 'diwali'
+          : undefined;
     const engine = await runCreativeEngine({
       campaignInputId: resolvedInput.id,
       product: productBrief,
@@ -751,17 +761,15 @@ export async function POST(request: Request) {
         typeof body.generation_brief?.language === 'string'
           ? body.generation_brief.language
           : 'English',
-      tone:
-        typeof body.generation_brief?.tone === 'string'
-          ? body.generation_brief.tone
-          : 'Trustworthy',
+      tone: engineTone,
+      campaignTheme: engineTheme,
       formats: engineFormats,
       selectedDirectionIds,
       selectedDirections,
       origin,
       ownerId: sessionUser.id,
       persistToStorage: !sessionUser.isDemo,
-      maxDirections: requestedVariantCount,
+      maxDirections: engineTheme === 'diwali' ? Math.max(4, requestedVariantCount) : requestedVariantCount,
     });
     const engineAds = engine.ads as AdRow[];
     // Keep product-URL carousel first; renumber variants

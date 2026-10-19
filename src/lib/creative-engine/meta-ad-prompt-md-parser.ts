@@ -31,6 +31,10 @@ const PRESET_ID_ALIASES: Record<string, MetaAdPromptPresetId> = {
   'problem-solution': 'problem-solution',
   'premium-ugc-style': 'premium-ugc',
   'premium-ugc': 'premium-ugc',
+  'diwali-thali-incomplete': 'diwali-thali-incomplete',
+  'diwali-flavours-of-home': 'diwali-flavours-of-home',
+  'diwali-taste-of-tradition': 'diwali-taste-of-tradition',
+  'diwali-ghar-ka-swaad-stories': 'diwali-ghar-ka-swaad-stories',
 };
 
 function slugifyName(name: string): string {
@@ -75,14 +79,21 @@ function parsePurposeMatrix(content: string): Map<string, string> {
 
 function purposeForName(name: string, matrix: Map<string, string>): string {
   const key = normalizeMatrixKey(name);
+  if (matrix.has(key)) return matrix.get(key)!;
+
+  // Prefer longest matrix name contained in the preset name (or vice versa)
+  let best: { purpose: string; score: number } | null = null;
   for (const [matrixName, purpose] of matrix.entries()) {
-    if (key.includes(matrixName) || matrixName.includes(key.split(' ')[0])) {
-      return purpose;
+    if (key.includes(matrixName) || matrixName.includes(key)) {
+      const score = Math.min(key.length, matrixName.length);
+      if (!best || score > best.score) best = { purpose, score };
     }
   }
-  const short = name.split('/')[0]?.trim() || name;
+  if (best && best.score >= 10) return best.purpose;
+
+  const short = normalizeMatrixKey(name.split('/')[0]?.trim() || name);
   for (const [matrixName, purpose] of matrix.entries()) {
-    if (normalizeMatrixKey(short).includes(matrixName) || matrixName.includes(normalizeMatrixKey(short))) {
+    if (short.length >= 8 && (short === matrixName || matrixName.includes(short) || short.includes(matrixName))) {
       return purpose;
     }
   }

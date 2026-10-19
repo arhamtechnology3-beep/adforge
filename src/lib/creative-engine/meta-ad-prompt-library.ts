@@ -99,6 +99,38 @@ const FALLBACK_PRESETS: MetaAdPromptPreset[] = [
     prompt:
       'Create a realistic premium social-media advertisement using the uploaded product as the exact hero product. Make the image feel like an authentic high-quality lifestyle photograph captured for a modern social media brand.',
   },
+  {
+    id: 'diwali-thali-incomplete',
+    name: 'Diwali Thali Incomplete',
+    bestFor: 'Food, pickles, achaar, Diwali thali campaigns',
+    purpose: 'Diwali food desire',
+    prompt:
+      'BACKGROUND ONLY. Empty center for packshot. Warm Diwali thali with empty pickle gap, marigold at edges, soft diya glow far back. No jar, logo, or label in the scene.',
+  },
+  {
+    id: 'diwali-flavours-of-home',
+    name: 'Diwali Flavours of Home',
+    bestFor: 'Homemade food, pickles, nostalgia Diwali campaigns',
+    purpose: 'Emotional nostalgia',
+    prompt:
+      'BACKGROUND ONLY. Empty center for packshot. Soft Indian home kitchen at Diwali evening, warm light, clean table surface. No jar, logo, or label in the scene.',
+  },
+  {
+    id: 'diwali-taste-of-tradition',
+    name: 'Diwali Taste of Tradition',
+    bestFor: 'Festival gifting, traditional pickle jars',
+    purpose: 'Festival tradition CTA',
+    prompt:
+      'BACKGROUND ONLY. Empty center for packshot. Gift-ready Diwali still-life with brass diyas and marigold. No jar, logo, or label in the scene.',
+  },
+  {
+    id: 'diwali-ghar-ka-swaad-stories',
+    name: 'Diwali Ghar Ka Swaad Stories',
+    bestFor: 'Stories/Reels 9:16 Diwali food ads',
+    purpose: 'Stories / Reels native',
+    prompt:
+      'BACKGROUND ONLY. Empty upper-center for packshot, bottom third clear for CTA. Vertical Diwali thali close-up with soft bokeh diyas. No jar, logo, or label in the scene.',
+  },
 ];
 
 const FALLBACK_MASTER_NEGATIVE = [
@@ -178,13 +210,33 @@ const HOME_CATEGORY = /home|kitchen|furniture|decor|appliance|wellness|cleaning/
 
 const ANGLE_PRESET_PRIORITY: Record<string, MetaAdPromptPresetId[]> = {
   'premium-hero': ['premium-luxury-studio', 'minimal-clean', 'dark-cinematic'],
-  'lifestyle-home': ['sunlight-premium-home', 'natural-lifestyle', 'premium-ugc'],
-  'food-desire': ['fresh-clean', 'natural-lifestyle', 'sunlight-premium-home'],
-  'emotional-nostalgia': ['sunlight-premium-home', 'natural-lifestyle', 'premium-luxury-studio'],
+  'lifestyle-home': [
+    'diwali-taste-of-tradition',
+    'sunlight-premium-home',
+    'natural-lifestyle',
+    'premium-ugc',
+  ],
+  'food-desire': [
+    'diwali-thali-incomplete',
+    'fresh-clean',
+    'natural-lifestyle',
+    'sunlight-premium-home',
+  ],
+  'emotional-nostalgia': [
+    'diwali-flavours-of-home',
+    'sunlight-premium-home',
+    'natural-lifestyle',
+    'premium-luxury-studio',
+  ],
   'recipe-lifestyle': ['natural-lifestyle', 'sunlight-premium-home', 'fresh-clean'],
   'offer-led': ['bold-scroll-stopper', 'problem-solution', 'minimal-clean'],
   'benefit-led': ['problem-solution', 'fresh-clean', 'minimal-clean'],
-  'trending-ugc': ['premium-ugc', 'natural-lifestyle', 'sunlight-premium-home'],
+  'trending-ugc': [
+    'diwali-ghar-ka-swaad-stories',
+    'premium-ugc',
+    'natural-lifestyle',
+    'sunlight-premium-home',
+  ],
   'unboxing-pov': ['premium-ugc', 'natural-lifestyle', 'bold-scroll-stopper'],
   'social-proof': ['premium-luxury-studio', 'minimal-clean', 'problem-solution'],
 };
@@ -192,6 +244,10 @@ const ANGLE_PRESET_PRIORITY: Record<string, MetaAdPromptPresetId[]> = {
 function categoryPresetPool(category: string, allPresets: MetaAdPromptPreset[]): MetaAdPromptPresetId[] {
   if (FOOD_CATEGORY.test(category)) {
     return [
+      'diwali-thali-incomplete',
+      'diwali-flavours-of-home',
+      'diwali-taste-of-tradition',
+      'diwali-ghar-ka-swaad-stories',
       'fresh-clean',
       'natural-lifestyle',
       'sunlight-premium-home',
@@ -236,6 +292,11 @@ export function selectMetaAdPromptPreset(input: {
   pattern?: CompetitorPattern;
 }): MetaAdPromptPreset {
   const library = getMetaAdPromptLibrary();
+  const preferred = input.direction.preferredPresetId as MetaAdPromptPresetId | undefined;
+  if (preferred && library.presetById[preferred]) {
+    return library.presetById[preferred];
+  }
+
   const variant = input.sceneVariant ?? 0;
   const anglePool = ANGLE_PRESET_PRIORITY[input.direction.angle] || [];
   const categoryPool = categoryPresetPool(input.category, library.presets);
@@ -317,6 +378,12 @@ export function buildMetaAdLibraryPrompt(input: {
     : '';
 
   const adaptedPresetPrompt = adaptMdPromptForBackgroundOnly(preset.prompt);
+  const isDiwaliPreset = preset.id.startsWith('diwali-');
+  const brandIntegrity = [
+    'BRAND INTEGRITY (non-negotiable): Do not invent, redraw, recolor, or beautify any product, logo, label, or packaging.',
+    `Real ${input.truth.brandName || 'brand'} packshot (exact logo, brand colors, label text, jar geometry) will be composited after scene generation.`,
+    'Festival props (thali, diya, marigold, sweets) stay in negative space only — never overlap or merge into the product zone.',
+  ].join(' ');
 
   const prompt = [
     BACKGROUND_ONLY_PREFIX,
@@ -332,6 +399,10 @@ export function buildMetaAdLibraryPrompt(input: {
     colorHint,
     layoutHint,
     FORMAT_SCENE_HINT[aspect],
+    brandIntegrity,
+    isDiwaliPreset
+      ? 'Diwali scene lighting and props only — never recolor the product zone or invent a second jar.'
+      : '',
     'Competitor creative is strategic reference only — never copy its exact composition or branding.',
     'CRITICAL: Generate ONLY an empty environment/backdrop. NO products, jars, bottles, packaging, logos, or objects in the center 50% of the frame.',
     'Output: photorealistic premium Meta ad background, crisp, sharp, attractive, trend-forward.',
@@ -349,6 +420,9 @@ export function buildMetaAdLibraryNegativePrompt(truth: ProductTruthSheet, extra
     'Do not generate text, watermarks, or UI elements in the scene.',
     'No cartoon, illustration, or painterly art style.',
     'No identical dark vignette studio for every frame — vary lighting and palette.',
+    'No logo hallucination, no label recolor, no brand color shift on packaging, no fake product text.',
+    truth.brandName ? `Do not invent or alter ${truth.brandName} branding.` : '',
+    truth.productName ? `Do not redraw or redesign ${truth.productName} packaging.` : '',
     extra,
   ]
     .filter(Boolean)

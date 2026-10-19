@@ -138,6 +138,8 @@ export type CreativeDirection = {
   sceneEnvironment?: string;
   colorDirection?: string;
   layoutStyle?: string;
+  /** Force a specific MD prompt preset (e.g. Diwali pack) */
+  preferredPresetId?: string;
 };
 
 export type CreativeQaScores = {

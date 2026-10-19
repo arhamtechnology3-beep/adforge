@@ -61,6 +61,26 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
     name_prefix: 'Festive Sale',
   },
   {
+    id: 'diwali-achaar',
+    name: 'Diwali Achaar Creative Test',
+    description:
+      'Four fresh Diwali creatives (thali / home / tradition / Stories) — new scenes, same packshot branding',
+    emoji: '🪔',
+    objective: 'OUTCOME_SALES',
+    budget: 1500,
+    budget_type: 'daily',
+    cta: 'SHOP_NOW',
+    age_min: 21,
+    age_max: 55,
+    gender: 'ALL',
+    locations: 'Mumbai, Delhi, Bengaluru, Hyderabad, Pune, Ahmedabad, Jaipur, Lucknow',
+    interests:
+      'Diwali, Indian festivals, Indian cuisine, Homemade food, Cooking, Gifting, Organic food, Online shopping',
+    placements: { reels: true, ig_feed: true, fb_feed: true, stories: true },
+    link_description: 'Bring home the taste of tradition this Diwali',
+    name_prefix: 'Diwali · Creative Test',
+  },
+  {
     id: 'retargeting',
     name: 'Retargeting Warm Audience',
     description: 'Re-engage visitors who viewed products / ATC but didn\'t buy',

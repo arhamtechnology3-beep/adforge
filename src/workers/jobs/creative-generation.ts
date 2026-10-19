@@ -22,6 +22,7 @@ type CreativeGenerationPayload = {
     generation_brief?: {
       language?: string;
       tone?: string;
+      campaign_theme?: string;
       formats?: MetaAdFormat[];
       variant_count?: number;
     };
@@ -101,19 +102,25 @@ export async function processCreativeGenerationJob(job: Job<CreativeGenerationPa
     const origin = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const selectedAds = payload.selected_ads || [];
 
+    const tone = payload.generation_brief?.tone;
+    const campaignTheme =
+      payload.generation_brief?.campaign_theme ||
+      (/diwali/i.test(tone || '') ? 'diwali' : undefined);
+    const variantCount = payload.generation_brief?.variant_count || 3;
     const result = await runCreativeEngine({
       campaignInputId: payload.campaign_input_id,
       product: productBrief,
       selectedAds,
       competitorNames: competitorIntel.map((entry) => entry.brand),
       language: payload.generation_brief?.language,
-      tone: payload.generation_brief?.tone,
+      tone,
+      campaignTheme,
       formats: payload.generation_brief?.formats,
       selectedDirectionIds: payload.selected_direction_ids,
       origin,
       ownerId: userId,
       persistToStorage: !isDemo,
-      maxDirections: payload.generation_brief?.variant_count || 3,
+      maxDirections: campaignTheme === 'diwali' ? Math.max(4, variantCount) : variantCount,
     });
 
     if (isDemo) {

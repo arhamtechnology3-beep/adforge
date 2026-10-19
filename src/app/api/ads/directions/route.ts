@@ -85,14 +85,22 @@ export async function POST(request: Request) {
   const competitors = competitorsFromInput(resolvedInput);
   const competitorIntel = await scrapeAllCompetitors(competitors, { fetchLiveAds: false });
 
+  const tone = body.generation_brief?.tone as string | undefined;
+  const campaignTheme =
+    (body.generation_brief?.campaign_theme as string | undefined) ||
+    (/diwali/i.test(tone || '') ? 'diwali' : undefined);
   const plan = await planCreativeEngineAsync({
     campaignInputId,
     product: productBrief,
     selectedAds,
     competitorNames: competitorIntel.map((entry) => entry.brand),
     language: body.generation_brief?.language,
-    tone: body.generation_brief?.tone,
-    maxDirections: body.max_directions,
+    tone,
+    campaignTheme,
+    maxDirections:
+      campaignTheme === 'diwali'
+        ? Math.max(4, Number(body.max_directions) || 4)
+        : body.max_directions,
     origin: '',
     ownerId: sessionUser.id,
     persistToStorage: false,

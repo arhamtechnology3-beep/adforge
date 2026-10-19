@@ -10,7 +10,11 @@ export type MetaAdPromptPresetId =
   | 'fresh-clean'
   | 'modern-urban'
   | 'problem-solution'
-  | 'premium-ugc';
+  | 'premium-ugc'
+  | 'diwali-thali-incomplete'
+  | 'diwali-flavours-of-home'
+  | 'diwali-taste-of-tradition'
+  | 'diwali-ghar-ka-swaad-stories';
 
 export type MetaAdPromptPreset = {
   id: MetaAdPromptPresetId;

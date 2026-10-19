@@ -1,6 +1,7 @@
 import type { CreativeDirection, CompetitorPattern, ProductTruthSheet } from './types';
 import { extractCompetitorPatterns } from './competitor-patterns';
 import { generateCreativeDirections } from './creative-directions';
+import { isDiwaliCampaignTheme } from './diwali-campaign';
 import { truthFromProduct } from './product-truth';
 import { buildCreativePack } from './creative-pack';
 import { generateGroundedConcepts } from '@/lib/grounded-copy';
@@ -20,6 +21,8 @@ export type CreativeEngineInput = {
   competitorNames: string[];
   language?: string;
   tone?: string;
+  /** Pass "diwali" (or set tone to Diwali festive) for festival tagline pack */
+  campaignTheme?: string;
   formats?: MetaAdFormat[];
   selectedDirectionIds?: string[];
   selectedDirections?: CreativeDirection[];
@@ -44,6 +47,7 @@ export function planCreativeEngine(input: CreativeEngineInput): CreativeEnginePl
     selectedAds: input.selectedAds,
     language: input.language,
     tone: input.tone,
+    campaignTheme: input.campaignTheme,
     maxDirections: input.maxDirections,
   });
   return { truth, patterns, directions };
@@ -68,6 +72,7 @@ export async function planCreativeEngineAsync(
     groundedConcepts,
     language: input.language,
     tone: input.tone,
+    campaignTheme: input.campaignTheme,
     maxDirections: input.maxDirections,
   });
   return { truth, patterns, directions };
@@ -85,7 +90,8 @@ export async function runCreativeEngine(input: CreativeEngineInput) {
   }
 
   if (!selectedDirections.length) {
-    selectedDirections = plan.directions.slice(0, 3);
+    const diwali = isDiwaliCampaignTheme(input.tone, input.campaignTheme);
+    selectedDirections = plan.directions.slice(0, diwali ? 4 : 3);
   }
 
   const pack = await buildCreativePack({

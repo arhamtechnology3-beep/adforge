@@ -6,6 +6,10 @@ import {
   patternToAngle,
   patternToDirectionName,
 } from './competitor-patterns';
+import {
+  buildDiwaliCreativeDirections,
+  isDiwaliCampaignTheme,
+} from './diwali-campaign';
 import type { CompetitorPattern, CreativeDirection, ProductTruthSheet, UgcType } from './types';
 
 const ANGLE_FORMATS: Record<string, Array<'1:1' | '4:5' | '9:16'>> = {
@@ -175,10 +179,16 @@ export function generateCreativeDirections(input: {
   groundedConcepts?: GroundedConcept[];
   language?: string;
   tone?: string;
+  /** e.g. diwali — forces festival tagline pack */
+  campaignTheme?: string;
   maxDirections?: number;
 }): CreativeDirection[] {
   const max = Math.max(3, Math.min(10, input.maxDirections || 6));
   const cta = input.truth.offer ? 'Shop the offer' : 'Shop Now';
+
+  if (isDiwaliCampaignTheme(input.tone, input.campaignTheme)) {
+    return buildDiwaliCreativeDirections(input.truth).slice(0, Math.max(4, max));
+  }
 
   if (input.patterns.length > 0) {
     const directions: CreativeDirection[] = [];

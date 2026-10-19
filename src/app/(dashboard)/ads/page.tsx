@@ -1073,7 +1073,8 @@ export default function AdsPage() {
           generation_brief: {
             language,
             tone,
-            variant_count: variantCount,
+            campaign_theme: /diwali/i.test(tone) ? 'diwali' : undefined,
+            variant_count: /diwali/i.test(tone) ? Math.max(4, variantCount) : variantCount,
             formats: desiredFormats,
             carousel_hook: carouselHook,
             carousel_overlays: carouselOverlays,
@@ -1251,7 +1252,10 @@ export default function AdsPage() {
           mode,
           product_id: selectedProductId,
           language,
-          tone,
+          tone:
+            template?.startsWith('diwali-') || /diwali/i.test(tone)
+              ? 'Diwali festive'
+              : tone,
           template: template || ad.media_payload?.template,
         }),
       });
@@ -2330,6 +2334,12 @@ export default function AdsPage() {
                       <option value="benefit-proof">Benefit proof</option>
                       <option value="recipe-lifestyle">Recipe / lifestyle</option>
                       <option value="variety-grid">Variety grid</option>
+                      <optgroup label="Diwali scenes (brand intact)">
+                        <option value="diwali-thali-incomplete">Diwali · Thali incomplete</option>
+                        <option value="diwali-flavours-of-home">Diwali · Flavours of home</option>
+                        <option value="diwali-taste-of-tradition">Diwali · Taste of tradition</option>
+                        <option value="diwali-ghar-ka-swaad-stories">Diwali · Ghar ka swaad (9:16)</option>
+                      </optgroup>
                     </select>
                     <button
                       className="flex items-center justify-center gap-1 text-xs py-2 px-2 rounded-lg bg-indigo-50 text-indigo-800 hover:bg-indigo-100"

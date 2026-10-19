@@ -42,6 +42,9 @@ export interface AdMediaPayload {
   product_name?: string | null;
   primary_packshot?: string | null;
   template?: string | null;
+  /** MD / Diwali scene preset id used for background-only generation */
+  scene_preset?: string | null;
+  scene_preset_name?: string | null;
   /** product_urls = cards built from pasted store/product links (no AI scenes) */
   carousel_source?: 'product_urls' | 'ai' | string | null;
   skipped_urls?: string[];

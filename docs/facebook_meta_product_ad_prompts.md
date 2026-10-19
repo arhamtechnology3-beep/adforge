@@ -482,6 +482,83 @@ Photorealistic, authentic, natural, premium social media aesthetic, realistic li
 
 ---
 
+# 12. Diwali Thali Incomplete
+
+**Best for:** Food, pickles, achaar, condiments, Diwali / festival thali campaigns (background-only compositing).
+
+```text
+BACKGROUND AND ENVIRONMENT ONLY for Meta ad compositing.
+Do NOT draw, generate, or invent any product, jar, bottle, packaging, logo, or label.
+Leave a clear unobstructed center zone (40–55% of frame) empty for real packshot placement.
+
+Create a warm Indian Diwali festival dining scene: a brass or steel thali with roti, dal, sabzi and sweets arranged at the edges of the frame.
+Leave an intentional empty gap on the thali / center plate area where the real achaar jar will be composited later — communicate “the thali feels incomplete without pickle.”
+Soft warm festival lighting, marigold petals at frame edges only, subtle diya glow in the far background (never near the empty center zone).
+Photorealistic food styling, appetizing, scroll-stopping Meta Feed composition.
+Props must never overlap the empty product zone. No fake jar. No fake logo. No recolored packaging.
+
+[ADD MASTER PRODUCT-PROTECTION NEGATIVE PROMPT]
+```
+
+---
+
+# 13. Diwali Flavours of Home
+
+**Best for:** Homemade food brands, pickles, nostalgia / “ghar ka swaad” Diwali campaigns (background-only).
+
+```text
+BACKGROUND AND ENVIRONMENT ONLY for Meta ad compositing.
+Do NOT draw, generate, or invent any product, jar, bottle, packaging, logo, or label.
+Leave a clear unobstructed center zone (40–55% of frame) empty for real packshot placement.
+
+Create a soft, emotional Indian home kitchen or wooden dining table at Diwali evening.
+Warm tungsten / diya light, linen napkin, subtle marigold at corners, blurred family table ambience in the background.
+Center surface stays clean and empty for the real product packshot.
+Mood: comfort, home, flavours that feel familiar — premium lifestyle photography, not cluttered.
+Photorealistic, gentle depth of field, Meta Feed 4:5 friendly vertical composition.
+
+[ADD MASTER PRODUCT-PROTECTION NEGATIVE PROMPT]
+```
+
+---
+
+# 14. Diwali Taste of Tradition
+
+**Best for:** Festival gifting, traditional food, pickle gift jars for Diwali (background-only).
+
+```text
+BACKGROUND AND ENVIRONMENT ONLY for Meta ad compositing.
+Do NOT draw, generate, or invent any product, jar, bottle, packaging, logo, or label.
+Leave a clear unobstructed center zone (40–55% of frame) empty for real packshot placement.
+
+Create a gift-ready Diwali still-life: soft gold and warm terracotta backdrop, two brass diyas at the lower corners, light marigold petals, subtle mango / heritage texture in the far background.
+Center pedestal or clean cloth area stays empty for the real jar packshot.
+Communicate tradition, celebration, and “bring home the taste of tradition” without inventing any branded product.
+Photorealistic premium commercial photography, square 1:1 Meta Feed composition.
+
+[ADD MASTER PRODUCT-PROTECTION NEGATIVE PROMPT]
+```
+
+---
+
+# 15. Diwali Ghar Ka Swaad Stories
+
+**Best for:** Stories / Reels 9:16 Diwali food ads, thali close-ups, Hinglish “ghar ka swaad” hooks (background-only).
+
+```text
+BACKGROUND AND ENVIRONMENT ONLY for Meta ad compositing.
+Do NOT draw, generate, or invent any product, jar, bottle, packaging, logo, or label.
+Leave a clear unobstructed upper-center zone empty for real packshot placement; keep the bottom third clear for CTA overlay.
+
+Create a vertical 9:16 Stories/Reels Diwali thali close-up: plated Indian meal edges, warm festival light, soft bokeh diyas far behind.
+Product zone in upper-center remains empty surface / soft gradient for compositing the real achaar packshot.
+Authentic home-food energy — “Ghar ka swaad, Diwali wali thali pe” — photorealistic, mobile-first, high contrast for Reels thumb-stop.
+
+[ADD MASTER PRODUCT-PROTECTION NEGATIVE PROMPT]
+```
+
+---
+
 # Creative Testing Matrix
 
 | Creative | Background / Environment | Main Purpose |
@@ -497,6 +574,10 @@ Photorealistic, authentic, natural, premium social media aesthetic, realistic li
 | Modern Urban | Contemporary architecture | Modern branding |
 | Problem → Solution | Realistic use-case environment | Conversion |
 | Premium UGC | Authentic real-world environment | Native social feel |
+| Diwali Thali Incomplete | Festival thali with empty pickle zone | Diwali food desire |
+| Diwali Flavours of Home | Warm home kitchen Diwali evening | Emotional nostalgia |
+| Diwali Taste of Tradition | Gift-ready diyas + heritage still-life | Festival tradition CTA |
+| Diwali Ghar Ka Swaad Stories | 9:16 thali close-up Reels | Stories / Reels native |
 
 ---
 

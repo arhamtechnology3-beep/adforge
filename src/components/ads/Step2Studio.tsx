@@ -2,12 +2,21 @@
 
 import type { ReactNode } from 'react';
 import type { MetaAdFormat } from '@/lib/creatives';
+import { DIWALI_TAGLINES } from '@/lib/creative-engine/diwali-campaign';
 
 export type Step2ProductOption = {
   id: string;
   brand_name: string;
   product_name: string;
 };
+
+const TONE_OPTIONS = [
+  'Trustworthy',
+  'Premium',
+  'Playful',
+  'Direct response',
+  'Diwali festive',
+] as const;
 
 export function Step2Studio(props: {
   products: Step2ProductOption[];
@@ -39,10 +48,88 @@ export function Step2Studio(props: {
   children: ReactNode;
 }) {
   const carouselSelected = props.formats.includes('carousel');
+  const diwaliActive = /diwali/i.test(props.tone);
+
+  function enableDiwaliPack() {
+    props.onToneChange('Diwali festive');
+    props.onVariantCountChange(4);
+    const formats = new Set(props.formats);
+    formats.add('single_image');
+    formats.add('stories');
+    props.onFormatsChange(Array.from(formats));
+    if (!props.carouselHook.trim()) {
+      props.onCarouselHookChange(DIWALI_TAGLINES[0].headline.slice(0, 40));
+    }
+  }
+
+  function disableDiwaliPack() {
+    props.onToneChange('Trustworthy');
+    if (props.variantCount === 4) props.onVariantCountChange(3);
+  }
 
   return (
     <div className="space-y-6">
       <div className="card p-4 border-indigo-200 bg-white">
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/90 p-3 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-bold text-amber-950">Campaign pack</p>
+              <p className="text-[11px] text-amber-900/80">
+                Diwali = 4 new festival scenes + taglines. Logo &amp; brand colors stay on your
+                real packshot.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                className={`text-[11px] px-3 py-1.5 rounded-lg border font-semibold ${
+                  !diwaliActive
+                    ? 'bg-white border-slate-300 text-slate-800'
+                    : 'bg-white/60 border-amber-200 text-amber-800'
+                }`}
+                onClick={disableDiwaliPack}
+              >
+                Standard
+              </button>
+              <button
+                type="button"
+                className={`text-[11px] px-3 py-1.5 rounded-lg border font-semibold ${
+                  diwaliActive
+                    ? 'bg-amber-600 border-amber-700 text-white'
+                    : 'bg-white border-amber-300 text-amber-950'
+                }`}
+                onClick={enableDiwaliPack}
+              >
+                Diwali (4 creatives)
+              </button>
+            </div>
+          </div>
+          {diwaliActive && (
+            <div className="space-y-1.5 pt-1 border-t border-amber-200/80">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-900">
+                Locked taglines — click to set Card 1 hook · then Regenerate pack
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {DIWALI_TAGLINES.map((entry) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    title={entry.tagline}
+                    className={`text-[11px] px-2.5 py-1.5 rounded-lg border text-left max-w-full ${
+                      props.carouselHook === entry.headline
+                        ? 'bg-amber-100 border-amber-400 text-amber-950'
+                        : 'bg-white border-amber-200 text-amber-900 hover:bg-amber-50'
+                    }`}
+                    onClick={() => props.onCarouselHookChange(entry.headline.slice(0, 40))}
+                  >
+                    {entry.tagline}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-[220px] flex-1">
             <label className="label text-xs">Approved product</label>
@@ -108,13 +195,20 @@ export function Step2Studio(props: {
             <label className="label text-xs">Tone</label>
             <select
               className="input text-sm"
-              value={props.tone}
-              onChange={(event) => props.onToneChange(event.target.value)}
+              value={TONE_OPTIONS.includes(props.tone as (typeof TONE_OPTIONS)[number]) ? props.tone : props.tone}
+              onChange={(event) => {
+                const next = event.target.value;
+                props.onToneChange(next);
+                if (/diwali/i.test(next)) {
+                  props.onVariantCountChange(4);
+                }
+              }}
             >
-              <option>Trustworthy</option>
-              <option>Premium</option>
-              <option>Playful</option>
-              <option>Direct response</option>
+              {TONE_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
             </select>
           </div>
           <div>
@@ -126,6 +220,7 @@ export function Step2Studio(props: {
             >
               <option value={1}>1</option>
               <option value={3}>3</option>
+              <option value={4}>4 (Diwali pack)</option>
               <option value={5}>5</option>
             </select>
           </div>
@@ -135,7 +230,11 @@ export function Step2Studio(props: {
             onClick={props.onGenerate}
             disabled={props.generating || !props.selectedProductId}
           >
-            {props.generating ? 'Generating…' : 'Regenerate pack'}
+            {props.generating
+              ? 'Generating…'
+              : diwaliActive
+                ? 'Generate Diwali pack'
+                : 'Regenerate pack'}
           </button>
         </div>
 

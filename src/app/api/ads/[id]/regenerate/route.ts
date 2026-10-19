@@ -105,43 +105,103 @@ export async function POST(
   const sourceId = existing.media_payload?.source_library_id || existing.id;
   const sourceFormat =
     existing.ad_format === 'stories' ? 'single_image' : existing.ad_format || 'single_image';
-  const generated = await buildReplicatedAds({
-    campaignInputId: existing.campaign_input_id,
-    selected: [
-      {
-        id: sourceId,
-        library_id: sourceId,
-        headline: existing.media_payload?.source_headline || existing.headline || '',
-        primary_text: existing.media_payload?.source_primary_text || existing.copy_text,
-        cta: 'SHOP_NOW',
-        ad_format: sourceFormat,
-        media_url: existing.media_payload?.source_media_url || null,
-        brand: existing.media_payload?.source_brand || null,
-      },
-    ],
-    brand: productBrief.brandName,
-    category: productBrief.category,
-    productImages: productBrief.packshots,
-    product: productBrief,
-    language: typeof body.language === 'string' ? body.language : 'English',
-    tone: typeof body.tone === 'string' ? body.tone : 'Trustworthy',
-    formats: [existing.ad_format || 'single_image'],
-    template: [
-      'hero-product',
-      'offer-card',
-      'benefit-proof',
-      'recipe-lifestyle',
-      'variety-grid',
-    ].includes(body.template)
-      ? body.template
-      : undefined,
-    competitorBrand: existing.media_payload?.source_brand || null,
-    competitorNames: existing.media_payload?.source_brand
-      ? [existing.media_payload.source_brand]
-      : [],
-  });
-  let candidate =
-    generated.find((ad) => ad.ad_format === existing.ad_format) || generated[0];
+  const requestedTemplate = typeof body.template === 'string' ? body.template : '';
+  const isDiwaliTemplate = requestedTemplate.startsWith('diwali-');
+  const requestTone =
+    typeof body.tone === 'string'
+      ? body.tone
+      : isDiwaliTemplate
+        ? 'Diwali festive'
+        : 'Trustworthy';
+
+  type RegeneratedAd = Awaited<ReturnType<typeof buildReplicatedAds>>[number];
+  let candidate: RegeneratedAd | undefined;
+
+  if (isDiwaliTemplate) {
+    const { runCreativeEngine } = await import('@/lib/creative-engine');
+    const { buildDiwaliCreativeDirections } = await import(
+      '@/lib/creative-engine/diwali-campaign'
+    );
+    const { truthFromProduct } = await import('@/lib/creative-engine/product-truth');
+    const truth = truthFromProduct(productBrief);
+    const diwaliDirections = buildDiwaliCreativeDirections(truth);
+    const matched =
+      diwaliDirections.find((d) => d.preferredPresetId === requestedTemplate) ||
+      diwaliDirections[0];
+    const engine = await runCreativeEngine({
+      campaignInputId: existing.campaign_input_id,
+      product: productBrief,
+      selectedAds: [],
+      competitorNames: existing.media_payload?.source_brand
+        ? [String(existing.media_payload.source_brand)]
+        : [],
+      language: typeof body.language === 'string' ? body.language : 'English',
+      tone: requestTone,
+      campaignTheme: 'diwali',
+      formats: [existing.ad_format || 'single_image'],
+      selectedDirections: matched ? [matched] : diwaliDirections.slice(0, 1),
+      origin,
+      ownerId: user.id,
+      persistToStorage: !user.isDemo,
+      maxDirections: 1,
+    });
+    const engineAd =
+      engine.ads.find((ad) => ad.ad_format === existing.ad_format) || engine.ads[0];
+    if (engineAd) {
+      candidate = {
+        ...(engineAd as RegeneratedAd),
+        media_payload: {
+          ...(engineAd.media_payload || {}),
+          template: requestedTemplate,
+          scene_preset: matched?.preferredPresetId,
+        },
+      };
+    }
+  } else {
+    const generated = await buildReplicatedAds({
+      campaignInputId: existing.campaign_input_id,
+      selected: [
+        {
+          id: sourceId,
+          library_id: sourceId,
+          headline: existing.media_payload?.source_headline || existing.headline || '',
+          primary_text: existing.media_payload?.source_primary_text || existing.copy_text,
+          cta: 'SHOP_NOW',
+          ad_format: sourceFormat,
+          media_url: existing.media_payload?.source_media_url || null,
+          brand: existing.media_payload?.source_brand || null,
+        },
+      ],
+      brand: productBrief.brandName,
+      category: productBrief.category,
+      productImages: productBrief.packshots,
+      product: productBrief,
+      language: typeof body.language === 'string' ? body.language : 'English',
+      tone: requestTone,
+      formats: [existing.ad_format || 'single_image'],
+      template: [
+        'hero-product',
+        'offer-card',
+        'benefit-proof',
+        'recipe-lifestyle',
+        'variety-grid',
+      ].includes(requestedTemplate)
+        ? (requestedTemplate as
+            | 'hero-product'
+            | 'offer-card'
+            | 'benefit-proof'
+            | 'recipe-lifestyle'
+            | 'variety-grid')
+        : undefined,
+      competitorBrand: existing.media_payload?.source_brand || null,
+      competitorNames: existing.media_payload?.source_brand
+        ? [existing.media_payload.source_brand]
+        : [],
+    });
+    candidate =
+      generated.find((ad) => ad.ad_format === existing.ad_format) || generated[0];
+  }
+
   if (!candidate) {
     return NextResponse.json({ error: 'Could not regenerate creative' }, { status: 500 });
   }
