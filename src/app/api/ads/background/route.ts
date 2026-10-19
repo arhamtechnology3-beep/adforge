@@ -26,6 +26,10 @@ const PRESET_PALETTES: Record<string, readonly [string, string, string, string]>
   'modern-urban': ['#eceff1', '#90a4ae', '#546e7a', '#263238'],
   'problem-solution': ['#e3f2fd', '#64b5f6', '#1976d2', '#0d47a1'],
   'premium-ugc': ['#faf6f0', '#d7ccc8', '#a1887f', '#4e342e'],
+  'diwali-thali-incomplete': ['#fff4dc', '#f0a202', '#c44900', '#3d1f0a'],
+  'diwali-flavours-of-home': ['#fff8e7', '#e8a838', '#8b4513', '#2c1810'],
+  'diwali-taste-of-tradition': ['#fff0d4', '#d4af37', '#b45309', '#422006'],
+  'diwali-ghar-ka-swaad-stories': ['#ffedd5', '#f97316', '#9a3412', '#1c0a00'],
 };
 
 function numberParam(value: string | null, fallback: number): number {
@@ -49,6 +53,7 @@ export async function GET(request: Request) {
   const style = preset ? combinedSeed % 6 : combinedSeed % 6;
   const food = /food|pickle|spice|snack|grocery|drink|beverage/.test(category);
   const ugc = /ugc|unbox|testimonial|review/.test(angle);
+  const diwali = preset.startsWith('diwali') || /diwali|festive|thali/.test(angle + preset);
   const accentX = 120 + ((combinedSeed * 97) % 700);
   const accentY = 130 + ((combinedSeed * 53) % Math.max(300, height - 500));
 
@@ -81,6 +86,22 @@ export async function GET(request: Request) {
        <circle cx="970" cy="${height - 190}" r="48" fill="${palette[0]}" opacity=".42"/>`
     : `<rect x="55" y="${height - 250}" width="140" height="140" rx="30" fill="${palette[1]}" opacity=".28"/>
        <circle cx="965" cy="${height - 185}" r="70" fill="${palette[0]}" opacity=".4"/>`;
+  // Festival props stay at edges — empty center for packshot composite (brand intact)
+  const diwaliProps = diwali
+    ? `
+      <ellipse cx="${width / 2}" cy="${height * 0.72}" rx="420" ry="70" fill="${palette[2]}" opacity=".28"/>
+      <circle cx="140" cy="${height - 220}" r="36" fill="${palette[1]}" opacity=".85"/>
+      <circle cx="140" cy="${height - 248}" r="14" fill="#fff6d5" opacity=".95"/>
+      <circle cx="940" cy="${height - 240}" r="32" fill="${palette[1]}" opacity=".8"/>
+      <circle cx="940" cy="${height - 265}" r="12" fill="#fff6d5" opacity=".9"/>
+      <circle cx="90" cy="160" r="18" fill="#f97316" opacity=".55"/>
+      <circle cx="160" cy="120" r="12" fill="#fb923c" opacity=".5"/>
+      <circle cx="980" cy="180" r="16" fill="#ea580c" opacity=".5"/>
+      <circle cx="900" cy="130" r="10" fill="#fdba74" opacity=".55"/>
+      <ellipse cx="${width / 2}" cy="${height * 0.58}" rx="200" ry="200" fill="none" stroke="${palette[1]}" stroke-width="14" opacity=".35"/>
+      <ellipse cx="${width / 2}" cy="${height * 0.58}" rx="150" ry="150" fill="${palette[0]}" opacity=".2"/>
+    `
+    : '';
   const ugcFrame = ugc
     ? `<rect x="32" y="32" width="${width - 64}" height="${height - 64}" rx="44" fill="none" stroke="#ffffff" stroke-width="10" opacity=".45"/>
        <circle cx="92" cy="91" r="18" fill="#ff4b55"/>`
@@ -102,6 +123,7 @@ export async function GET(request: Request) {
       <rect width="100%" height="100%" fill="url(#bg)"/>
       <g filter="url(#blur)">${scene}</g>
       ${props}
+      ${diwaliProps}
       ${ugcFrame}
       <rect width="100%" height="100%" filter="url(#grain)" opacity=".22"/>
     </svg>`;

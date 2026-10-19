@@ -75,8 +75,8 @@ export function Step2Studio(props: {
             <div>
               <p className="text-xs font-bold text-amber-950">Campaign pack</p>
               <p className="text-[11px] text-amber-900/80">
-                Diwali = 4 new festival scenes + taglines. Logo &amp; brand colors stay on your
-                real packshot.
+                Diwali = 4 new festival scenes + taglines (not store PDP photos). Logo &amp; brand
+                colors stay on your real packshot.
               </p>
             </div>
             <div className="flex flex-wrap gap-1.5">

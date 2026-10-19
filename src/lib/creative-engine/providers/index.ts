@@ -11,8 +11,9 @@ import { FallbackMotionVideoProvider } from './fallback-motion-video';
 import { recordCreativeUsage } from '../usage-ledger';
 import { reserveProviderQuota } from '../quota-manager';
 import { evaluateScenePurity } from '@/lib/scene-purity';
+import { productSceneUrl } from '@/lib/creatives';
 
-/** Sole image provider — Arham Cloudflare Worker API only */
+/** Sole AI image provider — Arham Cloudflare Worker API; local SVG used if it fails */
 const imageProviders: ImageGenerationProvider[] = [new ArhamImageProvider()];
 
 const videoProviders: VideoGenerationProvider[] = [
@@ -34,6 +35,24 @@ async function acceptSceneAsset(
     `[scene-purity] rejected ${asset.provider} scene (score ${purity.score}): ${purity.reason}`
   );
   return null;
+}
+
+function localSceneFallback(request: ImageGenerationRequest): GeneratedAsset {
+  const aspect =
+    request.aspect === '9:16' ? '9:16' : request.aspect === '4:5' ? '4:5' : '1:1';
+  const url = productSceneUrl(
+    request.category || 'Products',
+    request.angle || 'lifestyle-home',
+    request.seed || 1,
+    aspect,
+    request.scenePresetId || request.scenePresetName || undefined
+  );
+  return {
+    url,
+    provider: 'local',
+    model: 'background-svg',
+    isFinalCreative: false,
+  };
 }
 
 export async function generateSceneWithProviders(
@@ -81,15 +100,13 @@ export async function generateSceneWithProviders(
     }
   }
 
+  // Local festival / lifestyle backdrop so Diwali (and other) packs never fall back to
+  // a naked packshot with unchanged generic product photography.
+  const local = localSceneFallback(request);
   console.warn(
-    `[scene-gen] Arham image API failed for preset=${presetLabel} — packshot-only creative will be used`
+    `[scene-gen] Arham image API failed for preset=${presetLabel} — using local scene ${local.url}`
   );
-  // Do not return a flat SVG scene: Meta creatives must show the approved product packshot.
-  return {
-    url: '',
-    provider: 'packshot-fallback',
-    isFinalCreative: false,
-  };
+  return local;
 }
 
 export async function generateVideoWithProviders(

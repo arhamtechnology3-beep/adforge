@@ -8,6 +8,18 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-19
 
+### Fix: Diwali pack now changes visuals (not only taglines)
+**What / why**  
+Live Diwali generate updated copy but kept the same rust packshot scene. Causes: (1) Arham scene failure returned empty URL → bake used naked packshot; (2) product-URL carousel still used store photos ahead of festival scenes.
+
+- Local `/api/ads/background` fallback with Diwali palettes + diya/thali props when AI scene fails
+- Diwali theme skips PDP product-URL carousel so engine festival scenes lead the pack
+- Each of 4 Diwali directions gets its own feed (and 9:16 when recommended)
+
+**Paths:** `src/lib/creative-engine/providers/index.ts`, `creative-pack.ts`, `api/ads/background/route.ts`, `api/ads/generate/route.ts`, `Step2Studio.tsx`, `scripts/tests/diwali-visual-fallback.test.ts`
+
+**Manual:** Deploy → `/ads` → **Diwali (4 creatives)** → uncheck reliance on carousel-only → **Generate Diwali pack**. Expect warm gold/diya scenes behind the same jar logo.
+
 ### Diwali campaign creatives + brand-intact pack
 **What / why**  
 New Diwali Meta creative pack (4 taglines / 4 scenes) so campaigns stop reusing one static image. Scenes are background-only; real packshot composite keeps logo, brand colors, and label intact.

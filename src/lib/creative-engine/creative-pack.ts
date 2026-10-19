@@ -85,8 +85,28 @@ async function bakeVisual(input: {
 function formatsForDirection(
   directionIndex: number,
   _directionCount: number,
-  requested: MetaAdFormat[]
+  requested: MetaAdFormat[],
+  direction?: CreativeDirection
 ): MetaAdFormat[] {
+  const diwali =
+    !!direction?.preferredPresetId?.startsWith('diwali-') ||
+    /diwali/i.test(direction?.conceptId || '');
+
+  // Diwali pack: each tagline gets its own visual (feed + Stories/Reels when recommended).
+  if (diwali) {
+    const out: MetaAdFormat[] = [];
+    if (requested.includes('single_image')) out.push('single_image');
+    if (direction?.recommendedFormats.includes('9:16')) {
+      if (requested.includes('stories')) out.push('stories');
+      if (requested.includes('video')) out.push('video');
+    } else if (directionIndex === 0) {
+      if (requested.includes('stories')) out.push('stories');
+      if (requested.includes('video')) out.push('video');
+    }
+    if (directionIndex === 0 && requested.includes('carousel')) out.push('carousel');
+    return out.length ? out : ['single_image'];
+  }
+
   // First concept builds every requested Meta format (image/carousel/stories/video).
   // Extra concepts only add alternate single-image variants so packs stay complete.
   if (directionIndex === 0) return requested;
@@ -153,6 +173,7 @@ async function renderScene(input: {
   seed: number;
   sceneVariant: number;
   userId: string;
+  origin?: string;
   pattern?: CreativePackRequest['patterns'][number];
 }) {
   const { prompt, preset, source } = buildMetaAdLibraryPrompt({
@@ -180,7 +201,11 @@ async function renderScene(input: {
     scenePresetId: preset.id,
     scenePresetName: preset.name,
   });
-  return { ...scene, presetId: preset.id, presetName: preset.name, promptSource: source };
+  let url = scene.url || '';
+  if (url.startsWith('/') && input.origin) {
+    url = `${input.origin.replace(/\/$/, '')}${url}`;
+  }
+  return { ...scene, url, presetId: preset.id, presetName: preset.name, promptSource: source };
 }
 
 export async function buildCreativePack(
@@ -246,7 +271,12 @@ export async function buildCreativePack(
       request.truth.benefits[0] ||
       request.truth.description?.slice(0, 70) ||
       `${request.truth.brandName} ${request.truth.category}`;
-    const directionFormats = formatsForDirection(directionIndex, packDirections.length, formats);
+    const directionFormats = formatsForDirection(
+      directionIndex,
+      packDirections.length,
+      formats,
+      direction
+    );
 
     const staticAspects: CreativeAspect[] = direction.recommendedFormats.filter(
       (aspect): aspect is '1:1' | '4:5' => aspect === '1:1' || aspect === '4:5'
@@ -266,6 +296,7 @@ export async function buildCreativePack(
           seed: sceneSeed(direction.conceptId, globalSceneIndex),
           sceneVariant: globalSceneIndex + directionIndex * 3,
           userId: request.ownerId,
+          origin: request.origin,
           pattern: matchedPattern,
         });
         let imageUrl = await bakeVisual({
@@ -306,6 +337,7 @@ export async function buildCreativePack(
             seed: sceneSeed(direction.conceptId, globalSceneIndex, 9),
             sceneVariant: globalSceneIndex + directionIndex * 3 + 9,
             userId: request.ownerId,
+            origin: request.origin,
             pattern: matchedPattern,
           });
           imageUrl = await bakeVisual({
@@ -375,6 +407,7 @@ export async function buildCreativePack(
         seed: sceneSeed(direction.conceptId, globalSceneIndex, 3),
         sceneVariant: globalSceneIndex + directionIndex * 3 + 1,
         userId: request.ownerId,
+        origin: request.origin,
         pattern: matchedPattern,
       });
       const imageUrl = await bakeVisual({
@@ -443,8 +476,11 @@ export async function buildCreativePack(
       for (let cardIndex = 0; cardIndex < cardCount; cardIndex += 1) {
         globalSceneIndex += 1;
         const cardPackshot = packshots[cardIndex % packshots.length] || productImage;
-        // Use real storefront photos for carousel cards — skip fragile AI bake when we have PDP images.
-        const useRawStorefront = packshots.length > 1;
+        // Diwali / preferred presets need festival scenes; otherwise use PDP photos when available.
+        const forceFestivalScene =
+          !!direction.preferredPresetId?.startsWith('diwali-') ||
+          /diwali/i.test(direction.conceptId);
+        const useRawStorefront = packshots.length > 1 && !forceFestivalScene;
         let imageUrl = cardPackshot;
         let sceneUrl: string | null = null;
         if (!useRawStorefront) {
@@ -455,6 +491,7 @@ export async function buildCreativePack(
             seed: sceneSeed(direction.conceptId, globalSceneIndex, cardIndex + 5),
             sceneVariant: globalSceneIndex + cardIndex * 2 + directionIndex,
             userId: request.ownerId,
+            origin: request.origin,
             pattern: matchedPattern,
           });
           sceneUrl = scene.url || null;
@@ -525,7 +562,10 @@ export async function buildCreativePack(
         // Multi-product slideshow: each frame is a real product photo when gallery has variety.
         let imageUrl = framePackshot;
         let sceneUrl: string | null = null;
-        if (videoGallery.length <= 1) {
+        const forceFestivalVideo =
+          !!direction.preferredPresetId?.startsWith('diwali-') ||
+          /diwali/i.test(direction.conceptId);
+        if (videoGallery.length <= 1 || forceFestivalVideo) {
           const scene = await renderScene({
             truth: request.truth,
             direction: { ...direction, angle: sceneDef.angle || direction.angle },
@@ -533,6 +573,7 @@ export async function buildCreativePack(
             seed: sceneSeed(direction.conceptId, globalSceneIndex, sceneIndex + 11),
             sceneVariant: globalSceneIndex + sceneIndex * 2 + directionIndex,
             userId: request.ownerId,
+            origin: request.origin,
             pattern: matchedPattern,
           });
           sceneUrl = scene.url || null;
