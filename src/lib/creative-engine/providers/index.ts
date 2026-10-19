@@ -12,6 +12,7 @@ import { recordCreativeUsage } from '../usage-ledger';
 import { reserveProviderQuota } from '../quota-manager';
 import { evaluateScenePurity } from '@/lib/scene-purity';
 import { productSceneUrl } from '@/lib/creatives';
+import { writeLocalBackgroundFile } from '@/lib/local-ad-background';
 
 /** Sole AI image provider — Arham Cloudflare Worker API; local SVG used if it fails */
 const imageProviders: ImageGenerationProvider[] = [new ArhamImageProvider()];
@@ -37,22 +38,44 @@ async function acceptSceneAsset(
   return null;
 }
 
-function localSceneFallback(request: ImageGenerationRequest): GeneratedAsset {
+async function localSceneFallback(request: ImageGenerationRequest): Promise<GeneratedAsset> {
   const aspect =
     request.aspect === '9:16' ? '9:16' : request.aspect === '4:5' ? '4:5' : '1:1';
-  const url = productSceneUrl(
-    request.category || 'Products',
-    request.angle || 'lifestyle-home',
-    request.seed || 1,
-    aspect,
-    request.scenePresetId || request.scenePresetName || undefined
-  );
-  return {
-    url,
-    provider: 'local',
-    model: 'background-svg',
-    isFinalCreative: false,
-  };
+  const preset = request.scenePresetId || request.scenePresetName || undefined;
+  // Prefer writing a real PNG file so bakeCreative never depends on HTTP self-fetch.
+  try {
+    const url = await writeLocalBackgroundFile({
+      category: request.category || 'Products',
+      angle: request.angle || 'lifestyle-home',
+      seed: request.seed || 1,
+      aspect,
+      preset,
+    });
+    return {
+      url,
+      provider: 'local',
+      model: 'background-svg-file',
+      isFinalCreative: false,
+    };
+  } catch (error) {
+    console.warn(
+      '[scene-gen] writeLocalBackgroundFile failed, using /api/ads/background URL',
+      error instanceof Error ? error.message : error
+    );
+    const url = productSceneUrl(
+      request.category || 'Products',
+      request.angle || 'lifestyle-home',
+      request.seed || 1,
+      aspect,
+      preset
+    );
+    return {
+      url,
+      provider: 'local',
+      model: 'background-svg',
+      isFinalCreative: false,
+    };
+  }
 }
 
 export async function generateSceneWithProviders(
@@ -64,6 +87,17 @@ export async function generateSceneWithProviders(
 ): Promise<GeneratedAsset> {
   const requiredQuota = 1;
   const presetLabel = request.scenePresetId || request.scenePresetName || 'unknown';
+  const forceLocalDiwali =
+    /^diwali-/i.test(String(request.scenePresetId || '')) ||
+    /diwali/i.test(String(request.scenePresetName || ''));
+
+  // Diwali pack must look festive every time. Arham often returns generic kitchen
+  // scenes that ignore festival prompts — force our Diwali SVG backdrop + packshot.
+  if (forceLocalDiwali) {
+    const local = await localSceneFallback(request);
+    console.info(`[scene-gen] preset=${presetLabel} provider=local (forced Diwali backdrop)`);
+    return local;
+  }
 
   for (const provider of imageProviders) {
     const health = await provider.healthCheck();
@@ -100,9 +134,8 @@ export async function generateSceneWithProviders(
     }
   }
 
-  // Local festival / lifestyle backdrop so Diwali (and other) packs never fall back to
-  // a naked packshot with unchanged generic product photography.
-  const local = localSceneFallback(request);
+  // Local festival / lifestyle backdrop so packs never fall back to a naked packshot.
+  const local = await localSceneFallback(request);
   console.warn(
     `[scene-gen] Arham image API failed for preset=${presetLabel} — using local scene ${local.url}`
   );

@@ -92,7 +92,7 @@ function formatsForDirection(
     !!direction?.preferredPresetId?.startsWith('diwali-') ||
     /diwali/i.test(direction?.conceptId || '');
 
-  // Diwali pack: each tagline gets its own visual (feed + Stories/Reels when recommended).
+  // Diwali pack: each tagline gets its own visual (never carousel — that path uses PDP photos).
   if (diwali) {
     const out: MetaAdFormat[] = [];
     if (requested.includes('single_image')) out.push('single_image');
@@ -103,7 +103,6 @@ function formatsForDirection(
       if (requested.includes('stories')) out.push('stories');
       if (requested.includes('video')) out.push('video');
     }
-    if (directionIndex === 0 && requested.includes('carousel')) out.push('carousel');
     return out.length ? out : ['single_image'];
   }
 
@@ -184,7 +183,13 @@ async function renderScene(input: {
     sceneVariant: input.sceneVariant,
     pattern: input.pattern,
   });
-  const fullPrompt = `${prompt} ${angleVariationPrompt(input.direction.angle, input.sceneVariant + input.seed)}`;
+  const isDiwali =
+    !!input.direction.preferredPresetId?.startsWith('diwali-') ||
+    /diwali/i.test(input.direction.conceptId);
+  // Do not append unrelated preset hooks on Diwali — they dilute festival scenes.
+  const fullPrompt = isDiwali
+    ? prompt
+    : `${prompt} ${angleVariationPrompt(input.direction.angle, input.sceneVariant + input.seed)}`;
   const negativePrompt = buildNegativePrompt(input.truth);
   const scene = await generateSceneWithProviders({
     prompt: fullPrompt,

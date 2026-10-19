@@ -53,10 +53,8 @@ export function Step2Studio(props: {
   function enableDiwaliPack() {
     props.onToneChange('Diwali festive');
     props.onVariantCountChange(4);
-    const formats = new Set(props.formats);
-    formats.add('single_image');
-    formats.add('stories');
-    props.onFormatsChange(Array.from(formats));
+    // Festival scenes only — PDP carousel photos hide Diwali creatives.
+    props.onFormatsChange(['single_image', 'stories', 'video']);
     if (!props.carouselHook.trim()) {
       props.onCarouselHookChange(DIWALI_TAGLINES[0].headline.slice(0, 40));
     }

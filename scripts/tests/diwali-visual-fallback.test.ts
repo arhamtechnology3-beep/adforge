@@ -77,13 +77,11 @@ async function main() {
     scenePresetName: 'Diwali Thali Incomplete',
   });
   assert.ok(scene.url, 'scene url must not be empty');
+  assert.equal(scene.provider, 'local', 'Diwali must force local festival backdrop');
   assert.ok(
-    scene.provider === 'local' || scene.provider === 'arham',
-    `unexpected provider ${scene.provider}`
+    scene.url.includes('/uploads/scenes/') || scene.url.includes('diwali-thali-incomplete'),
+    `expected written scene or background URL, got ${scene.url}`
   );
-  if (scene.provider === 'local') {
-    assert.ok(scene.url.includes('diwali-thali-incomplete'));
-  }
 
   const bgPath = productSceneUrl('Pickles', 'food-desire', 3, '1:1', 'diwali-thali-incomplete');
   const { GET } = await import('../../src/app/api/ads/background/route');

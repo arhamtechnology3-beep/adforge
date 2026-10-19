@@ -8,6 +8,19 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-19
 
+### Fix: Force Diwali festival visuals (Arham was ignoring festival prompts)
+**What / why**  
+Live still showed store photography: Arham returned generic kitchen scenes, and Carousel kept PDP product photos. Taglines updated, creatives did not look Diwali.
+
+- **Force local Diwali SVG** for `diwali-*` presets (skip Arham for this pack)
+- Write festival PNG to `/uploads/scenes` in-process (no flaky self-HTTP bake)
+- Bolder diya / marigold / gold thali-zone backdrop
+- Diwali UI + API drop Carousel — Image / Story / Video only with festival scenes
+
+**Paths:** `src/lib/local-ad-background.ts`, `providers/index.ts`, `api/ads/background/route.ts`, `api/ads/generate/route.ts`, `creative-pack.ts`, `Step2Studio.tsx`
+
+**Manual:** Hard-refresh `/ads` → click **Diwali (4 creatives)** again (formats become Image+Story+Video) → **Generate Diwali pack**. Expect gold/diya backgrounds; reject old pending non-festive ads.
+
 ### Fix: Diwali pack now changes visuals (not only taglines)
 **What / why**  
 Live Diwali generate updated copy but kept the same rust packshot scene. Causes: (1) Arham scene failure returned empty URL → bake used naked packshot; (2) product-URL carousel still used store photos ahead of festival scenes.

@@ -634,14 +634,21 @@ export async function POST(request: Request) {
         ? 'diwali'
         : undefined;
   const isDiwaliPack = briefTheme === 'diwali' || /diwali/i.test(briefTone);
-  // Diwali pack must use festival AI/local scenes — not raw PDP store photos in a carousel.
+  // Diwali pack must use festival scenes — never raw PDP store photos / product-URL carousels.
   const wantsProductUrlCarousel =
     !isDiwaliPack &&
     requestedFormats.includes('carousel') &&
     carouselProductUrls.length >= 2;
-  const engineFormats = wantsProductUrlCarousel
-    ? requestedFormats.filter((format) => format !== 'carousel')
-    : requestedFormats;
+  const diwaliFormats = (['single_image', 'stories', 'video'] as MetaAdFormat[]).filter((format) =>
+    requestedFormats.includes(format)
+  );
+  const engineFormats = isDiwaliPack
+    ? diwaliFormats.length
+      ? diwaliFormats
+      : (['single_image', 'stories'] as MetaAdFormat[])
+    : wantsProductUrlCarousel
+      ? requestedFormats.filter((format) => format !== 'carousel')
+      : requestedFormats;
   const carouselOnlyFromUrls =
     wantsProductUrlCarousel && engineFormats.length === 0;
 
