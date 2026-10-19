@@ -50,7 +50,7 @@ const DIWALI_PRESETS: Record<
     angle: 'food-desire',
     emotion: 'Craving',
     preferredPresetId: 'diwali-thali-incomplete',
-    formats: ['1:1', '4:5'],
+    formats: ['1:1'],
     visualStory:
       'Festival thali with empty pickle gap — achaar as the missing piece. Background-only; real packshot composited. Never redraw logo or label.',
     sceneEnvironment: 'Diwali thali spread, empty center product zone, marigold at edges',
@@ -61,7 +61,7 @@ const DIWALI_PRESETS: Record<
     angle: 'emotional-nostalgia',
     emotion: 'Nostalgia',
     preferredPresetId: 'diwali-flavours-of-home',
-    formats: ['4:5', '1:1'],
+    formats: ['1:1'],
     visualStory:
       'Warm Indian home kitchen / dining table at Diwali evening. Soft emotional light. Scene only — brand colors and logo stay on real packshot.',
     sceneEnvironment: 'Home kitchen table, soft diya light, clean center for jar',
@@ -72,7 +72,7 @@ const DIWALI_PRESETS: Record<
     angle: 'lifestyle-home',
     emotion: 'Comfort',
     preferredPresetId: 'diwali-taste-of-tradition',
-    formats: ['1:1', '4:5'],
+    formats: ['1:1'],
     visualStory:
       'Gift-ready Diwali still-life with diyas and heritage textures. Empty center for real jar — no AI logo, no label recolor.',
     sceneEnvironment: 'Gift still-life, brass diyas, marigold petals, empty pedestal',
@@ -80,15 +80,14 @@ const DIWALI_PRESETS: Record<
   },
   'ghar-ka-swaad': {
     name: 'Diwali · Ghar Ka Swaad',
-    angle: 'trending-ugc',
+    angle: 'food-desire',
     emotion: 'Authenticity',
     preferredPresetId: 'diwali-ghar-ka-swaad-stories',
-    formats: ['9:16'],
+    formats: ['1:1'],
     visualStory:
-      '9:16 Stories/Reels thali close-up. Upper-center empty for packshot; bottom clear for CTA. Branding intact via composite only.',
-    sceneEnvironment: 'Vertical thali close-up, soft bokeh diyas, empty upper-center zone',
-    colorDirection: 'warm festival contrast for Reels thumb-stop',
-    ugcType: 'recipe',
+      'Feed Image thali close-up with Diwali warmth. Empty center for packshot. Branding intact via composite only.',
+    sceneEnvironment: 'Thali close-up, soft diya glow at edges, empty center zone',
+    colorDirection: 'warm festival contrast for feed thumb-stop',
   },
 };
 
@@ -153,13 +152,14 @@ export const DIWALI_PUBLISH_PATH = {
   templateId: 'diwali-achaar',
   tone: 'Diwali festive',
   variantCount: 4,
+  formats: ['single_image'] as const,
   cta: 'SHOP_NOW',
   steps: [
     'Open /ads → select your real product packshot (logo/colors source of truth).',
-    'Set Tone to “Diwali festive” (or pick Diwali campaign template in wizard).',
-    'Set Best variants to 4 → Regenerate pack (background-only scenes + packshot composite).',
-    'QA each creative: reject if logo, label colors, or jar look AI-altered; regenerate scene only.',
-    'Approve 4 ads with the four tagline copy packs; CTA Shop Now to store URL.',
+    'Click Campaign pack → Diwali (4 creatives) — formats lock to Image only.',
+    'Best variants = 4 → Generate Diwali pack (festival scene + packshot composite).',
+    'QA each Image: reject if logo/colors look wrong; regenerate scene only.',
+    'Approve 4 Image ads; CTA Shop Now. Add Stories/Video in a later pass.',
     'Publish as a new Diwali campaign (do not reuse fatigued creatives).',
     'Let Meta run 48–72h before pausing losers; keep winning tagline + visual pair.',
   ],

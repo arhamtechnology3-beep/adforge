@@ -639,13 +639,9 @@ export async function POST(request: Request) {
     !isDiwaliPack &&
     requestedFormats.includes('carousel') &&
     carouselProductUrls.length >= 2;
-  const diwaliFormats = (['single_image', 'stories', 'video'] as MetaAdFormat[]).filter((format) =>
-    requestedFormats.includes(format)
-  );
+  // Diwali first ship: Image only (4 festival feed creatives). Stories/Video later.
   const engineFormats = isDiwaliPack
-    ? diwaliFormats.length
-      ? diwaliFormats
-      : (['single_image', 'stories'] as MetaAdFormat[])
+    ? (['single_image'] as MetaAdFormat[])
     : wantsProductUrlCarousel
       ? requestedFormats.filter((format) => format !== 'carousel')
       : requestedFormats;

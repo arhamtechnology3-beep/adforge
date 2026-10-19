@@ -92,18 +92,9 @@ function formatsForDirection(
     !!direction?.preferredPresetId?.startsWith('diwali-') ||
     /diwali/i.test(direction?.conceptId || '');
 
-  // Diwali pack: each tagline gets its own visual (never carousel — that path uses PDP photos).
+  // Diwali pack (v1): one Image per tagline — no carousel / stories / video yet.
   if (diwali) {
-    const out: MetaAdFormat[] = [];
-    if (requested.includes('single_image')) out.push('single_image');
-    if (direction?.recommendedFormats.includes('9:16')) {
-      if (requested.includes('stories')) out.push('stories');
-      if (requested.includes('video')) out.push('video');
-    } else if (directionIndex === 0) {
-      if (requested.includes('stories')) out.push('stories');
-      if (requested.includes('video')) out.push('video');
-    }
-    return out.length ? out : ['single_image'];
+    return requested.includes('single_image') ? ['single_image'] : ['single_image'];
   }
 
   // First concept builds every requested Meta format (image/carousel/stories/video).

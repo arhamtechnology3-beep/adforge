@@ -42,7 +42,7 @@ assert.equal(directions.length, 4);
 assert.equal(directions[0].headline, 'Thali incomplete without achaar');
 assert.ok(directions[0].primaryText.includes('Diwali ki thali'));
 assert.ok(directions[3].primaryText.includes('Ghar ka swaad'));
-assert.equal(directions[3].recommendedFormats[0], '9:16');
+assert.equal(directions[3].recommendedFormats[0], '1:1');
 
 clearMetaAdPromptLibraryCache();
 for (const direction of directions) {

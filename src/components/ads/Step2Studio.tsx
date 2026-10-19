@@ -53,8 +53,8 @@ export function Step2Studio(props: {
   function enableDiwaliPack() {
     props.onToneChange('Diwali festive');
     props.onVariantCountChange(4);
-    // Festival scenes only — PDP carousel photos hide Diwali creatives.
-    props.onFormatsChange(['single_image', 'stories', 'video']);
+    // Image-only first — festival feed creatives before Stories/Video/Carousel.
+    props.onFormatsChange(['single_image']);
     if (!props.carouselHook.trim()) {
       props.onCarouselHookChange(DIWALI_TAGLINES[0].headline.slice(0, 40));
     }
@@ -73,8 +73,8 @@ export function Step2Studio(props: {
             <div>
               <p className="text-xs font-bold text-amber-950">Campaign pack</p>
               <p className="text-[11px] text-amber-900/80">
-                Diwali = 4 new festival scenes + taglines (not store PDP photos). Logo &amp; brand
-                colors stay on your real packshot.
+                Diwali = 4 Image creatives + taglines (festival scenes). Logo &amp; brand colors
+                stay on your real packshot.
               </p>
             </div>
             <div className="flex flex-wrap gap-1.5">

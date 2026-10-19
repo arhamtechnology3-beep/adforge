@@ -8,6 +8,18 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-19
 
+### Diwali pack: Image-only for first ads
+**What / why**  
+Ship the first Diwali creatives as **4 Feed Images** only (faster QA). Stories/Video/Carousel deferred.
+
+- Diwali button locks formats to `single_image`
+- Generate API forces Image-only when tone/theme is Diwali
+- Each of 4 taglines → one festival Image
+
+**Paths:** `Step2Studio.tsx`, `api/ads/generate/route.ts`, `creative-pack.ts`, `diwali-campaign.ts`
+
+**Manual:** Hard-refresh → **Diwali (4 creatives)** → confirm only **Image** is selected → **Generate Diwali pack**.
+
 ### Fix: Force Diwali festival visuals (Arham was ignoring festival prompts)
 **What / why**  
 Live still showed store photography: Arham returned generic kitchen scenes, and Carousel kept PDP product photos. Taglines updated, creatives did not look Diwali.
