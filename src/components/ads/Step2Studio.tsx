@@ -187,10 +187,14 @@ export function Step2Studio(props: {
             </div>
             <textarea
               className="input text-sm min-h-[110px] font-mono"
-              placeholder={`https://store.com/products/product-1\nhttps://store.com/products/product-2\nhttps://store.com/products/product-3`}
+              placeholder={`https://divyaprabhafoods.com/products/…\nhttps://divyaprabhafoods.com/products/…\n(one real product URL per line — grey text is only an example)`}
               value={props.carouselProductUrls}
               onChange={(event) => props.onCarouselProductUrlsChange(event.target.value)}
             />
+            <p className="text-[10px] text-slate-500">
+              URLs are saved in this browser automatically. Grey example lines are not real links —
+              paste your live Divyaprabha product pages.
+            </p>
             {props.carouselPreviewNote && (
               <p className="text-[11px] text-slate-600">{props.carouselPreviewNote}</p>
             )}

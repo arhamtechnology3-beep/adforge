@@ -3,7 +3,10 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { saveCampaignPrefill } from '@/lib/campaign-prefill';
-import { loadCarouselUrlPrefill } from '@/lib/carousel-url-prefill';
+import {
+  loadCarouselUrlPrefill,
+  saveCarouselUrlPrefill,
+} from '@/lib/carousel-url-prefill';
 import { audienceSuggestionFromCompetitorIntel } from '@/lib/audience-suggest';
 import { CAROUSEL_URL_MIN } from '@/lib/carousel-limits';
 import StoryFillImage from '@/components/ads/StoryFillImage';
@@ -819,16 +822,29 @@ export default function AdsPage() {
 
   useEffect(() => {
     const urls = loadCarouselUrlPrefill();
-    if (urls.length >= CAROUSEL_URL_MIN) {
+    if (urls.length >= 1) {
       setCarouselProductUrls(urls.join('\n'));
       setDesiredFormats((prev) =>
         prev.includes('carousel') ? prev : [...prev, 'carousel']
       );
       setCarouselPreviewNote(
-        `Prefill from onboarding: ${urls.length} product URLs ready for carousel.`
+        urls.length >= CAROUSEL_URL_MIN
+          ? `Saved product URLs restored (${urls.length}) — ready for carousel.`
+          : `Restored ${urls.length} URL — add ${CAROUSEL_URL_MIN - urls.length} more for carousel.`
       );
     }
   }, []);
+
+  // Persist edits so refresh / new tab / regenerating does not wipe URLs
+  useEffect(() => {
+    const lines = carouselProductUrls
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    // Skip first paint empty before restore effect runs
+    if (!lines.length && !loadCarouselUrlPrefill().length) return;
+    saveCarouselUrlPrefill(lines);
+  }, [carouselProductUrls]);
 
   useEffect(() => {
     setLoadError(null);

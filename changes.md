@@ -8,6 +8,18 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-19
 
+### Fix: carousel product URLs wiped on refresh
+**What / why**  
+Carousel URLs were only prefilled from onboarding into **sessionStorage** and never re-saved when edited on `/ads`, so refresh / new tab cleared the box (users thought AdForge “auto-removed” them). Grey `store.com` placeholder looked like saved URLs.
+
+- Persist edits to **localStorage** (+ session sync)
+- Restore on `/ads` mount even with 1 URL
+- Clearer placeholder + “saved in this browser” note
+
+**Paths:** `src/lib/carousel-url-prefill.ts`, `src/app/(dashboard)/ads/page.tsx`, `Step2Studio.tsx`
+
+**Manual:** Paste real product URLs once → refresh — they should remain.
+
 ### Clearer Reels preview crop + always-visible soft audio on /ads
 **What / why**  
 Users looked for audio on Audience and saw product edges cut when a Feed/Carousel creative was previewed as Stories/Reels. Soft audio only existed under Video format toggles and was easy to miss.
