@@ -1258,6 +1258,14 @@ export function CampaignWizard({
               cta={cta}
               preferredFormat={previewFormat}
               adFormatLabel={previewFormatMeta?.shortLabel || previewAd?.ad_format || undefined}
+              isVerticalNineSixteen={
+                previewAd?.ad_format === 'stories' ||
+                previewAd?.ad_format === 'video' ||
+                (previewAd?.media_payload as { aspect?: string } | undefined)?.aspect === '9:16'
+              }
+              hasAudio={Boolean(
+                (previewAd?.media_payload as { has_audio?: boolean } | undefined)?.has_audio
+              )}
               pageName={
                 metaPageName ||
                 (typeof previewAd?.headline === 'string' &&
@@ -1281,9 +1289,13 @@ export function CampaignWizard({
                   : undefined
               }
             />
+            <p className="mt-3 text-[10px] text-[var(--muted)] text-center leading-snug">
+              Soft audio is set on <strong>/ads</strong> when you regenerate a Video creative — not
+              on Audience. Fresh creatives beat recycling the same carousel that already spent.
+            </p>
             {selectedAds.length > 1 && (
-              <p className="mt-3 text-[10px] text-[var(--muted)] text-center">
-                Tip: click a creative on the left to preview that ad format
+              <p className="mt-1 text-[10px] text-[var(--muted)] text-center">
+                Tip: click a Stories/Video creative on Ads step to preview without crop
               </p>
             )}
           </div>

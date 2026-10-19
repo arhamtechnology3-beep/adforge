@@ -139,8 +139,11 @@ export function Step2Studio(props: {
           </button>
         </div>
 
-        {(props.formats.includes('video') || props.formats.includes('stories') || props.carouselReels) && (
-          <label className="mt-3 flex items-start gap-2 text-[11px] text-slate-700">
+        <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-2.5 space-y-2">
+          <p className="text-[11px] font-semibold text-indigo-950">
+            Soft audio + fresh Reels (not on Audience step)
+          </p>
+          <label className="flex items-start gap-2 text-[11px] text-slate-800">
             <input
               type="checkbox"
               className="mt-0.5"
@@ -149,10 +152,16 @@ export function Step2Studio(props: {
             />
             <span>
               Add soft background audio on Reels / Video MP4 (original ambient bed — not Instagram
-              Music). Uncheck for silent video.
+              Music). Applies when you regenerate with <strong>Video</strong> or carousel Reels
+              checked.
             </span>
           </label>
-        )}
+          <p className="text-[10px] text-slate-600 leading-snug">
+            Tip: turn on <strong>Video</strong> (+ Story) formats above, keep this audio on, then
+            click <strong>Regenerate pack</strong> for new creatives — old carousel ads that already
+            spent should not be re-used alone on Reels.
+          </p>
+        </div>
 
         {carouselSelected && (
           <div className="mt-4 space-y-2 border-t border-slate-100 pt-4">

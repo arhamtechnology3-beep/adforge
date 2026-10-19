@@ -6,6 +6,22 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+## 2026-10-19
+
+### Clearer Reels preview crop + always-visible soft audio on /ads
+**What / why**  
+Users looked for audio on Audience and saw product edges cut when a Feed/Carousel creative was previewed as Stories/Reels. Soft audio only existed under Video format toggles and was easy to miss.
+
+- Preview: when Stories/Reels tab + non-9:16 creative → amber “edges cut” banner + **object-contain** so the full product is visible (chip: live Meta still crops)
+- True 9:16 Stories/Video still use full-bleed cover
+- `/ads` studio: soft-audio box always visible with regenerate tip for fresh Video creatives
+
+**Paths:** `FacebookAdPreview.tsx`, `CampaignWizard.tsx`, `Step2Studio.tsx`
+
+**Manual:** Deploy → leave campaign wizard → `/ads` → enable **Video** → soft audio on → **Regenerate pack** → approve new Video → back to wizard Ads step select Video (not only Carousel).
+
+---
+
 ## 2026-10-18
 
 ### Reels crop warning + soft audio on motion Video

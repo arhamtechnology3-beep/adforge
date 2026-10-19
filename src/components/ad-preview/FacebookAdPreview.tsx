@@ -65,6 +65,9 @@ export function FacebookAdPreview({
   linkDisplay,
   preferredFormat,
   adFormatLabel,
+  /** True when creative is Stories/Video 9:16 — false for Feed/Carousel squares */
+  isVerticalNineSixteen = false,
+  hasAudio,
 }: {
   headline?: string;
   primaryText?: string;
@@ -75,6 +78,8 @@ export function FacebookAdPreview({
   /** When set (from selected creative), preview switches to that Meta placement */
   preferredFormat?: PreviewFormat;
   adFormatLabel?: string;
+  isVerticalNineSixteen?: boolean;
+  hasAudio?: boolean;
 }) {
   const [format, setFormat] = useState<PreviewFormat>(preferredFormat || 'feed');
   const ctaLabel =
@@ -83,6 +88,9 @@ export function FacebookAdPreview({
   useEffect(() => {
     if (preferredFormat) setFormat(preferredFormat);
   }, [preferredFormat]);
+
+  const verticalPlacement = format === 'stories' || format === 'reels';
+  const willCropOnMeta = verticalPlacement && !isVerticalNineSixteen;
 
   const domain = useMemo(() => {
     const raw = (linkDisplay || 'yourstore.com').replace(/^https?:\/\//i, '').replace(/\/$/, '');
@@ -119,8 +127,25 @@ export function FacebookAdPreview({
 
       {adFormatLabel ? (
         <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[#65676B]">
-          Showing · {adFormatLabel} · as on Meta
+          Showing · {adFormatLabel}
+          {verticalPlacement && isVerticalNineSixteen
+            ? ' · as on Meta'
+            : verticalPlacement
+              ? ' · Feed/Carousel in Reels frame'
+              : ' · as on Meta'}
+          {hasAudio ? ' · soft audio' : ''}
         </p>
+      ) : null}
+
+      {willCropOnMeta ? (
+        <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-950 leading-snug">
+          <strong>Product edges look cut</strong> because this is a square Feed/Carousel image in a
+          tall Reels/Stories frame. Meta will crop the same way live.
+          <br />
+          <span className="font-semibold">Fix:</span> go to <strong>/ads</strong> → enable{' '}
+          <strong>Video</strong> → leave soft audio on → <strong>Regenerate pack</strong> → select
+          that Video/Stories creative here (not Carousel alone).
+        </div>
       ) : null}
 
       {/* Phone chrome */}
@@ -203,7 +228,24 @@ export function FacebookAdPreview({
         {(format === 'stories' || format === 'reels') && (
           <div className="relative h-full min-h-[480px] bg-black">
             {fillSrc ? (
-              <StoryFillImage src={fillSrc} alt="" className="z-0" />
+              willCropOnMeta ? (
+                // Show full product for mismatched Feed/Carousel — Meta still crops live.
+                <div className="absolute inset-0 z-0 flex items-center justify-center bg-black">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={fillSrc}
+                    alt=""
+                    className="max-w-full max-h-full object-contain"
+                  />
+                  <div className="pointer-events-none absolute inset-x-0 top-14 z-[5] flex justify-center px-3">
+                    <span className="rounded-full bg-black/70 px-2.5 py-1 text-[10px] font-semibold text-amber-200">
+                      Preview fit — live Reels will crop sides
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <StoryFillImage src={fillSrc} alt="" className="z-0" />
+              )
             ) : (
               <div className="absolute inset-0 bg-gradient-to-b from-[#1c2b4a] to-black" />
             )}
