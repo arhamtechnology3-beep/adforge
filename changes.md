@@ -6,6 +6,33 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+## 2026-10-20
+
+### Feed preview shows 4:5 without cropping
+**What / why**  
+Meta Feed displays 1080×1350 (4:5) in full. The campaign live preview forced every Feed image into a square with `object-cover`, so the Diwali range banner lost the top headline and bottom badges.
+
+- Feed frame is `aspect-[4/5]` when the creative is 4:5 (saved aspect or measured pixels)
+- 1:1 creatives stay square
+
+**Paths:** `src/components/ad-preview/FacebookAdPreview.tsx`, `CampaignWizard.tsx`
+
+**Manual:** Hard-refresh `/campaigns`. Feed preview should show the full banner. Live `adforge.arhamtechnology.com` keeps the square crop until this build is deployed.
+
+### Diwali range banner — one local draft, all-category link
+**What / why**  
+One 4:5 creative (all seven pickles) for a single campaign. Click goes to the Shop / all-category page. Not published to Meta.
+
+- Image saved at 1080×1350 on `creative-assets`
+- Approved ad `40da4dc6-4283-419f-912f-d31fed8344f8`
+- Draft campaign **Diwali · Taste of Tradition · Range** (`b428d4ef-ac8e-48b1-be50-c58b8a73b5d1`), ₹500/day, Sales, Feed only
+- Destination: `https://divyaprabhafoods.com/collections/all`
+- `meta_campaign_id` left empty
+
+**Manual:** Open `/campaigns`. Use that draft only. **Confirm & Launch** is what sends it to Meta — do that yourself. Do not start a new wizard campaign (it preselects every approved ad).
+
+---
+
 ## 2026-10-19
 
 ### Diwali pack: Image-only for first ads

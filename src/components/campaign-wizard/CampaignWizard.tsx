@@ -1263,6 +1263,13 @@ export function CampaignWizard({
                 previewAd?.ad_format === 'video' ||
                 (previewAd?.media_payload as { aspect?: string } | undefined)?.aspect === '9:16'
               }
+              feedAspect={
+                (previewAd?.media_payload as { aspect?: string } | undefined)?.aspect === '4:5'
+                  ? '4:5'
+                  : (previewAd?.media_payload as { aspect?: string } | undefined)?.aspect === '1:1'
+                    ? '1:1'
+                    : undefined
+              }
               hasAudio={Boolean(
                 (previewAd?.media_payload as { has_audio?: boolean } | undefined)?.has_audio
               )}

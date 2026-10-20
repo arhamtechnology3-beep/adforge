@@ -67,6 +67,8 @@ export function FacebookAdPreview({
   adFormatLabel,
   /** True when creative is Stories/Video 9:16 — false for Feed/Carousel squares */
   isVerticalNineSixteen = false,
+  /** Meta Feed shows 4:5 in full. Square is only for 1:1 creatives. */
+  feedAspect,
   hasAudio,
 }: {
   headline?: string;
@@ -79,9 +81,11 @@ export function FacebookAdPreview({
   preferredFormat?: PreviewFormat;
   adFormatLabel?: string;
   isVerticalNineSixteen?: boolean;
+  feedAspect?: '1:1' | '4:5' | null;
   hasAudio?: boolean;
 }) {
   const [format, setFormat] = useState<PreviewFormat>(preferredFormat || 'feed');
+  const [measuredFeedAspect, setMeasuredFeedAspect] = useState<'1:1' | '4:5' | null>(null);
   const ctaLabel =
     META_CTA_OPTIONS.find((c) => c.value === cta)?.label || 'Shop Now';
 
@@ -89,8 +93,13 @@ export function FacebookAdPreview({
     if (preferredFormat) setFormat(preferredFormat);
   }, [preferredFormat]);
 
+  useEffect(() => {
+    setMeasuredFeedAspect(null);
+  }, [imageUrl]);
+
   const verticalPlacement = format === 'stories' || format === 'reels';
   const willCropOnMeta = verticalPlacement && !isVerticalNineSixteen;
+  const feedIsFourFive = feedAspect === '4:5' || measuredFeedAspect === '4:5';
 
   const domain = useMemo(() => {
     const raw = (linkDisplay || 'yourstore.com').replace(/^https?:\/\//i, '').replace(/\/$/, '');
@@ -132,7 +141,9 @@ export function FacebookAdPreview({
             ? ' · as on Meta'
             : verticalPlacement
               ? ' · Feed/Carousel in Reels frame'
-              : ' · as on Meta'}
+              : feedIsFourFive
+                ? ' · 4:5 as on Meta'
+                : ' · as on Meta'}
           {hasAudio ? ' · soft audio' : ''}
         </p>
       ) : null}
@@ -180,10 +191,28 @@ export function FacebookAdPreview({
 
             {primaryText ? <FeedPrimaryText text={primaryText} /> : null}
 
-            <div className="aspect-square bg-[#E4E6EB] relative">
+            <div
+              className={cn(
+                'bg-[#E4E6EB] relative',
+                feedIsFourFive ? 'aspect-[4/5]' : 'aspect-square'
+              )}
+            >
               {imageUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={imageUrl} alt="" className="w-full h-full object-cover" />
+                <img
+                  src={imageUrl}
+                  alt=""
+                  className={cn(
+                    'w-full h-full',
+                    feedIsFourFive ? 'object-contain' : 'object-cover'
+                  )}
+                  onLoad={(event) => {
+                    const { naturalWidth, naturalHeight } = event.currentTarget;
+                    if (!naturalWidth || !naturalHeight) return;
+                    const ratio = naturalWidth / naturalHeight;
+                    setMeasuredFeedAspect(Math.abs(ratio - 4 / 5) <= 0.04 ? '4:5' : '1:1');
+                  }}
+                />
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center text-sm text-[#65676B]">
                   Creative preview
