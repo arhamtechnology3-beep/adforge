@@ -8,6 +8,19 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-22
 
+### Fix Meta carousel preview and feed delivery
+**What / why**  
+Ads Manager could not preview **Taste of Tradition** (`interactive_components_spec … position_spec height is required`) and would not deliver it to Feed, Stories, or Reels. The cards were 1024×1024, under Meta’s 1080px feed minimum, and Advantage+ was inventing a broken placement crop. Stories and Reels also cannot run a square carousel.
+
+- Square images under 1080 are scaled to 1080×1080 before upload
+- Carousel creatives opt out of placement-crop enhancements
+- Empty card descriptions are no longer sent
+- The live ad creative was replaced. The ad set now targets Facebook Feed and Instagram Feed only
+
+**Paths:** `src/lib/meta.ts`, `scripts/repair-diwali-carousel-creative.ts`
+
+**Manual:** In Ads Manager, discard any unpublished edits on **Taste of Tradition**, then refresh. Preview should open on Feed. Stories and Reels stay off because these cards are square.
+
 ### Diwali carousel starts with the full range, then the seven squares
 **What / why**  
 The eight 1:1 files were eight separate image ads, so the preview stopped on the range shot and never played the products as a carousel. They are now one 1:1 carousel on **Diwali 1:1 · Product Pages**.

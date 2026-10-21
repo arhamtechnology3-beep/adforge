@@ -653,8 +653,21 @@ async function uploadAdImageHash(
   if (!imgRes.ok) {
     throw new Error(`Could not download creative image (${imgRes.status})`);
   }
-  const buf = Buffer.from(await imgRes.arrayBuffer());
-  const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+  let buf = Buffer.from(await imgRes.arrayBuffer());
+  let contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+  try {
+    const sharp = (await import('sharp')).default;
+    const meta = await sharp(buf).metadata();
+    // Feed carousels are rejected below 1080px. Square sources are scaled up, not cropped.
+    if (meta.width && meta.height && meta.width === meta.height && meta.width < 1080) {
+      buf = Buffer.from(
+        await sharp(buf).resize(1080, 1080, { fit: 'fill' }).jpeg({ quality: 92 }).toBuffer()
+      );
+      contentType = 'image/jpeg';
+    }
+  } catch {
+    /* upload the original bytes if sharp cannot read them */
+  }
   const ext = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg';
   const uploadBody = new URLSearchParams();
   uploadBody.set('bytes', buf.toString('base64'));
@@ -935,6 +948,8 @@ export async function createAd(
     video?: { url: string; posterUrl?: string | null };
     /** Meta catalog music. Not a brand file — Meta picks the track. */
     music?: 'random';
+    /** Replace the creative on an existing ad instead of creating a new ad. */
+    existingAdId?: string;
   }
 ): Promise<{ id: string; creative_id: string }> {
   const destination = String(link || '').trim();
@@ -971,10 +986,11 @@ export async function createAd(
     const child_attachments = [];
     for (const card of cardList) {
       const ref = await metaImageRef(accessToken, adAccountId, card.image_url);
+      const description = String(card.description || linkDescription || '').trim().slice(0, 30);
       child_attachments.push({
         link: card.link || destination,
         name: String(card.headline || adHeadline || 'Shop now').slice(0, 40),
-        description: String(card.description || linkDescription || '').slice(0, 30),
+        ...(description ? { description } : {}),
         ...ref,
         call_to_action: {
           type: cta,
@@ -1027,6 +1043,23 @@ export async function createAd(
   const igUser = String(instagramUserId || '').trim();
   if (igUser) storySpec.instagram_user_id = igUser;
   creativeBody.set('object_story_spec', JSON.stringify(storySpec));
+  if (cardList.length >= 2) {
+    // Advantage+ placement crops build interactive_components_spec without a
+    // height and then Ads Manager cannot preview or deliver the carousel.
+    creativeBody.set(
+      'degrees_of_freedom_spec',
+      JSON.stringify({
+        creative_features_spec: {
+          adapt_to_placement: { enroll_status: 'OPT_OUT' },
+          image_templates: { enroll_status: 'OPT_OUT' },
+          image_touchups: { enroll_status: 'OPT_OUT' },
+          text_optimizations: { enroll_status: 'OPT_OUT' },
+          inline_comment: { enroll_status: 'OPT_OUT' },
+          profile_card: { enroll_status: 'OPT_OUT' },
+        },
+      })
+    );
+  }
   if (options?.music === 'random') {
     // Music is not a creative_features_spec key. Meta adds a catalog track.
     creativeBody.set('asset_feed_spec', JSON.stringify({ audios: [{ type: 'random' }] }));
@@ -1040,6 +1073,27 @@ export async function createAd(
   });
   const creativePayload = await readMetaJson(creativeRes);
   const creativeId = assertMetaMutationOk('Creative creation failed', creativeRes, creativePayload);
+
+  const existingAdId = String(options?.existingAdId || '').trim();
+  if (existingAdId) {
+    const updateBody = new URLSearchParams();
+    updateBody.set('creative', JSON.stringify({ creative_id: creativeId }));
+    updateBody.set('access_token', accessToken);
+    const updateRes = await fetch(`${META_BASE}/${existingAdId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: updateBody.toString(),
+    });
+    const updatePayload = await readMetaJson(updateRes);
+    if (updatePayload && typeof updatePayload === 'object' && 'error' in (updatePayload as object)) {
+      throw new Error(formatMetaApiError('Ad creative update failed', JSON.stringify(updatePayload)));
+    }
+    if (!updateRes.ok) {
+      throw new Error(formatMetaApiError('Ad creative update failed', JSON.stringify(updatePayload || {})));
+    }
+    // Updating an existing ad returns { success: true } rather than a new id.
+    return { id: existingAdId, creative_id: creativeId };
+  }
 
   const adBody = new URLSearchParams();
   adBody.set('name', adHeadline);
