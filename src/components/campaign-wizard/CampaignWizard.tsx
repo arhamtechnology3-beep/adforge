@@ -22,6 +22,7 @@ import {
   LayoutGrid,
   X,
   Plus,
+  Copy,
 } from 'lucide-react';
 import type { GeneratedAd, MetaCampaign } from '@/types/database';
 import { META_AD_FORMATS } from '@/lib/creatives';
@@ -184,6 +185,7 @@ export function CampaignWizard({
   const [validating, setValidating] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [duplicating, setDuplicating] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
@@ -620,6 +622,25 @@ export function CampaignWizard({
       }
     } finally {
       setConfirming(null);
+    }
+  }
+
+  async function handleDuplicate(campaignId: string) {
+    setDuplicating(campaignId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}/duplicate`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Could not duplicate campaign');
+        return;
+      }
+      if (data.campaign) {
+        setCampaigns((prev) => [data.campaign, ...prev]);
+        setToast(data.message || 'Campaign duplicated as a draft');
+      }
+    } finally {
+      setDuplicating(null);
     }
   }
 
@@ -1354,17 +1375,36 @@ export function CampaignWizard({
                     {formatCurrency(c.budget || 0)}/day · {new Date(c.created_at).toLocaleDateString('en-IN')}
                   </p>
                 </div>
-                {c.status === 'draft' && (
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
                   <button
                     type="button"
-                    className="btn-primary text-sm flex items-center gap-2 shrink-0"
-                    onClick={() => handleConfirm(c.id)}
-                    disabled={confirming === c.id}
+                    className="btn-secondary text-sm flex items-center gap-2"
+                    onClick={() => handleDuplicate(c.id)}
+                    disabled={duplicating === c.id}
                   >
-                    {confirming === c.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
-                    Confirm &amp; Launch
+                    {duplicating === c.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                    Duplicate
                   </button>
-                )}
+                  {c.status === 'draft' && (
+                    <button
+                      type="button"
+                      className="btn-primary text-sm flex items-center gap-2"
+                      onClick={() => handleConfirm(c.id)}
+                      disabled={confirming === c.id}
+                    >
+                      {confirming === c.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Rocket className="w-4 h-4" />
+                      )}
+                      Confirm &amp; Launch
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>

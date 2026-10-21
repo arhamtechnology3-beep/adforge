@@ -6,6 +6,16 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+## 2026-10-22
+
+### Duplicate an existing campaign
+**What / why**  
+Campaigns list had no way to clone a live or draft campaign. Duplicate copies ads, budget, audience, and website into a new **draft** (no shared Meta campaign id). Confirm & Launch publishes the copy separately.
+
+**Paths:** `src/app/api/campaigns/[id]/duplicate/route.ts`, `src/components/campaign-wizard/CampaignWizard.tsx`
+
+**Manual:** Deploy → `/campaigns` → **Duplicate** on any row → new draft appears at the top → **Confirm & Launch**.
+
 ## 2026-10-21
 
 ### Delete a store from the sidebar
