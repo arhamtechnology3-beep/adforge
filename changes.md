@@ -8,6 +8,18 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-21
 
+### Delete a store from the sidebar
+**What / why**  
+A store created twice (two “Pickle Affair” rows) could not be removed. Each extra store now has a delete control. The last store on the subscription stays.
+
+- `DELETE /api/stores` with `{ storeId }` removes that store. Related catalog, campaigns, and Meta rows follow the store delete.
+- If the deleted store was the active one, the cookie switches to the oldest remaining store.
+- Duplicate names show the created time so the two rows can be told apart.
+
+**Paths:** `src/app/api/stores/route.ts`, `src/components/Sidebar.tsx`
+
+**Manual:** Deploy, then hard-refresh. Use the trash icon next to the extra Pickle Affair.
+
 ### Fix Hostinger build: prefer-const on ops recommendations
 **What / why**  
 Live deploy of `f7f9360` failed lint. `runQuery` was declared with `let` and never reassigned.

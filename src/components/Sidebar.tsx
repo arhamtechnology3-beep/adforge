@@ -15,6 +15,7 @@ import {
   Shield,
   FileBarChart2,
   Gauge,
+  Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
@@ -37,11 +38,14 @@ export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [stores, setStores] = useState<Array<{ id: string; name: string }>>([]);
+  const [stores, setStores] = useState<
+    Array<{ id: string; name: string; website_url?: string | null; created_at?: string }>
+  >([]);
   const [activeId, setActiveId] = useState('');
   const [canAdd, setCanAdd] = useState(false);
   const [maxStores, setMaxStores] = useState(1);
   const [adding, setAdding] = useState(false);
+  const [deletingId, setDeletingId] = useState('');
   const [storeName, setStoreName] = useState('');
   const [storeWebsite, setStoreWebsite] = useState('');
   const [storeError, setStoreError] = useState('');
@@ -85,6 +89,41 @@ export default function Sidebar() {
     window.location.href = '/onboarding';
   }
 
+  async function removeStore(store: { id: string; name: string }) {
+    const ok = window.confirm(
+      `Delete “${store.name}”? Products, campaigns, and the Meta connection saved on this store are removed.`
+    );
+    if (!ok) return;
+    setStoreError('');
+    setDeletingId(store.id);
+    const res = await fetch('/api/stores', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ storeId: store.id }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setDeletingId('');
+      setStoreError(data.error || 'Could not delete store');
+      return;
+    }
+    window.location.reload();
+  }
+
+  function storeLabel(store: { id: string; name: string; created_at?: string }) {
+    const sameName = stores.filter(
+      (item) => item.name.trim().toLowerCase() === store.name.trim().toLowerCase()
+    );
+    if (sameName.length < 2 || !store.created_at) return store.name;
+    const when = new Date(store.created_at).toLocaleString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+    return `${store.name} · ${when}`;
+  }
+
   async function handleLogout() {
     const supabase = createClient();
     await supabase.auth.signOut();
@@ -107,17 +146,38 @@ export default function Sidebar() {
           <label className="block text-[11px] uppercase tracking-wide text-white/50 px-1">
             Store
           </label>
-          <select
-            className="w-full rounded-lg bg-white/10 text-white text-sm px-2 py-2 border border-white/15"
-            value={activeId}
-            onChange={(event) => switchStore(event.target.value)}
-          >
+          <div className="space-y-1">
             {stores.map((store) => (
-              <option key={store.id} value={store.id} className="text-black">
-                {store.name}
-              </option>
+              <div
+                key={store.id}
+                className={cn(
+                  'flex items-center gap-1 rounded-lg',
+                  store.id === activeId ? 'bg-white/15' : 'hover:bg-white/10'
+                )}
+              >
+                <button
+                  type="button"
+                  className="flex-1 min-w-0 text-left text-sm text-white px-2 py-1.5 truncate"
+                  onClick={() => store.id !== activeId && switchStore(store.id)}
+                >
+                  {store.id === activeId ? '✓ ' : ''}
+                  {storeLabel(store)}
+                </button>
+                {stores.length > 1 && (
+                  <button
+                    type="button"
+                    aria-label={`Delete ${store.name}`}
+                    className="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-md text-white hover:bg-white/15 disabled:opacity-40"
+                    disabled={deletingId === store.id}
+                    onClick={() => removeStore(store)}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             ))}
-          </select>
+          </div>
+          {storeError && <p className="text-xs text-amber-200 px-1">{storeError}</p>}
           {canAdd && !adding && (
             <button
               type="button"
@@ -141,7 +201,6 @@ export default function Sidebar() {
                 value={storeWebsite}
                 onChange={(event) => setStoreWebsite(event.target.value)}
               />
-              {storeError && <p className="text-xs text-amber-200">{storeError}</p>}
               <div className="flex gap-2">
                 <button type="button" className="text-xs text-white underline" onClick={addStore}>
                   Save

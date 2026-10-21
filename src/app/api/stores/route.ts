@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth/session';
 import { createClient } from '@/lib/supabase/server';
-import { maxStoresForPlan, requireStore, storeCookie } from '@/lib/stores';
+import { maxStoresForPlan, readActiveStoreId, requireStore, storeCookie } from '@/lib/stores';
 import type { PlanTier, Store } from '@/types/database';
 
 export async function GET() {
@@ -126,6 +126,57 @@ export async function POST(request: Request) {
 
   const res = NextResponse.json({ store: data }, { status: 201 });
   const cookie = storeCookie(data.id);
+  res.cookies.set(cookie.name, cookie.value, cookie.options);
+  return res;
+}
+
+export async function DELETE(request: Request) {
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (user.isDemo) {
+    return NextResponse.json({ error: 'Demo session cannot delete stores' }, { status: 403 });
+  }
+
+  let body: { storeId?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+
+  const storeId = String(body.storeId || '').trim();
+  if (!storeId) return NextResponse.json({ error: 'storeId is required' }, { status: 400 });
+
+  const supabase = await createClient();
+  const { data: stores, error: listError } = await supabase
+    .from('stores')
+    .select('id')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: true });
+
+  if (listError) return NextResponse.json({ error: listError.message }, { status: 500 });
+
+  const owned = stores || [];
+  if (!owned.some((store) => store.id === storeId)) {
+    return NextResponse.json({ error: 'Store not found' }, { status: 404 });
+  }
+  if (owned.length <= 1) {
+    return NextResponse.json(
+      { error: 'Keep at least one store on this subscription.' },
+      { status: 400 }
+    );
+  }
+
+  const { error } = await supabase.from('stores').delete().eq('id', storeId).eq('user_id', user.id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  const remaining = owned.filter((store) => store.id !== storeId);
+  const activeId = await readActiveStoreId();
+  const nextId =
+    activeId && remaining.some((store) => store.id === activeId) ? activeId : remaining[0].id;
+
+  const res = NextResponse.json({ ok: true, activeStoreId: nextId });
+  const cookie = storeCookie(nextId);
   res.cookies.set(cookie.name, cookie.value, cookie.options);
   return res;
 }
