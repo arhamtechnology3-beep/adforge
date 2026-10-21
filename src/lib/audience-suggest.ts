@@ -298,6 +298,49 @@ export const DEFAULT_SALES_CITY_TIERS: CityTier[] = ['tier1', 'tier2'];
  * Prefer names Meta Ads Manager commonly resolves — avoid invented niches
  * that fail `type=adinterest` and get dropped at launch.
  */
+/**
+ * Food-category interests saved from the Diwali wizard.
+ * Newspapers, generic shopping, and unrelated brands stay off this list.
+ */
+export const SAVED_FOOD_INTERESTS = [
+  'Indian cuisine',
+  'Organic food',
+  'KIND Healthy Snacks',
+  'Cooking',
+  'Foodie',
+  'Gujarati cuisine',
+  'Dhoka',
+  'Thepla',
+  'Khakhra',
+  'Undhyu',
+  'Fafda',
+  'Pickling',
+  'pickle',
+  'pickles',
+  'Home cooking and homemade food',
+  'Traditional food',
+  'Priya Pickles',
+  'Natural foods',
+  'Healthy eating',
+  'Homemade / handmade products',
+  'farmdidi',
+  'farmdidi pickle',
+  'farmdidi pickles',
+  'Jhachi pickle',
+  'Jhachi',
+  'Homemade food',
+  'Spices',
+  'Vegetarianism',
+  'Recipes',
+  'Online food ordering',
+  'Home cooking',
+  'Gourmet food',
+  'Grocery shopping',
+  'Diwali',
+  'Festivals',
+  'Indian festivals',
+];
+
 const CATEGORY_INTERESTS: Record<string, string[]> = {
   pickles: [
     'Indian cuisine',
@@ -660,14 +703,21 @@ export function suggestAudience(input: AudienceSuggestInput = {}): AudienceSugge
     rationale.push(`Competitor brands referenced: ${input.competitorBrands.slice(0, 3).join(', ')}`);
   }
 
+  const foodCategory = category === 'pickles' || category === 'food';
   // Store signals first, then competitor, then category pack (Organic only if mentioned)
-  let interests = [...fromStore, ...fromCopy, ...pack];
-  const storeText = storeBlob.join(' ').toLowerCase();
-  const mentionsOrganic = /organic|natural|preservative.?free|chemical.?free/.test(storeText);
-  if (!mentionsOrganic) {
-    interests = interests.filter((i) => i.toLowerCase() !== 'organic food');
-  } else if (!interests.some((i) => /organic/i.test(i))) {
-    interests = ['Organic food', ...interests];
+  let interests = foodCategory
+    ? [...SAVED_FOOD_INTERESTS]
+    : [...fromStore, ...fromCopy, ...pack];
+  if (foodCategory) {
+    rationale.push('Saved food-category interests');
+  } else {
+    const storeText = storeBlob.join(' ').toLowerCase();
+    const mentionsOrganic = /organic|natural|preservative.?free|chemical.?free/.test(storeText);
+    if (!mentionsOrganic) {
+      interests = interests.filter((i) => i.toLowerCase() !== 'organic food');
+    } else if (!interests.some((i) => /organic/i.test(i))) {
+      interests = ['Organic food', ...interests];
+    }
   }
 
   const festive =
@@ -681,13 +731,13 @@ export function suggestAudience(input: AudienceSuggestInput = {}): AudienceSugge
         input.brandName || '',
       ].join(' ')
     );
-  if (festive) {
+  if (festive && !foodCategory) {
     interests = [...FESTIVE_EXTRA, ...interests];
     rationale.push('Festive/gifting boost applied');
   }
 
   const citiesOut = uniquePreserve(cities, 300);
-  const interestsOut = uniquePreserve(interests, 12);
+  const interestsOut = uniquePreserve(interests, foodCategory ? 80 : 12);
   const pool = interestSuggestionPool(category);
   const selectedSet = new Set(interestsOut.map((i) => i.toLowerCase()));
   const suggestedInterests = uniquePreserve(

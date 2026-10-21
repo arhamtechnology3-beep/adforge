@@ -8,6 +8,14 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-22
 
+### 1:1 Diwali preview and saved food interests
+**What / why**  
+The campaign wizard opened the old 4:5 carousel, and the Food interest list saved earlier was only on that carousel draft. The new square pack is now the default preview (labeled 1:1, with previous/next through all 8). Food and pickle campaigns load those saved interests. Draft **Diwali 1:1 · Product Pages** stores the same list.
+
+**Paths:** `src/components/campaign-wizard/CampaignWizard.tsx`, `src/components/ad-preview/FacebookAdPreview.tsx`, `src/lib/audience-suggest.ts`
+
+**Manual:** Hard-refresh `/campaigns` after this deploy. The preview should say **1:1** and step through the eight squares. Audience interests should include Gujarati cuisine, Thepla, Khakhra, pickles, and Diwali — not Divya Bhaskar or Gujarat Samachar.
+
 ### Diwali 1:1 campaign was on the wrong store
 **What / why**  
 Two stores are both named Divyaprabha Foods. The 1:1 campaign and its 8 approved ads were saved on the unused one, so `/campaigns` for the live store showed “No approved creatives yet” and hid the campaign list. Ads and the draft now sit on the store that already has Diwali Sale Revised 2026. The campaign list still renders when a store has campaigns but no approved creatives.

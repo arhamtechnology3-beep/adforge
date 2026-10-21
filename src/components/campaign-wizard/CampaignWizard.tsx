@@ -101,6 +101,12 @@ const META_CONNECT_ERRORS: Record<string, string> = {
     'Meta connect failed while talking to Facebook. Try Connect with Facebook again.',
 };
 
+function squarePackIds(ads: GeneratedAd[]): string[] {
+  return ads
+    .filter((ad) => ad.ad_format === 'single_image' && ad.angle === 'diwali-1x1')
+    .map((ad) => ad.id);
+}
+
 function newestCarouselId(ads: GeneratedAd[]): string | null {
   for (let i = ads.length - 1; i >= 0; i -= 1) {
     const ad = ads[i];
@@ -174,12 +180,17 @@ export function CampaignWizard({
   const [websiteUrl, setWebsiteUrl] = useState(initialWebsiteUrl);
   const [cta, setCta] = useState('SHOP_NOW');
   const [linkDescription, setLinkDescription] = useState('');
+  const squareIds = squarePackIds(initialAds);
   const carouselFirstId = newestCarouselId(initialAds);
   const [selectedAds, setSelectedAds] = useState<string[]>(
-    carouselFirstId ? [carouselFirstId] : initialAds.map((a) => a.id)
+    squareIds.length
+      ? squareIds
+      : carouselFirstId
+        ? [carouselFirstId]
+        : initialAds.map((a) => a.id)
   );
   const [previewAdId, setPreviewAdId] = useState<string | null>(
-    carouselFirstId || initialAds[0]?.id || null
+    squareIds[0] || carouselFirstId || initialAds[0]?.id || null
   );
 
   const [validation, setValidation] = useState<CampaignValidationResult | null>(null);
@@ -1501,6 +1512,35 @@ export function CampaignWizard({
                   : undefined
               }
             />
+            {squareIds.length > 1 && squareIds.includes(previewAd?.id || '') && (
+              <div className="mt-3 flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary text-xs py-1"
+                  onClick={() => {
+                    const index = squareIds.indexOf(previewAd?.id || '');
+                    const next = squareIds[(index - 1 + squareIds.length) % squareIds.length];
+                    setPreviewAdId(next);
+                  }}
+                >
+                  Previous
+                </button>
+                <p className="text-[11px] font-semibold text-center">
+                  1:1 · {squareIds.indexOf(previewAd?.id || '') + 1} of {squareIds.length}
+                </p>
+                <button
+                  type="button"
+                  className="btn-secondary text-xs py-1"
+                  onClick={() => {
+                    const index = squareIds.indexOf(previewAd?.id || '');
+                    const next = squareIds[(index + 1) % squareIds.length];
+                    setPreviewAdId(next);
+                  }}
+                >
+                  Next
+                </button>
+              </div>
+            )}
             <p className="mt-3 text-[10px] text-[var(--muted)] text-center leading-snug">
               {(previewAd?.media_payload?.cards?.length || 0) >= 2
                 ? 'This preview is the carousel. The picture changes by itself, and the arrows jump to the next pickle. The label should say Carousel, not Image.'

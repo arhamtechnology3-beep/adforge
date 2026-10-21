@@ -113,7 +113,8 @@ export function FacebookAdPreview({
 
   const verticalPlacement = format === 'stories' || format === 'reels';
   const willCropOnMeta = verticalPlacement && !isVerticalNineSixteen;
-  const feedIsFourFive = feedAspect === '4:5' || measuredFeedAspect === '4:5';
+  const feedIsFourFive =
+    feedAspect === '1:1' ? false : feedAspect === '4:5' || measuredFeedAspect === '4:5';
 
   const domain = useMemo(() => {
     const raw = (linkDisplay || 'yourstore.com').replace(/^https?:\/\//i, '').replace(/\/$/, '');
@@ -164,9 +165,11 @@ export function FacebookAdPreview({
               ? ' · Feed/Carousel in Reels frame'
               : cards.length >= 2
                 ? ` · carousel ${Math.min(cardIndex, cards.length - 1) + 1}/${cards.length}${feedIsFourFive ? ' · 4:5' : ''}`
-                : feedIsFourFive
-                  ? ' · 4:5 as on Meta'
-                  : ' · as on Meta'}
+                : feedAspect === '1:1'
+                  ? ' · 1:1'
+                  : feedIsFourFive
+                    ? ' · 4:5 as on Meta'
+                    : ' · as on Meta'}
           {hasAudio ? ' · soft audio' : ''}
         </p>
       ) : null}

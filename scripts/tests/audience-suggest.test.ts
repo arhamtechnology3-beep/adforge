@@ -75,9 +75,11 @@ const fromSite = suggestAudience({
   ],
   productNames: ['Mango Pickle', 'Meethi Keri', 'Garlic Pickle'],
 });
-assert(fromSite.category === 'pickles', 'site_category_pickles', String(fromSite.category));
-assert(!fromSite.interests.includes('Organic food'), 'no_organic_without_signal', fromSite.interestsCsv);
-assert(fromSite.interests.some((i) => /cuisine|Homemade|Cooking/i.test(i)), 'pickle_core_interests', fromSite.interestsCsv);
+assert(fromSite.category === 'food' || fromSite.category === 'pickles', 'site_category_food', String(fromSite.category));
+assert(fromSite.interests.includes('Gujarati cuisine'), 'saved_food_interests', fromSite.interestsCsv);
+assert(fromSite.interests.includes('Organic food'), 'saved_organic_kept');
+assert(!fromSite.interests.some((i) => /Divya Bhaskar|Gujarat Samachar|goosebumps/i.test(i)), 'newspapers_left_off');
+assert(fromSite.interests.length >= 30, 'saved_food_interest_count', String(fromSite.interests.length));
 assert(fromSite.suggestedInterests.some((i) => /Organic|Spices|Gifting/i.test(i)), 'suggestions_available');
 assert(fromSite.suggestedInterests.length >= 50, 'suggestions_50_plus', String(fromSite.suggestedInterests.length));
 assert(fromSite.source === 'subscriber_website', 'source_website', fromSite.source);
