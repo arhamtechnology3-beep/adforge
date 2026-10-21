@@ -559,6 +559,31 @@ Authentic home-food energy — “Ghar ka swaad, Diwali wali thali pe” — pho
 
 ---
 
+# 16. Generic Diwali Meta Ad (Brand-Intact Festival Feed 4:5 / 1:1)
+
+**Best for:** Festive food & D2C products where brand logo, product color, packaging, and label must remain 100% locked while the background is transformed into a luxury Indian Diwali celebration.
+
+```text
+BACKGROUND AND ENVIRONMENT ONLY for Meta ad compositing.
+Do NOT draw, generate, or invent any product, jar, bottle, packaging, logo, or label.
+Leave a clear unobstructed center zone (40–55% of frame) empty for real packshot placement.
+
+Create a beautiful, premium Indian Diwali celebration environment:
+- Warm golden lighting and elegant golden bokeh.
+- Traditional glowing diyas and subtle brass decorations.
+- Fresh marigold flowers and delicate flower petals.
+- An elegant Indian rangoli with refined festive details.
+- Warm cream, gold, saffron, and subtle maroon background tones.
+- A welcoming, traditional Indian festive atmosphere.
+
+Keep the background visually rich but uncluttered. The festive elements must complement the product rather than overpower it.
+Professional commercial food photography, realistic lighting, sharp details, and premium festive advertising style.
+
+[ADD MASTER PRODUCT-PROTECTION NEGATIVE PROMPT]
+```
+
+---
+
 # Creative Testing Matrix
 
 | Creative | Background / Environment | Main Purpose |
@@ -578,6 +603,7 @@ Authentic home-food energy — “Ghar ka swaad, Diwali wali thali pe” — pho
 | Diwali Flavours of Home | Warm home kitchen Diwali evening | Emotional nostalgia |
 | Diwali Taste of Tradition | Gift-ready diyas + heritage still-life | Festival tradition CTA |
 | Diwali Ghar Ka Swaad Stories | 9:16 thali close-up Reels | Stories / Reels native |
+| Generic Diwali Meta Ad | Warm gold, rangoli, diyas, marigold festive backdrop | Full brand-intact festive conversion |
 
 ---
 

@@ -5,6 +5,7 @@ import {
   readDemoOnboarding,
   type DemoOnboarding,
 } from '@/lib/auth/demo-onboarding';
+import { loadActiveStore, readActiveStoreId } from '@/lib/stores';
 import type { CompetitorEntry } from '@/types/database';
 
 /** Default demo data so /ads works without completing onboarding first */
@@ -30,6 +31,7 @@ export function getDefaultDemoOnboarding(userId: string): DemoOnboarding {
 export type ResolvedCampaignInput = {
   id: string;
   user_id: string;
+  store_id?: string | null;
   website_url: string;
   competitors: CompetitorEntry[];
   competitor_url: string | null;
@@ -48,6 +50,7 @@ export async function resolveCampaignInput(
     return {
       id: row.id,
       user_id: row.user_id,
+      store_id: null,
       website_url: row.website_url,
       competitors: row.competitors || [],
       competitor_url: row.competitor_url,
@@ -57,16 +60,33 @@ export async function resolveCampaignInput(
   }
 
   const supabase = await createClient();
-  const query = supabase.from('campaigns_input').select('*').eq('user_id', user.id);
+  const store = await loadActiveStore(user.id);
+  let query = supabase.from('campaigns_input').select('*').eq('user_id', user.id);
+
+  if (campaignInputId) {
+    query = query.eq('id', campaignInputId);
+  } else if (store && store.id !== 'demo-store-id') {
+    query = query.eq('store_id', store.id);
+  }
 
   const { data: campaignInput } = campaignInputId
-    ? await query.eq('id', campaignInputId).maybeSingle()
+    ? await query.maybeSingle()
     : await query.order('created_at', { ascending: false }).limit(1).maybeSingle();
 
   if (!campaignInput) return null;
 
+  const pinnedStoreId = await readActiveStoreId();
+  if (
+    pinnedStoreId &&
+    campaignInput.store_id &&
+    campaignInput.store_id !== pinnedStoreId
+  ) {
+    return null;
+  }
+
   return {
     id: campaignInput.id,
+    store_id: campaignInput.store_id || store?.id || null,
     user_id: campaignInput.user_id,
     website_url: campaignInput.website_url,
     competitors: (campaignInput.competitors as CompetitorEntry[]) || [],

@@ -6,6 +6,7 @@ import {
   shopifyOrderToCapiPurchase,
   estimateEmq,
 } from '@/lib/meta-optimize/capi';
+import { loadActiveStore } from '@/lib/stores';
 
 export const runtime = 'nodejs';
 
@@ -25,12 +26,15 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const supabase = await db();
-  const { data: logs } = await supabase
+  const store = user.isDemo ? null : await loadActiveStore(user.id);
+  let logQuery = supabase
     .from('capi_event_logs')
     .select('event_id, ok, dry_run, error, created_at, payload, estimated_emq')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
     .limit(20);
+  if (store) logQuery = logQuery.eq('store_id', store.id);
+  const { data: logs } = await logQuery;
 
   const rows = logs || [];
   const live = rows.find(
@@ -45,11 +49,9 @@ export async function GET() {
   if (live) status = 'live_ok';
   else if (test) status = test.dry_run ? 'test_ok' : 'test_ok';
 
-  const { data: account } = await supabase
-    .from('ad_accounts')
-    .select('pixel_id')
-    .eq('user_id', user.id)
-    .maybeSingle();
+  let accountQuery = supabase.from('ad_accounts').select('pixel_id').eq('user_id', user.id);
+  if (store) accountQuery = accountQuery.eq('store_id', store.id);
+  const { data: account } = await accountQuery.maybeSingle();
 
   return NextResponse.json({
     status,
@@ -77,11 +79,13 @@ export async function POST() {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const supabase = await db();
-  const { data: adAccount } = await supabase
+  const store = user.isDemo ? null : await loadActiveStore(user.id);
+  let accountQuery = supabase
     .from('ad_accounts')
     .select('pixel_id, access_token_encrypted')
-    .eq('user_id', user.id)
-    .maybeSingle();
+    .eq('user_id', user.id);
+  if (store) accountQuery = accountQuery.eq('store_id', store.id);
+  const { data: adAccount } = await accountQuery.maybeSingle();
 
   if (!adAccount?.pixel_id && !process.env.META_PIXEL_ID) {
     return NextResponse.json(
@@ -144,6 +148,7 @@ export async function POST() {
   try {
     await supabase.from('capi_event_logs').insert({
       user_id: user.id,
+      ...(store ? { store_id: store.id } : {}),
       event_name: 'Purchase',
       event_id: testId,
       dry_run: result.dryRun,
@@ -159,15 +164,17 @@ export async function POST() {
 
   if (result.ok) {
     try {
+      const settingsTable = store ? 'stores' : 'users';
+      const settingsId = store ? store.id : user.id;
       const { data: u } = await supabase
-        .from('users')
+        .from(settingsTable)
         .select('agent_settings')
-        .eq('id', user.id)
+        .eq('id', settingsId)
         .maybeSingle();
       const prev = (u?.agent_settings as Record<string, unknown>) || {};
       const tracking = (prev.tracking as Record<string, unknown>) || {};
-      await supabase
-        .from('users')
+      let settingsUpdate = supabase
+        .from(settingsTable)
         .update({
           agent_settings: {
             ...prev,
@@ -179,7 +186,9 @@ export async function POST() {
             },
           },
         })
-        .eq('id', user.id);
+        .eq('id', settingsId);
+      if (store) settingsUpdate = settingsUpdate.eq('user_id', user.id);
+      await settingsUpdate;
     } catch {
       /* ignore */
     }

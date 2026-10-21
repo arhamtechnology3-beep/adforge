@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { Rocket, Sparkles, Megaphone, BarChart3 } from 'lucide-react';
 import { getPlan } from '@/lib/plans';
+import { loadActiveStore } from '@/lib/stores';
 import { daysUntil, isTrialActive } from '@/lib/utils';
 import type { User, AdAccount } from '@/types/database';
 
@@ -23,23 +24,27 @@ export default async function DashboardPage() {
         .single();
       profile = p;
 
-      const { count: cCount } = await supabase
+      const store = await loadActiveStore(user.id);
+
+      let campaignQuery = supabase
         .from('meta_campaigns')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', user.id);
+      if (store) campaignQuery = campaignQuery.eq('store_id', store.id);
+      const { count: cCount } = await campaignQuery;
       campaignCount = cCount || 0;
 
-      const { count: aCount } = await supabase
+      let adQuery = supabase
         .from('generated_ads')
         .select('*, campaigns_input!inner(*)', { count: 'exact', head: true })
         .eq('campaigns_input.user_id', user.id);
+      if (store) adQuery = adQuery.eq('campaigns_input.store_id', store.id);
+      const { count: aCount } = await adQuery;
       adCount = aCount || 0;
 
-      const { data: acc } = await supabase
-        .from('ad_accounts')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
+      let accountQuery = supabase.from('ad_accounts').select('*').eq('user_id', user.id);
+      if (store) accountQuery = accountQuery.eq('store_id', store.id);
+      const { data: acc } = await accountQuery.maybeSingle();
       adAccount = acc;
     }
   } catch {

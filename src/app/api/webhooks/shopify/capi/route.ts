@@ -6,6 +6,7 @@ import {
   estimateEmq,
 } from '@/lib/meta-optimize/capi';
 import { createHmac, timingSafeEqual } from 'crypto';
+import { resolveWebhookStore } from '@/lib/stores';
 
 export const runtime = 'nodejs';
 
@@ -23,7 +24,8 @@ function verifyShopifyHmac(rawBody: string, hmacHeader: string | null, secret: s
 
 /**
  * Shopify orders/paid (or orders/create) → Meta Conversions API Purchase.
- * Query: ?user_id=<uuid>  OR header X-AdForge-User-Id
+ * Query: ?store_id=<uuid> for multi-store accounts.
+ * Single-store accounts may keep ?user_id=<uuid> or header X-AdForge-User-Id.
  * Env: SHOPIFY_WEBHOOK_SECRET (optional verify), uses ad account token + pixel.
  */
 export async function POST(request: Request) {
@@ -43,27 +45,22 @@ export async function POST(request: Request) {
   }
 
   const url = new URL(request.url);
-  const userId =
-    url.searchParams.get('user_id') ||
-    request.headers.get('x-adforge-user-id') ||
-    '';
-
-  if (!userId) {
-    return NextResponse.json(
-      { error: 'user_id query param or X-AdForge-User-Id required' },
-      { status: 400 }
-    );
+  const resolved = await resolveWebhookStore({
+    userId: url.searchParams.get('user_id') || request.headers.get('x-adforge-user-id'),
+    storeId: url.searchParams.get('store_id') || request.headers.get('x-adforge-store-id'),
+  });
+  if ('error' in resolved) {
+    return NextResponse.json({ error: resolved.error }, { status: resolved.status });
   }
+  const { userId, storeId } = resolved;
 
   const supabase = process.env.SUPABASE_SERVICE_ROLE_KEY
     ? await createServiceClient()
     : await createClient();
 
-  const { data: adAccount } = await supabase
-    .from('ad_accounts')
-    .select('pixel_id, access_token_encrypted')
-    .eq('user_id', userId)
-    .maybeSingle();
+  let accountQuery = supabase.from('ad_accounts').select('pixel_id, access_token_encrypted').eq('user_id', userId);
+  if (storeId) accountQuery = accountQuery.eq('store_id', storeId);
+  const { data: adAccount } = await accountQuery.maybeSingle();
 
   const event = shopifyOrderToCapiPurchase(order as never, {
     eventSourceUrl: (order.landing_site as string) || undefined,
@@ -96,6 +93,7 @@ export async function POST(request: Request) {
   try {
     await supabase.from('capi_event_logs').insert({
       user_id: userId,
+      ...(storeId ? { store_id: storeId } : {}),
       event_name: 'Purchase',
       event_id: event.eventId,
       dry_run: result.dryRun,
@@ -116,10 +114,12 @@ export async function POST(request: Request) {
   // Mark CAPI enabled on success
   if (result.ok && !result.dryRun) {
     try {
+      const settingsTable = storeId ? 'stores' : 'users';
+      const settingsId = storeId || userId;
       const { data: u } = await supabase
-        .from('users')
+        .from(settingsTable)
         .select('agent_settings')
-        .eq('id', userId)
+        .eq('id', settingsId)
         .maybeSingle();
       const agent_settings = {
         ...((u?.agent_settings as object) || {}),
@@ -129,7 +129,9 @@ export async function POST(request: Request) {
           emq_score: estimateEmq(event.userData),
         },
       };
-      await supabase.from('users').update({ agent_settings }).eq('id', userId);
+      let settingsUpdate = supabase.from(settingsTable).update({ agent_settings }).eq('id', settingsId);
+      if (storeId) settingsUpdate = settingsUpdate.eq('user_id', userId);
+      await settingsUpdate;
     } catch {
       /* ignore */
     }

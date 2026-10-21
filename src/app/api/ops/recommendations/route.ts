@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { runOpsAnalysis } from '@/lib/ops-agent';
 import { metricsFromSnapshots } from '@/lib/reports/build';
+import { loadActiveStore } from '@/lib/stores';
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -14,35 +15,46 @@ export async function GET(request: Request) {
   }
 
   const userId = user.id;
+  const store = await loadActiveStore(userId);
 
   const { searchParams } = new URL(request.url);
   const source = searchParams.get('source'); // performance | policy | all
   const status = searchParams.get('status') || 'pending';
 
-  const { data: profile } = await supabase
-    .from('users')
-    .select('cpa_target, roas_target, daily_budget_cap')
-    .eq('id', userId)
-    .maybeSingle();
+  const profile = store
+    ? {
+        cpa_target: store.cpa_target,
+        roas_target: store.roas_target,
+        daily_budget_cap: store.daily_budget_cap,
+      }
+    : (
+        await supabase
+          .from('users')
+          .select('cpa_target, roas_target, daily_budget_cap')
+          .eq('id', userId)
+          .maybeSingle()
+      ).data;
 
-  const { data: storedRecs, error } = await supabase
+  let recQuery = supabase
     .from('agent_recommendations')
     .select('*')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(100);
+  if (store) recQuery = recQuery.eq('store_id', store.id);
+  const { data: storedRecs, error } = await recQuery;
 
-  const { data: runs } = await supabase
+  let runQuery = supabase
     .from('agent_runs')
     .select('*')
-    .or(`user_id.eq.${userId},user_id.is.null`)
+    .or(store ? `and(user_id.eq.${userId},store_id.eq.${store.id}),user_id.is.null` : `user_id.eq.${userId},user_id.is.null`)
     .order('created_at', { ascending: false })
     .limit(20);
+  const { data: runs } = await runQuery;
 
-  const { data: campaigns } = await supabase
-    .from('meta_campaigns')
-    .select('id, name, budget, status')
-    .eq('user_id', userId);
+  let campQuery = supabase.from('meta_campaigns').select('id, name, budget, status').eq('user_id', userId);
+  if (store) campQuery = campQuery.eq('store_id', store.id);
+  const { data: campaigns } = await campQuery;
   const campIds = (campaigns || []).map((c) => c.id);
   let snapshots: import('@/types/database').PerformanceSnapshot[] = [];
   if (campIds.length) {
@@ -80,6 +92,7 @@ export async function GET(request: Request) {
       .map((r, i) => ({
         id: `live-${i}`,
         user_id: userId,
+        store_id: store?.id || null,
         meta_campaign_id: r.meta_campaign_id || null,
         source: r.source,
         type: r.type,
@@ -111,6 +124,7 @@ export async function GET(request: Request) {
       .map((r, i) => ({
         id: `dry-${i}`,
         user_id: userId,
+        store_id: store?.id || null,
         meta_campaign_id: r.meta_campaign_id || null,
         source: r.source,
         type: r.type,

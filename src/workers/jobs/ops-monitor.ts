@@ -100,15 +100,17 @@ export async function runOpsMonitorSlot(slot: AgentSlot = 'morning') {
     .select('*')
     .or('status.in.(active,paused),meta_campaign_id.not.is.null');
 
-  const byUser = new Map<string, MetaCampaign[]>();
+  const buckets = new Map<string, { userId: string; storeId: string | null; campaigns: MetaCampaign[] }>();
   for (const c of (campaigns || []) as MetaCampaign[]) {
-    const list = byUser.get(c.user_id) || [];
-    list.push(c);
-    byUser.set(c.user_id, list);
+    const storeId = c.store_id || null;
+    const key = `${c.user_id}:${storeId || 'none'}`;
+    const bucket = buckets.get(key) || { userId: c.user_id, storeId, campaigns: [] };
+    bucket.campaigns.push(c);
+    buckets.set(key, bucket);
   }
 
   // If no campaigns, still record a global dry-run agent run for demos
-  if (!byUser.size) {
+  if (!buckets.size) {
     const analysis = runOpsAnalysis({ useDryRun: true });
     await supabase.from('agent_runs').insert({
       user_id: null,
@@ -123,13 +125,21 @@ export async function runOpsMonitorSlot(slot: AgentSlot = 'morning') {
     return { users: 0, dryRun: true };
   }
 
-  for (const [userId, userCampaigns] of Array.from(byUser.entries())) {
+  for (const bucket of Array.from(buckets.values())) {
+    const userId = bucket.userId;
+    const storeId = bucket.storeId;
+    const userCampaigns = bucket.campaigns;
     const { data: profile } = await supabase.from('users').select('*').eq('id', userId).single();
-    const { data: adAccount } = await supabase
-      .from('ad_accounts')
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle();
+    const { data: storeRow } = storeId
+      ? await supabase
+          .from('stores')
+          .select('cpa_target, roas_target, daily_budget_cap')
+          .eq('id', storeId)
+          .maybeSingle()
+      : { data: null };
+    let adQuery = supabase.from('ad_accounts').select('*').eq('user_id', userId);
+    if (storeId) adQuery = adQuery.eq('store_id', storeId);
+    const { data: adAccount } = await adQuery.maybeSingle();
 
     const metrics: CampaignMetrics[] = [];
     const priorDaysCpa: Record<string, number[]> = {};
@@ -329,9 +339,9 @@ export async function runOpsMonitorSlot(slot: AgentSlot = 'morning') {
       metrics: metrics.length ? metrics : undefined,
       creatives,
       targets: {
-        cpaTarget: profile?.cpa_target ?? 100,
-        roasTarget: profile?.roas_target ?? 2,
-        dailyBudgetCap: profile?.daily_budget_cap ?? null,
+        cpaTarget: storeRow?.cpa_target ?? profile?.cpa_target ?? 100,
+        roasTarget: storeRow?.roas_target ?? profile?.roas_target ?? 2,
+        dailyBudgetCap: storeRow?.daily_budget_cap ?? profile?.daily_budget_cap ?? null,
       },
       priorDaysCpa,
       metaStatuses,
@@ -375,6 +385,7 @@ export async function runOpsMonitorSlot(slot: AgentSlot = 'morning') {
 
         await supabase.from('agent_recommendations').insert({
           user_id: userId,
+          ...(storeId ? { store_id: storeId } : {}),
           meta_campaign_id: rec.meta_campaign_id || null,
           source: rec.source,
           type: rec.type,
@@ -388,6 +399,7 @@ export async function runOpsMonitorSlot(slot: AgentSlot = 'morning') {
 
         await supabase.from('meta_policy_scans').insert({
           user_id: userId,
+          ...(storeId ? { store_id: storeId } : {}),
           meta_campaign_id: rec.meta_campaign_id || null,
           matched: true,
           action_taken: 'auto_pause',
@@ -437,6 +449,7 @@ export async function runOpsMonitorSlot(slot: AgentSlot = 'morning') {
 
         await supabase.from('agent_change_logs').insert({
           user_id: userId,
+          ...(storeId ? { store_id: storeId } : {}),
           meta_campaign_id: rec.meta_campaign_id || null,
           action: String(rec.proposed_action.action || rec.type),
           title: rec.title,
@@ -453,6 +466,7 @@ export async function runOpsMonitorSlot(slot: AgentSlot = 'morning') {
       } else {
         await supabase.from('agent_recommendations').insert({
           user_id: userId,
+          ...(storeId ? { store_id: storeId } : {}),
           meta_campaign_id: rec.meta_campaign_id || null,
           source: rec.source,
           type: rec.type,
@@ -468,6 +482,7 @@ export async function runOpsMonitorSlot(slot: AgentSlot = 'morning') {
 
     await supabase.from('agent_runs').insert({
       user_id: userId,
+      ...(storeId ? { store_id: storeId } : {}),
       slot,
       status: 'completed',
       summary: {
@@ -480,7 +495,7 @@ export async function runOpsMonitorSlot(slot: AgentSlot = 'morning') {
     });
   }
 
-  return { users: byUser.size, dryRun: false };
+  return { users: buckets.size, dryRun: false };
 }
 
 /** Back-compat wrapper used by old performance queue */

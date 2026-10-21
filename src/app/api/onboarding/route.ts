@@ -11,6 +11,7 @@ import {
 } from '@/lib/auth/demo-onboarding';
 import { getDefaultDemoOnboarding } from '@/lib/auth/campaign-input';
 import { metaConnectionIsLive, resolveMetaConnection } from '@/lib/auth/demo-meta';
+import { loadActiveStore } from '@/lib/stores';
 
 function normalizeCompetitors(body: {
   competitors?: Array<{ url?: string; meta_page_id?: string | null }>;
@@ -79,15 +80,17 @@ export async function POST(request: Request) {
   }
 
   const supabase = await createClient();
+  const store = await loadActiveStore(user.id);
 
-  // Resume existing onboarding row instead of creating duplicates
-  const { data: existing } = await supabase
+  let existingQuery = supabase
     .from('campaigns_input')
     .select('id')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(1);
+  if (store) existingQuery = existingQuery.eq('store_id', store.id);
+
+  const { data: existing } = await existingQuery.maybeSingle();
 
   let data;
   let error;
@@ -103,13 +106,21 @@ export async function POST(request: Request) {
   } else {
     ({ data, error } = await supabase
       .from('campaigns_input')
-      .insert({ user_id: user.id, ...payload })
+      .insert({ user_id: user.id, ...(store ? { store_id: store.id } : {}), ...payload })
       .select()
       .single());
   }
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (store) {
+    await supabase
+      .from('stores')
+      .update({ website_url: payload.website_url })
+      .eq('id', store.id)
+      .eq('user_id', user.id);
   }
 
   return NextResponse.json(data);
@@ -136,19 +147,24 @@ export async function GET() {
   }
 
   const supabase = await createClient();
+  const store = await loadActiveStore(user.id);
 
-  const { data: campaign } = await supabase
+  let campaignQuery = supabase
     .from('campaigns_input')
     .select('*')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(1);
+  if (store) campaignQuery = campaignQuery.eq('store_id', store.id);
+
+  const { data: campaign } = await campaignQuery.maybeSingle();
 
   const meta = await resolveMetaConnection(user);
 
   return NextResponse.json({
     ...campaign,
+    website_url: campaign?.website_url || store?.website_url || null,
+    store_id: store?.id || campaign?.store_id || null,
     meta_connected: metaConnectionIsLive(meta),
   });
 }

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { REPORT_CATALOG, type ReportViewId } from '@/lib/reports/catalog';
 import { buildReport } from '@/lib/reports/build';
+import { loadActiveStore } from '@/lib/stores';
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -23,11 +24,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ catalog: REPORT_CATALOG });
   }
 
-  const { data: allCampaigns } = await supabase
+  const store = await loadActiveStore(user.id);
+  let campaignQuery = supabase
     .from('meta_campaigns')
     .select('id, name, budget, status, meta_campaign_id')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
+  if (store) campaignQuery = campaignQuery.eq('store_id', store.id);
+  const { data: allCampaigns } = await campaignQuery;
 
   const campaigns =
     campaignId && campaignId !== 'all'
@@ -59,23 +63,26 @@ export async function GET(request: Request) {
     snapshots = data || [];
   }
 
-  const { data: recommendations } = await supabase
+  let recQuery = supabase
     .from('agent_recommendations')
     .select('*')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
     .limit(50);
+  if (store) recQuery = recQuery.eq('store_id', store.id);
+  const { data: recommendations } = await recQuery;
 
   const scopedRecs =
     campaignId && campaignId !== 'all'
       ? (recommendations || []).filter((r) => r.meta_campaign_id === campaignId)
       : recommendations || [];
 
-  const { data: adAccount } = await supabase
+  let accountQuery = supabase
     .from('ad_accounts')
     .select('id, meta_ad_account_id')
-    .eq('user_id', user.id)
-    .maybeSingle();
+    .eq('user_id', user.id);
+  if (store) accountQuery = accountQuery.eq('store_id', store.id);
+  const { data: adAccount } = await accountQuery.maybeSingle();
 
   const liveMetaLinked = Boolean(
     adAccount?.meta_ad_account_id ||

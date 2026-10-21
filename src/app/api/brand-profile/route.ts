@@ -8,6 +8,7 @@ import {
   withDemoBrandProfile,
   type BrandProfile,
 } from '@/lib/product-catalog';
+import { loadActiveStore } from '@/lib/stores';
 
 export async function GET() {
   const user = await getSessionUser();
@@ -16,11 +17,10 @@ export async function GET() {
   if (user.isDemo) return NextResponse.json(await readDemoBrandProfile());
 
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('brand_profiles')
-    .select('*')
-    .eq('user_id', user.id)
-    .maybeSingle();
+  const store = await loadActiveStore(user.id);
+  let query = supabase.from('brand_profiles').select('*').eq('user_id', user.id);
+  if (store) query = query.eq('store_id', store.id);
+  const { data, error } = await query.maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
@@ -110,16 +110,40 @@ async function save(request: Request) {
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('brand_profiles')
-    .upsert(
-      { ...input, user_id: user.id, updated_at: now },
-      { onConflict: 'user_id' }
-    )
-    .select()
-    .single();
+  const store = await loadActiveStore(user.id);
+  const row = {
+    ...input,
+    user_id: user.id,
+    updated_at: now,
+    ...(store ? { store_id: store.id } : {}),
+  };
+  const { data, error } = store
+    ? await supabase
+        .from('brand_profiles')
+        .upsert(row, { onConflict: 'store_id' })
+        .select()
+        .single()
+    : await supabase
+        .from('brand_profiles')
+        .upsert(row, { onConflict: 'user_id' })
+        .select()
+        .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  if (store && typeof input.brand_name === 'string' && input.brand_name.trim()) {
+    await supabase
+      .from('stores')
+      .update({
+        name: input.brand_name.trim(),
+        ...('website_url' in input
+          ? { website_url: typeof input.website_url === 'string' ? input.website_url : null }
+          : {}),
+      })
+      .eq('id', store.id)
+      .eq('user_id', user.id);
+  }
+
   return NextResponse.json(data);
 }
 

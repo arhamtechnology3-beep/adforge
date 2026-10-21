@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { syncMetaPerformanceForUser } from '@/lib/sync-meta-performance';
+import { loadActiveStore } from '@/lib/stores';
 
-async function runSync(userId: string, campaignId: string | null) {
+async function runSync(userId: string, storeId: string | null, campaignId: string | null) {
   const writer = process.env.SUPABASE_SERVICE_ROLE_KEY
     ? await createServiceClient()
     : await createClient();
 
-  return syncMetaPerformanceForUser(writer, { userId, campaignId });
+  return syncMetaPerformanceForUser(writer, { userId, storeId, campaignId });
 }
 
 /** POST — pull latest Meta insights into performance_snapshots (Reports Sync). */
@@ -32,7 +33,8 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await runSync(user.id, campaignId);
+    const store = await loadActiveStore(user.id);
+    const result = await runSync(user.id, store?.id || null, campaignId);
     const failed = result.campaigns.filter((c) => c.error);
     if (result.snapshotsWritten === 0 && failed.length) {
       return NextResponse.json(

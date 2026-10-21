@@ -518,7 +518,8 @@ export async function normalizePackshot(
 ): Promise<{ url: string; width: number; height: number; backgroundRemoved: boolean }> {
   if (!options?.force && isAlreadyCutoutSource(source)) {
     const input = await sourceBuffer(source);
-    if ((await measureOpaqueRatio(input)) >= 0.02) {
+    const opaqueRatio = await measureOpaqueRatio(input);
+    if (opaqueRatio >= 0.02 && opaqueRatio <= 0.88) {
       const meta = await sharp(input).metadata();
       return {
         url: source,
@@ -527,8 +528,8 @@ export async function normalizePackshot(
         backgroundRemoved: true,
       };
     }
-    // Broken historical cutout (fully transparent) — repair and re-upload.
-    console.warn('[packshot-normalize] rejecting invisible cached cutout', source.slice(0, 120));
+    // Broken historical cutout (fully transparent or solid opaque photo) — re-normalize
+    console.warn('[packshot-normalize] cached cutout not valid transparent cutout (opaqueRatio:', opaqueRatio, '), re-processing', source.slice(0, 120));
   }
   const input = await sourceBuffer(source);
   const normalized = await normalizePackshotBuffer(input);

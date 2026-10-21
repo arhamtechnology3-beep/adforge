@@ -8,6 +8,28 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-21
 
+### One subscription, separate Shopify stores
+**What / why**  
+A subscriber can run more than one shop on the same AdForge plan. Campaigns, catalog, Meta connection, and performance stay on the store that is selected. Billing stays one Razorpay subscription.
+
+- New `stores` table. Existing accounts are backfilled to one store from their brand or latest website
+- Starter includes 1 store, Growth 3, Scale 10. Adding another store past the cap asks you to upgrade
+- Sidebar store switcher. Billing lists the stores on this subscription
+- Shopify CAPI keeps `?user_id=` while the account has one store. A second store must use `?store_id=`
+
+**Paths:** `supabase/migrations/017_stores.sql`, `src/lib/stores.ts`, `src/lib/plans.ts`, `src/app/api/stores/route.ts`, `src/components/Sidebar.tsx`, `src/app/(dashboard)/billing/page.tsx`
+
+**Manual:** Run `supabase/migrations/017_stores.sql` in the Supabase SQL editor before adding a second store. No new env vars. After it runs, hard-refresh the app. The current shop appears as the first store. Use **Add store** in the sidebar (Growth or Scale) and finish onboarding for that shop.
+
+### Saved food interests on the Diwali carousel draft
+**What / why**  
+Audience chips from the wizard were only in the browser. The food-related set is now stored on draft **Diwali · Taste of Tradition · Carousel** so Confirm uses that list.
+
+- 36 interests: cuisine, Gujarati foods, pickles, cooking, grocery, plus Diwali / Festivals / Indian festivals
+- Left off the draft: Online shopping, Shopping, E-commerce, Gujarati culture / Gujarati people, Gujarat Samachar, Divya Bhaskar, Sandesh, goosebumps
+
+**Manual:** Confirm that carousel draft to send these interests. The open wizard still shows every chip until you remove them there.
+
 ### Fix Hostinger build: duplicate GeneratedAd import
 **What / why**  
 Deploy of `3ce3722` failed typecheck. `CampaignWizard.tsx` imported `GeneratedAd` twice.

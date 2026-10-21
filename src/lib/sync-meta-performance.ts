@@ -127,17 +127,18 @@ export type SyncMetaPerformanceResult = {
  */
 export async function syncMetaPerformanceForUser(
   supabase: SupabaseClient,
-  opts: { userId: string; campaignId?: string | null; days?: number }
+  opts: { userId: string; storeId?: string | null; campaignId?: string | null; days?: number }
 ): Promise<SyncMetaPerformanceResult> {
   const days = opts.days ?? INSIGHTS_BACKFILL_DAYS;
   const range = insightsTimeRange(days);
   const today = range.until;
-  const { data: account, error: accErr } = await supabase
+  let accountQuery = supabase
     .from('ad_accounts')
     .select('*')
     .eq('user_id', opts.userId)
-    .not('access_token_encrypted', 'is', null)
-    .maybeSingle();
+    .not('access_token_encrypted', 'is', null);
+  if (opts.storeId) accountQuery = accountQuery.eq('store_id', opts.storeId);
+  const { data: account, error: accErr } = await accountQuery.maybeSingle();
 
   if (accErr) throw new Error(accErr.message);
   if (!account?.access_token_encrypted) {
@@ -149,6 +150,7 @@ export async function syncMetaPerformanceForUser(
     .select('*')
     .eq('user_id', opts.userId)
     .not('meta_campaign_id', 'is', null);
+  if (opts.storeId) campQuery = campQuery.eq('store_id', opts.storeId);
 
   if (opts.campaignId) {
     campQuery = campQuery.eq('id', opts.campaignId);

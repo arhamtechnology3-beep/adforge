@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { runOptimizeForUser } from '@/lib/meta-optimize/load-account';
+import { loadActiveStore } from '@/lib/stores';
 import {
   designAbTest,
   scoreLandingPage,
@@ -20,7 +21,8 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const view = searchParams.get('view') || 'suite';
 
-  const { dryRun, account, suite } = await runOptimizeForUser(user.id);
+  const store = await loadActiveStore(user.id);
+  const { dryRun, account, suite } = await runOptimizeForUser(user.id, store?.id);
 
   if (view === 'health') {
     return NextResponse.json({ dryRun, health: suite.health });
@@ -64,6 +66,7 @@ export async function POST(request: Request) {
   }
 
   const action = String(body.action || '');
+  const store = await loadActiveStore(user.id);
 
   if (action === 'ab_plan') {
     const plan = designAbTest({
@@ -80,6 +83,7 @@ export async function POST(request: Request) {
 
     const row = {
       user_id: user.id,
+      ...(store ? { store_id: store.id } : {}),
       name: String(body.name || 'Creative A/B'),
       plan,
       status: 'planned',
@@ -171,10 +175,15 @@ export async function POST(request: Request) {
     if (body.roasTarget != null) patch.roas_target = Number(body.roasTarget);
     if (body.dailyBudgetCap != null) patch.daily_budget_cap = Number(body.dailyBudgetCap);
 
+    if (body.aov != null) patch.aov_default = Number(body.aov);
+    if (body.marginPct != null) patch.margin_pct = Number(body.marginPct);
+    if (body.ltv != null) patch.ltv_default = Number(body.ltv);
+
+    const targetTable = store ? 'stores' : 'users';
     const { data: existing } = await supabase
-      .from('users')
+      .from(targetTable)
       .select('agent_settings')
-      .eq('id', user.id)
+      .eq('id', store ? store.id : user.id)
       .maybeSingle();
     const agent_settings = {
       ...((existing?.agent_settings as object) || {}),
@@ -191,7 +200,8 @@ export async function POST(request: Request) {
     };
     patch.agent_settings = agent_settings;
 
-    const { error } = await supabase.from('users').update(patch).eq('id', user.id);
+    const update = supabase.from(targetTable).update(patch).eq('id', store ? store.id : user.id);
+    const { error } = store ? await update.eq('user_id', user.id) : await update;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
   }

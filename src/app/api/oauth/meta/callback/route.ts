@@ -14,21 +14,24 @@ import { readDemoOnboarding, withDemoOnboardingCookie } from '@/lib/auth/demo-on
 import { DEMO_USER } from '@/lib/auth/session';
 import { getMetaAppConfig } from '@/lib/meta-app-config';
 import { pickPreferredAdAccount } from '@/lib/meta-timezone';
+import { loadActiveStore } from '@/lib/stores';
 
 async function parseState(raw: string | null): Promise<{
   userId: string;
   isDemo: boolean;
+  storeId: string | null;
   returnTo: string;
 } | null> {
   if (!raw) return null;
   try {
     const json = JSON.parse(
       Buffer.from(raw.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString()
-    ) as { userId?: string; isDemo?: boolean; returnTo?: string };
+    ) as { userId?: string; isDemo?: boolean; storeId?: string | null; returnTo?: string };
     if (!json.userId) return null;
     return {
       userId: json.userId,
       isDemo: Boolean(json.isDemo),
+      storeId: json.storeId || null,
       returnTo: json.returnTo || '/campaigns?connected=true',
     };
   } catch {
@@ -123,23 +126,38 @@ export async function GET(request: Request) {
     }
 
     const supabase = await createClient();
-    const { error: upsertError } = await supabase.from('ad_accounts').upsert(
-      {
-        user_id: state.userId,
-        meta_ad_account_id: primaryAccount?.id || null,
-        access_token_encrypted: encrypted,
-        token_expires_at: expiresAt,
-        connected_at: new Date().toISOString(),
-        page_id: pageId,
-        page_name: primaryPage?.name || null,
-        pixel_id: pixelId,
-        pixel_name: pixelName,
-        timezone_id: primaryAccount?.timezone_id ?? null,
-        timezone_name: primaryAccount?.timezone_name ?? null,
-        timezone_offset_hours_utc: primaryAccount?.timezone_offset_hours_utc ?? null,
-      },
-      { onConflict: 'user_id' }
-    );
+    let store: { id: string } | null = null;
+    if (state.storeId) {
+      const { data: owned } = await supabase
+        .from('stores')
+        .select('id')
+        .eq('id', state.storeId)
+        .eq('user_id', state.userId)
+        .maybeSingle();
+      store = owned;
+    }
+    if (!store) {
+      const active = await loadActiveStore(state.userId);
+      store = active ? { id: active.id } : null;
+    }
+    const row = {
+      user_id: state.userId,
+      ...(store ? { store_id: store.id } : {}),
+      meta_ad_account_id: primaryAccount?.id || null,
+      access_token_encrypted: encrypted,
+      token_expires_at: expiresAt,
+      connected_at: new Date().toISOString(),
+      page_id: pageId,
+      page_name: primaryPage?.name || null,
+      pixel_id: pixelId,
+      pixel_name: pixelName,
+      timezone_id: primaryAccount?.timezone_id ?? null,
+      timezone_name: primaryAccount?.timezone_name ?? null,
+      timezone_offset_hours_utc: primaryAccount?.timezone_offset_hours_utc ?? null,
+    };
+    const { error: upsertError } = store
+      ? await supabase.from('ad_accounts').upsert(row, { onConflict: 'store_id' })
+      : await supabase.from('ad_accounts').upsert(row, { onConflict: 'user_id' });
 
     if (upsertError) throw upsertError;
 

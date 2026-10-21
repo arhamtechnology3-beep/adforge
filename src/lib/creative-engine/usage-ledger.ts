@@ -1,6 +1,7 @@
 type UsageRecord = {
   userId?: string;
   workspaceId?: string;
+  storeId?: string;
   provider: string;
   model?: string;
   assetType: 'image' | 'video' | 'pack';
@@ -25,6 +26,7 @@ export async function recordCreativeUsage(record: UsageRecord): Promise<void> {
     await admin.from('creative_usage').insert({
       user_id: record.userId,
       workspace_id: record.workspaceId || record.userId,
+      store_id: record.storeId || null,
       provider: record.provider,
       model: record.model || null,
       asset_type: record.assetType,

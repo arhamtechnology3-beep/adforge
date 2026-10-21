@@ -14,6 +14,7 @@ import { resolveTargeting } from '@/lib/meta-targeting';
 import { resolveMetaConnection, metaAccessToken } from '@/lib/auth/demo-meta';
 import { createClient } from '@/lib/supabase/server';
 import { readDemoProducts } from '@/lib/product-catalog';
+import { loadActiveStore } from '@/lib/stores';
 
 function parseTiers(raw: string | null): CityTier[] {
   if (!raw) return [...DEFAULT_SALES_CITY_TIERS];
@@ -92,12 +93,15 @@ export async function GET(request: NextRequest) {
           .filter(Boolean);
       } else {
         const supabase = await createClient();
-        const { data: products } = await supabase
+        const store = await loadActiveStore(user.id);
+        let productQuery = supabase
           .from('products')
           .select('product_name, category, description, brand_name')
           .eq('user_id', user.id)
           .eq('is_active', true)
           .limit(40);
+        if (store) productQuery = productQuery.eq('store_id', store.id);
+        const { data: products } = await productQuery;
         productNames = (products || [])
           .map((p) =>
             [p.brand_name, p.product_name, p.category, p.description].filter(Boolean).join(' ')

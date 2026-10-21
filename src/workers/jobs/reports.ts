@@ -34,11 +34,23 @@ export async function sendScheduledReports(frequency: 'daily' | 'weekly') {
       continue;
     }
 
-    const { data: campaigns } = await supabase
+    const { data: storeRows } = await supabase
+      .from('stores')
+      .select('id, name')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: true });
+    const storeBuckets = storeRows?.length
+      ? storeRows
+      : [{ id: null as string | null, name: null as string | null }];
+
+    for (const store of storeBuckets) {
+    let campaignQuery = supabase
       .from('meta_campaigns')
       .select('*, performance_snapshots(*)')
       .eq('user_id', user.id)
       .in('status', ['active', 'paused']);
+    if (store.id) campaignQuery = campaignQuery.eq('store_id', store.id);
+    const { data: campaigns } = await campaignQuery;
 
     let spend = 0;
     let revenue = 0;
@@ -75,7 +87,8 @@ export async function sendScheduledReports(frequency: 'daily' | 'weekly') {
       .from('agent_recommendations')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', user.id)
-      .eq('status', 'pending');
+      .eq('status', 'pending')
+      .match(store.id ? { store_id: store.id } : {});
 
     const since = new Date();
     since.setDate(since.getDate() - (frequency === 'weekly' ? 7 : 1));
@@ -85,7 +98,8 @@ export async function sendScheduledReports(frequency: 'daily' | 'weekly') {
       .eq('user_id', user.id)
       .eq('source', 'policy')
       .eq('status', 'applied')
-      .gte('created_at', since.toISOString());
+      .gte('created_at', since.toISOString())
+      .match(store.id ? { store_id: store.id } : {});
 
     const roas = spend > 0 && revenue > 0 ? revenue / spend : null;
     const cpa = cpaN ? cpaSum / cpaN : null;
@@ -93,7 +107,7 @@ export async function sendScheduledReports(frequency: 'daily' | 'weekly') {
     const mail =
       frequency === 'weekly'
         ? formatWeeklyDigestEmail({
-            name: user.name,
+            name: store.name ? `${user.name || 'there'} · ${store.name}` : user.name,
             spend,
             roas,
             topWins: (campaigns || [])
@@ -102,7 +116,7 @@ export async function sendScheduledReports(frequency: 'daily' | 'weekly') {
             topIssues: problems,
           })
         : formatDailyDigestEmail({
-            name: user.name,
+            name: store.name ? `${user.name || 'there'} · ${store.name}` : user.name,
             spend,
             roas,
             cpa,
@@ -116,8 +130,10 @@ export async function sendScheduledReports(frequency: 'daily' | 'weekly') {
 
     await supabase.from('report_logs').insert({
       user_id: user.id,
+      ...(store.id ? { store_id: store.id } : {}),
       channel: 'email',
       report_type: `${frequency}_performance`,
     });
+    }
   }
 }

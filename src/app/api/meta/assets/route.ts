@@ -217,7 +217,9 @@ export async function PATCH(request: Request) {
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.from('ad_accounts').update(patch).eq('user_id', user.id);
+  let update = supabase.from('ad_accounts').update(patch).eq('user_id', user.id);
+  if (connection.store_id) update = update.eq('store_id', connection.store_id);
+  const { error } = await update;
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

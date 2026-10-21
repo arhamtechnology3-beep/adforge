@@ -3,6 +3,7 @@ import path from 'path';
 import { DEMO_USER, type SessionUser } from '@/lib/auth/session';
 import { createClient } from '@/lib/supabase/server';
 import { isTokenExpired, retrieveToken, storeToken } from '@/lib/meta';
+import { loadActiveStore } from '@/lib/stores';
 
 export type MetaConnection = {
   user_id: string;
@@ -18,6 +19,7 @@ export type MetaConnection = {
   timezone_id?: number | null;
   timezone_name?: string | null;
   timezone_offset_hours_utc?: number | null;
+  store_id?: string | null;
   source: 'demo' | 'supabase';
 };
 
@@ -65,17 +67,20 @@ export async function resolveMetaConnection(
   }
 
   const supabase = await createClient();
-  const { data } = await supabase
+  const store = await loadActiveStore(user.id);
+  let query = supabase
     .from('ad_accounts')
     .select(
       'user_id, meta_ad_account_id, access_token_encrypted, token_expires_at, connected_at, page_id, page_name, pixel_id, pixel_name, timezone_id, timezone_name, timezone_offset_hours_utc'
     )
-    .eq('user_id', user.id)
-    .maybeSingle();
+    .eq('user_id', user.id);
+  if (store) query = query.eq('store_id', store.id);
+  const { data } = await query.maybeSingle();
 
   if (!data?.access_token_encrypted) return null;
   return {
     user_id: data.user_id,
+    store_id: store?.id || null,
     meta_ad_account_id: data.meta_ad_account_id,
     access_token_encrypted: data.access_token_encrypted,
     token_expires_at: data.token_expires_at,

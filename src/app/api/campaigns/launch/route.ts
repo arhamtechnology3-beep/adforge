@@ -84,13 +84,17 @@ export async function POST(request: Request) {
       if (resolved?.pixelId) {
         pixelForSales = resolved.pixelId;
         if (!user.isDemo && resolved.source === 'live') {
-          await supabase
+          let pixelUpdate = supabase
             .from('ad_accounts')
             .update({
               pixel_id: resolved.pixelId,
               pixel_name: resolved.pixelName || null,
             })
             .eq('user_id', user.id);
+          if (metaConnectionEarly.store_id) {
+            pixelUpdate = pixelUpdate.eq('store_id', metaConnectionEarly.store_id);
+          }
+          await pixelUpdate;
         }
       }
     } catch (err) {
@@ -221,13 +225,15 @@ export async function POST(request: Request) {
       });
       const pageId = pageResolved.pageId;
       if (pageResolved.source === 'live' && !user.isDemo) {
-        await supabase
+        let pageUpdate = supabase
           .from('ad_accounts')
           .update({
             page_id: pageResolved.pageId,
             page_name: pageResolved.pageName || null,
           })
           .eq('user_id', user.id);
+        if (metaConnection.store_id) pageUpdate = pageUpdate.eq('store_id', metaConnection.store_id);
+        await pageUpdate;
       }
       const link = String(destination);
       const ctaType = normalizeWebsiteCta(String(cta || audience?.cta || 'SHOP_NOW'));
@@ -348,6 +354,7 @@ export async function POST(request: Request) {
 
   const insertRow: Record<string, unknown> = {
     user_id: user.id,
+    ...(metaConnection?.store_id ? { store_id: metaConnection.store_id } : {}),
     meta_campaign_id: metaCampaignId,
     ad_set_id: metaAdSetId,
     budget: Number(budget),
@@ -439,11 +446,14 @@ export async function GET() {
   }
 
   const supabase = await createClient();
-  const { data: campaigns } = await supabase
+  const storeId = metaConnection?.store_id;
+  let campaignQuery = supabase
     .from('meta_campaigns')
     .select('*')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
+  if (storeId) campaignQuery = campaignQuery.eq('store_id', storeId);
+  const { data: campaigns } = await campaignQuery;
 
   return NextResponse.json({
     campaigns: campaigns || [],

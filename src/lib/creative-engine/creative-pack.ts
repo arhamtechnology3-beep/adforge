@@ -163,6 +163,7 @@ async function renderScene(input: {
   seed: number;
   sceneVariant: number;
   userId: string;
+  storeId?: string | null;
   origin?: string;
   pattern?: CreativePackRequest['patterns'][number];
 }) {
@@ -194,6 +195,7 @@ async function renderScene(input: {
     mode: 'background',
     headline: input.direction.headline,
     userId: input.userId,
+    storeId: input.storeId,
     scenePresetId: preset.id,
     scenePresetName: preset.name,
   });
@@ -251,6 +253,7 @@ export async function buildCreativePack(
     );
     const job = await createGenerationJob({
       userId: request.ownerId,
+      storeId: request.storeId,
       campaignInputId: request.campaignInputId,
       productId: request.truth.productId,
       assetType: 'pack',
@@ -292,6 +295,7 @@ export async function buildCreativePack(
           seed: sceneSeed(direction.conceptId, globalSceneIndex),
           sceneVariant: globalSceneIndex + directionIndex * 3,
           userId: request.ownerId,
+          storeId: request.storeId,
           origin: request.origin,
           pattern: matchedPattern,
         });
@@ -333,6 +337,7 @@ export async function buildCreativePack(
             seed: sceneSeed(direction.conceptId, globalSceneIndex, 9),
             sceneVariant: globalSceneIndex + directionIndex * 3 + 9,
             userId: request.ownerId,
+            storeId: request.storeId,
             origin: request.origin,
             pattern: matchedPattern,
           });
@@ -403,6 +408,7 @@ export async function buildCreativePack(
         seed: sceneSeed(direction.conceptId, globalSceneIndex, 3),
         sceneVariant: globalSceneIndex + directionIndex * 3 + 1,
         userId: request.ownerId,
+        storeId: request.storeId,
         origin: request.origin,
         pattern: matchedPattern,
       });
@@ -487,6 +493,7 @@ export async function buildCreativePack(
             seed: sceneSeed(direction.conceptId, globalSceneIndex, cardIndex + 5),
             sceneVariant: globalSceneIndex + cardIndex * 2 + directionIndex,
             userId: request.ownerId,
+            storeId: request.storeId,
             origin: request.origin,
             pattern: matchedPattern,
           });
@@ -569,6 +576,7 @@ export async function buildCreativePack(
             seed: sceneSeed(direction.conceptId, globalSceneIndex, sceneIndex + 11),
             sceneVariant: globalSceneIndex + sceneIndex * 2 + directionIndex,
             userId: request.ownerId,
+            storeId: request.storeId,
             origin: request.origin,
             pattern: matchedPattern,
           });
@@ -613,6 +621,7 @@ export async function buildCreativePack(
         filenamePrefix: `${request.truth.brandName}-${request.truth.productName}`,
         audioBed: 'soft',
         userId: request.ownerId,
+        storeId: request.storeId,
       });
 
       ads.push({

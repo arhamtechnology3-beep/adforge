@@ -213,6 +213,7 @@ export async function loadPageLibraryCache(opts: {
 
 export async function saveCompetitorLibraryCache(opts: {
   userId: string;
+  storeId?: string | null;
   isDemo?: boolean;
   intel: CompetitorIntel;
 }): Promise<void> {
@@ -247,6 +248,7 @@ export async function saveCompetitorLibraryCache(opts: {
     const { error } = await supabase.from('competitor_library_cache').upsert(
       {
         user_id: opts.userId,
+        ...(opts.storeId ? { store_id: opts.storeId } : {}),
         competitor_key: key,
         competitor_url: row.competitor_url,
         domain: row.domain,
@@ -258,7 +260,7 @@ export async function saveCompetitorLibraryCache(opts: {
         fetched_at: row.fetched_at,
         updated_at: row.fetched_at,
       },
-      { onConflict: 'user_id,competitor_key' }
+      { onConflict: opts.storeId ? 'store_id,competitor_key' : 'user_id,competitor_key' }
     );
     if (error) {
       console.warn('[competitor-library-cache] save failed', error.message);
@@ -273,6 +275,7 @@ export async function saveCompetitorLibraryCache(opts: {
 
 export async function loadCompetitorLibraryCache(opts: {
   userId: string;
+  storeId?: string | null;
   isDemo?: boolean;
   intel: CompetitorIntel;
 }): Promise<LibraryCacheRow | null> {
@@ -289,12 +292,13 @@ export async function loadCompetitorLibraryCache(opts: {
 
   try {
     const supabase = await createServiceClient();
-    const { data } = await supabase
+    let cacheQuery = supabase
       .from('competitor_library_cache')
       .select('*')
       .eq('user_id', opts.userId)
-      .eq('competitor_key', key)
-      .maybeSingle();
+      .eq('competitor_key', key);
+    if (opts.storeId) cacheQuery = cacheQuery.eq('store_id', opts.storeId);
+    const { data } = await cacheQuery.maybeSingle();
 
     if (data?.ads && Array.isArray(data.ads) && data.ads.length > 0) {
       return {
@@ -324,7 +328,7 @@ export async function loadCompetitorLibraryCache(opts: {
 export async function applyCompetitorLibraryCache(
   userId: string,
   intel: CompetitorIntel[],
-  opts?: { isDemo?: boolean }
+  opts?: { isDemo?: boolean; storeId?: string | null }
 ): Promise<CompetitorIntel[]> {
   const out: CompetitorIntel[] = [];
 
@@ -336,11 +340,13 @@ export async function applyCompetitorLibraryCache(
     if (hasLive) {
       await saveCompetitorLibraryCache({
         userId,
+        storeId: opts?.storeId,
         isDemo: opts?.isDemo,
         intel: comp,
       });
       const saved = await loadCompetitorLibraryCache({
         userId,
+        storeId: opts?.storeId,
         isDemo: opts?.isDemo,
         intel: comp,
       });
@@ -360,6 +366,7 @@ export async function applyCompetitorLibraryCache(
 
     const prev = await loadCompetitorLibraryCache({
       userId,
+      storeId: opts?.storeId,
       isDemo: opts?.isDemo,
       intel: comp,
     });

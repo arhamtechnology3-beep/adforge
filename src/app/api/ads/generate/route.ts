@@ -29,6 +29,7 @@ import {
 } from '@/lib/creatives';
 import { buildReplicatedAds, type SelectedLibraryAdInput } from '@/lib/replicate-ads';
 import { runCreativeEngine } from '@/lib/creative-engine';
+import { loadActiveStore } from '@/lib/stores';
 import { bakeCreativeAsset, normalizePackshot } from '@/lib/creative-assets';
 import { resolveAppOrigin } from '@/lib/app-url';
 import { readDemoProducts, type Product } from '@/lib/product-catalog';
@@ -435,6 +436,7 @@ export async function POST(request: Request) {
 
   const supabase = await createClient();
   const user = { id: sessionUser.id };
+  const activeStore = sessionUser.isDemo ? null : await loadActiveStore(sessionUser.id);
 
   const body = await request.json();
   const campaign_input_id = body.campaign_input_id as string;
@@ -460,12 +462,13 @@ export async function POST(request: Request) {
     );
   }
 
-  const { data: campaignInput } = await supabase
+  let inputQuery = supabase
     .from('campaigns_input')
     .select('*')
     .eq('id', campaign_input_id)
-    .eq('user_id', user.id)
-    .single();
+    .eq('user_id', user.id);
+  if (activeStore) inputQuery = inputQuery.eq('store_id', activeStore.id);
+  const { data: campaignInput } = await inputQuery.single();
 
   const resolvedInput = sessionUser.isDemo
     ? await resolveCampaignInput(sessionUser, campaign_input_id)
@@ -489,12 +492,9 @@ export async function POST(request: Request) {
   if (sessionUser.isDemo) {
     product = (await readDemoProducts()).find((item) => item.id === productId) || null;
   } else {
-    const { data } = await supabase
-      .from('products')
-      .select('*')
-      .eq('id', productId)
-      .eq('user_id', user.id)
-      .maybeSingle();
+    let productQuery = supabase.from('products').select('*').eq('id', productId).eq('user_id', user.id);
+    if (activeStore) productQuery = productQuery.eq('store_id', activeStore.id);
+    const { data } = await productQuery.maybeSingle();
     product = (data as Product | null) || null;
   }
   if (!product || !product.is_active || !product.is_approved) {
@@ -523,7 +523,7 @@ export async function POST(request: Request) {
         primaryPackshot,
         ...product.packshots.filter((url) => url !== primaryPackshot && url !== product.primary_packshot),
       ];
-      await supabase
+      let packshotUpdate = supabase
         .from('products')
         .update({
           primary_packshot: primaryPackshot,
@@ -531,6 +531,8 @@ export async function POST(request: Request) {
         })
         .eq('id', product.id)
         .eq('user_id', user.id);
+      if (activeStore) packshotUpdate = packshotUpdate.eq('store_id', activeStore.id);
+      await packshotUpdate;
     }
   } catch (error) {
     console.warn(
@@ -557,13 +559,23 @@ export async function POST(request: Request) {
     ),
   };
 
+  const briefTone =
+    typeof body.generation_brief?.tone === 'string' ? body.generation_brief.tone : '';
+  const briefTheme =
+    typeof body.generation_brief?.campaign_theme === 'string'
+      ? body.generation_brief.campaign_theme
+      : /diwali/i.test(briefTone)
+        ? 'diwali'
+        : undefined;
+  const isDiwaliPack = briefTheme === 'diwali' || /diwali/i.test(briefTone);
+
   // Pull live PDP images from carousel URLs early so Image / Stories / Video
   // use real storefront photos instead of a broken transparent cutout.
   const carouselProductUrlsEarly = parseCarouselProductUrls(body.carousel_product_urls);
   let resolvedCarouselProducts: Awaited<
     ReturnType<typeof resolveCarouselProductUrls>
   >['products'] = [];
-  if (carouselProductUrlsEarly.length >= 1) {
+  if (carouselProductUrlsEarly.length >= 1 && !isDiwaliPack) {
     try {
       const resolved = await resolveCarouselProductUrls(carouselProductUrlsEarly);
       resolvedCarouselProducts = resolved.products;
@@ -624,21 +636,11 @@ export async function POST(request: Request) {
         ['single_image', 'carousel', 'stories', 'video'].includes(String(format))
       )
     : ['single_image', 'carousel', 'stories', 'video'];
-  const carouselProductUrls = carouselProductUrlsEarly;
-  const briefTone =
-    typeof body.generation_brief?.tone === 'string' ? body.generation_brief.tone : '';
-  const briefTheme =
-    typeof body.generation_brief?.campaign_theme === 'string'
-      ? body.generation_brief.campaign_theme
-      : /diwali/i.test(briefTone)
-        ? 'diwali'
-        : undefined;
-  const isDiwaliPack = briefTheme === 'diwali' || /diwali/i.test(briefTone);
   // Diwali pack must use festival scenes — never raw PDP store photos / product-URL carousels.
   const wantsProductUrlCarousel =
     !isDiwaliPack &&
     requestedFormats.includes('carousel') &&
-    carouselProductUrls.length >= 2;
+    carouselProductUrlsEarly.length >= 2;
   // Diwali first ship: Image only (4 festival feed creatives). Stories/Video later.
   const engineFormats = isDiwaliPack
     ? (['single_image'] as MetaAdFormat[])
@@ -712,7 +714,7 @@ export async function POST(request: Request) {
     const productsForCarousel =
       resolvedCarouselProducts.length >= 1
         ? resolvedCarouselProducts
-        : (await resolveCarouselProductUrls(carouselProductUrls)).products;
+        : (await resolveCarouselProductUrls(carouselProductUrlsEarly)).products;
     const built = buildProductUrlCarouselAd({
       campaignInputId: resolvedInput.id,
       products: productsForCarousel,
@@ -783,6 +785,7 @@ export async function POST(request: Request) {
       selectedDirections,
       origin,
       ownerId: sessionUser.id,
+      storeId: activeStore?.id,
       persistToStorage: !sessionUser.isDemo,
       maxDirections: engineTheme === 'diwali' ? Math.max(4, requestedVariantCount) : requestedVariantCount,
     });

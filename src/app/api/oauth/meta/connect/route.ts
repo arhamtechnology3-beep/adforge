@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth/session';
 import { getMetaAuthUrl } from '@/lib/meta-oauth';
 import { getMetaAppConfig } from '@/lib/meta-app-config';
+import { loadActiveStore } from '@/lib/stores';
 
 /**
  * One-click customer Meta connect.
@@ -29,10 +30,12 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}/campaigns?error=meta_platform_setup`);
   }
 
+  const store = user.isDemo ? null : await loadActiveStore(user.id);
   const state = Buffer.from(
     JSON.stringify({
       userId: user.id,
       isDemo: user.isDemo,
+      storeId: store?.id || null,
       returnTo: '/campaigns?connected=true',
     })
   ).toString('base64url');

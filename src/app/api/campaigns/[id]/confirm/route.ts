@@ -257,13 +257,15 @@ export async function POST(
       });
       if (pageResolved.source === 'live' && !sessionUser.isDemo) {
         const supabasePages = await createClient();
-        await supabasePages
+        let pageUpdate = supabasePages
           .from('ad_accounts')
           .update({
             page_id: pageResolved.pageId,
             page_name: pageResolved.pageName || null,
           })
           .eq('user_id', sessionUser.id);
+        if (metaConnection.store_id) pageUpdate = pageUpdate.eq('store_id', metaConnection.store_id);
+        await pageUpdate;
       }
 
       const published = await publishAdsToMeta({

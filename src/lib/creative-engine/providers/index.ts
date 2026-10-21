@@ -83,22 +83,11 @@ export async function generateSceneWithProviders(
     headline?: string;
     userId?: string;
     workspaceId?: string;
+    storeId?: string | null;
   }
 ): Promise<GeneratedAsset> {
   const requiredQuota = 1;
   const presetLabel = request.scenePresetId || request.scenePresetName || 'unknown';
-  const forceLocalDiwali =
-    /^diwali-/i.test(String(request.scenePresetId || '')) ||
-    /diwali/i.test(String(request.scenePresetName || ''));
-
-  // Diwali pack must look festive every time. Arham often returns generic kitchen
-  // scenes that ignore festival prompts — force our Diwali SVG backdrop + packshot.
-  if (forceLocalDiwali) {
-    const local = await localSceneFallback(request);
-    console.info(`[scene-gen] preset=${presetLabel} provider=local (forced Diwali backdrop)`);
-    return local;
-  }
-
   for (const provider of imageProviders) {
     const health = await provider.healthCheck();
     if (!health.available) {
@@ -122,6 +111,7 @@ export async function generateSceneWithProviders(
       await recordCreativeUsage({
         userId: request.userId,
         workspaceId: request.workspaceId,
+        storeId: request.storeId || undefined,
         provider: provider.id,
         model: accepted.model,
         assetType: 'image',
@@ -146,6 +136,7 @@ export async function generateVideoWithProviders(
   request: Parameters<VideoGenerationProvider['generate']>[0] & {
     userId?: string;
     workspaceId?: string;
+    storeId?: string | null;
   }
 ): Promise<GeneratedAsset | null> {
   for (const provider of videoProviders) {
@@ -156,6 +147,7 @@ export async function generateVideoWithProviders(
       await recordCreativeUsage({
         userId: request.userId,
         workspaceId: request.workspaceId,
+        storeId: request.storeId || undefined,
         provider: provider.id,
         model: asset.model,
         assetType: 'video',

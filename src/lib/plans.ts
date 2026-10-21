@@ -7,6 +7,8 @@ export interface Plan {
   priceDisplay: string;
   description: string;
   features: string[];
+  /** Shopify stores included on this subscription. */
+  maxStores: number;
   razorpayPlanId: string;
 }
 
@@ -17,7 +19,9 @@ export const PLANS: Plan[] = [
     price: 2499,
     priceDisplay: '₹2,499/mo',
     description: 'Perfect for new D2C brands testing Meta ads',
+    maxStores: 1,
     features: [
+      '1 Shopify store',
       'Up to 3 active campaigns',
       '10 AI ad variants per campaign',
       'Weekly performance reports',
@@ -31,7 +35,9 @@ export const PLANS: Plan[] = [
     price: 6999,
     priceDisplay: '₹6,999/mo',
     description: 'For scaling brands with multiple product lines',
+    maxStores: 3,
     features: [
+      'Up to 3 Shopify stores',
       'Up to 15 active campaigns',
       'Unlimited AI ad variants',
       'Daily performance reports',
@@ -46,7 +52,9 @@ export const PLANS: Plan[] = [
     price: 15999,
     priceDisplay: '₹15,999/mo',
     description: 'Enterprise-grade automation for high-volume sellers',
+    maxStores: 10,
     features: [
+      'Up to 10 Shopify stores',
       'Unlimited campaigns',
       'Unlimited AI ad variants',
       'Real-time performance dashboard',

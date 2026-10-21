@@ -5,6 +5,7 @@ const memoryJobs = new Map<string, GenerationJob>();
 
 export async function createGenerationJob(input: {
   userId: string;
+  storeId?: string | null;
   campaignInputId: string;
   productId: string;
   assetType: GenerationJob['asset_type'];
@@ -33,7 +34,20 @@ export async function createGenerationJob(input: {
   try {
     const { createServiceClient } = await import('@/lib/supabase/server');
     const admin = await createServiceClient();
-    const { data } = await admin.from('generation_jobs').insert(job).select('*').single();
+    let storeId = input.storeId || null;
+    if (!storeId && input.campaignInputId) {
+      const { data: campaign } = await admin
+        .from('campaigns_input')
+        .select('store_id')
+        .eq('id', input.campaignInputId)
+        .maybeSingle();
+      storeId = campaign?.store_id || null;
+    }
+    const { data } = await admin
+      .from('generation_jobs')
+      .insert({ ...job, ...(storeId ? { store_id: storeId } : {}) })
+      .select('*')
+      .single();
     if (data) return data as GenerationJob;
   } catch {
     // Fall back to in-memory jobs in local dev.

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth/session';
 import { createClient } from '@/lib/supabase/server';
 import { productInput, readDemoProducts, withDemoProducts } from '@/lib/product-catalog';
+import { loadActiveStore } from '@/lib/stores';
 
 export async function GET(
   _request: Request,
@@ -18,12 +19,10 @@ export async function GET(
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('products')
-    .select('*')
-    .eq('id', params.id)
-    .eq('user_id', user.id)
-    .maybeSingle();
+  const store = await loadActiveStore(user.id);
+  let query = supabase.from('products').select('*').eq('id', params.id).eq('user_id', user.id);
+  if (store) query = query.eq('store_id', store.id);
+  const { data, error } = await query.maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: 'Product not found' }, { status: 404 });
@@ -66,13 +65,14 @@ export async function PATCH(
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase
+  const store = await loadActiveStore(user.id);
+  let query = supabase
     .from('products')
     .update({ ...update, updated_at: updatedAt })
     .eq('id', params.id)
-    .eq('user_id', user.id)
-    .select()
-    .maybeSingle();
+    .eq('user_id', user.id);
+  if (store) query = query.eq('store_id', store.id);
+  const { data, error } = await query.select().maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: 'Product not found' }, { status: 404 });
@@ -96,13 +96,10 @@ export async function DELETE(
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('products')
-    .delete()
-    .eq('id', params.id)
-    .eq('user_id', user.id)
-    .select('id')
-    .maybeSingle();
+  const store = await loadActiveStore(user.id);
+  let query = supabase.from('products').delete().eq('id', params.id).eq('user_id', user.id);
+  if (store) query = query.eq('store_id', store.id);
+  const { data, error } = await query.select('id').maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: 'Product not found' }, { status: 404 });

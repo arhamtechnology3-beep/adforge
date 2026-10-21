@@ -1,5 +1,6 @@
 import DashboardShell from '@/components/DashboardShell';
 import { createClient } from '@/lib/supabase/server';
+import { loadActiveStore } from '@/lib/stores';
 import type { User, AdAccount } from '@/types/database';
 import { cookies } from 'next/headers';
 
@@ -23,11 +24,10 @@ export default async function DashboardLayout({
         .single();
       profile = data;
 
-      const { data: account } = await supabase
-        .from('ad_accounts')
-        .select('*')
-        .eq('user_id', authUser.id)
-        .single();
+      const store = await loadActiveStore(authUser.id);
+      let accountQuery = supabase.from('ad_accounts').select('*').eq('user_id', authUser.id);
+      if (store) accountQuery = accountQuery.eq('store_id', store.id);
+      const { data: account } = await accountQuery.maybeSingle();
       adAccount = account;
     }
   } catch {

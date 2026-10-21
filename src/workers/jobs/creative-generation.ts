@@ -70,12 +70,9 @@ export async function processCreativeGenerationJob(job: Job<CreativeGenerationPa
       }
     } else {
       const admin = await createServiceClient();
-      const { data } = await admin
-        .from('products')
-        .select('*')
-        .eq('id', payload.product_id)
-        .eq('user_id', userId)
-        .maybeSingle();
+      let productQuery = admin.from('products').select('*').eq('id', payload.product_id).eq('user_id', userId);
+      if (resolvedInput.store_id) productQuery = productQuery.eq('store_id', resolvedInput.store_id);
+      const { data } = await productQuery.maybeSingle();
       if (data) {
         productBrief = {
           id: data.id,
@@ -119,6 +116,7 @@ export async function processCreativeGenerationJob(job: Job<CreativeGenerationPa
       selectedDirectionIds: payload.selected_direction_ids,
       origin,
       ownerId: userId,
+      storeId: resolvedInput.store_id,
       persistToStorage: !isDemo,
       maxDirections: campaignTheme === 'diwali' ? Math.max(4, variantCount) : variantCount,
     });

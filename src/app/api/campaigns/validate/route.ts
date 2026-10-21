@@ -34,10 +34,12 @@ export async function POST(request: Request) {
       pageId = resolved.pageId;
       if (resolved.source === 'live' && !user.isDemo) {
         const supabase = await createClient();
-        await supabase
+        let pageUpdate = supabase
           .from('ad_accounts')
           .update({ page_id: resolved.pageId, page_name: resolved.pageName || null })
           .eq('user_id', user.id);
+        if (metaConnection.store_id) pageUpdate = pageUpdate.eq('store_id', metaConnection.store_id);
+        await pageUpdate;
       }
     } catch {
       pageId = null;

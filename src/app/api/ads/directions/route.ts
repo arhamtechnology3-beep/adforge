@@ -5,6 +5,7 @@ import { readDemoProducts } from '@/lib/product-catalog';
 import { createClient } from '@/lib/supabase/server';
 import { scrapeAllCompetitors } from '@/lib/ai';
 import { planCreativeEngineAsync } from '@/lib/creative-engine';
+import { loadActiveStore } from '@/lib/stores';
 import type { ProductBrief } from '@/lib/creative-quality';
 import type { SelectedLibraryAdInput } from '@/lib/replicate-ads';
 
@@ -52,12 +53,10 @@ export async function POST(request: Request) {
     }
   } else {
     const supabase = await createClient();
-    const { data } = await supabase
-      .from('products')
-      .select('*')
-      .eq('id', productId)
-      .eq('user_id', sessionUser.id)
-      .maybeSingle();
+    const store = await loadActiveStore(sessionUser.id);
+    let productQuery = supabase.from('products').select('*').eq('id', productId).eq('user_id', sessionUser.id);
+    if (store) productQuery = productQuery.eq('store_id', store.id);
+    const { data } = await productQuery.maybeSingle();
     if (data) {
       productBrief = {
         id: data.id,

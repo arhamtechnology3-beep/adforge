@@ -28,6 +28,7 @@ export type CreativeEngineInput = {
   selectedDirections?: CreativeDirection[];
   origin: string;
   ownerId: string;
+  storeId?: string | null;
   persistToStorage: boolean;
   maxDirections?: number;
 };
@@ -106,6 +107,7 @@ export async function runCreativeEngine(input: CreativeEngineInput) {
     formats: input.formats,
     origin: input.origin,
     ownerId: input.ownerId,
+    storeId: input.storeId,
     persistToStorage: input.persistToStorage,
   });
 

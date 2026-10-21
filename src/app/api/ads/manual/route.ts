@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { META_AD_FORMATS, type MetaAdFormat } from '@/lib/creatives';
 import type { AdMediaPayload } from '@/types/database';
+import { loadActiveStore } from '@/lib/stores';
 
 /** Manually add a client creative into Step 2 */
 export async function POST(request: Request) {
@@ -20,12 +21,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'campaign_input_id required' }, { status: 400 });
   }
 
-  const { data: campaignInput } = await supabase
-    .from('campaigns_input')
-    .select('id')
-    .eq('id', campaign_input_id)
-    .eq('user_id', user.id)
-    .single();
+  const store = await loadActiveStore(user.id);
+  let inputQuery = supabase.from('campaigns_input').select('id').eq('id', campaign_input_id).eq('user_id', user.id);
+  if (store) inputQuery = inputQuery.eq('store_id', store.id);
+  const { data: campaignInput } = await inputQuery.single();
 
   if (!campaignInput) {
     return NextResponse.json({ error: 'Campaign input not found' }, { status: 404 });

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { retrieveToken, getCampaignInsights } from '@/lib/meta';
+import { loadActiveStore } from '@/lib/stores';
 
 export async function GET(
   _request: Request,
@@ -13,6 +14,7 @@ export async function GET(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const store = await loadActiveStore(user.id);
   const { data: campaign } = await supabase
     .from('meta_campaigns')
     .select('*')
@@ -20,7 +22,7 @@ export async function GET(
     .eq('user_id', user.id)
     .single();
 
-  if (!campaign) {
+  if (!campaign || (store && campaign.store_id && campaign.store_id !== store.id)) {
     return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
   }
 
@@ -32,11 +34,10 @@ export async function GET(
 
   let liveInsights = null;
   if (campaign.meta_campaign_id) {
-    const { data: adAccount } = await supabase
-      .from('ad_accounts')
-      .select('*')
-      .eq('user_id', user.id)
-      .single();
+    let accountQuery = supabase.from('ad_accounts').select('*').eq('user_id', user.id);
+    if (campaign.store_id) accountQuery = accountQuery.eq('store_id', campaign.store_id);
+    else if (store) accountQuery = accountQuery.eq('store_id', store.id);
+    const { data: adAccount } = await accountQuery.maybeSingle();
 
     if (adAccount?.access_token_encrypted) {
       try {
@@ -58,6 +59,6 @@ export async function GET(
     campaign,
     snapshots: snapshots || [],
     liveInsights,
-    cpaTarget: userProfile?.cpa_target,
+    cpaTarget: store?.cpa_target ?? userProfile?.cpa_target,
   });
 }

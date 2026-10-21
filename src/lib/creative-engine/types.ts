@@ -165,6 +165,7 @@ export type GenerationJobStatus =
 export type GenerationJob = {
   id: string;
   user_id: string;
+  store_id?: string | null;
   campaign_input_id: string;
   product_id: string;
   creative_concept_id?: string | null;
@@ -198,6 +199,7 @@ export type CreativePackRequest = {
   formats?: MetaAdFormat[];
   origin: string;
   ownerId: string;
+  storeId?: string | null;
   persistToStorage: boolean;
 };
 

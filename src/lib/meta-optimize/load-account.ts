@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { loadActiveStore } from '@/lib/stores';
 import {
   dryRunOptimizeAccount,
   runOptimizeSuite,
@@ -9,33 +10,45 @@ import {
 
 /** Build optimize account input from Supabase (or dry-run). */
 export async function loadOptimizeAccount(
-  userId: string
+  userId: string,
+  storeId?: string | null
 ): Promise<{ account: OptimizeAccountInput; dryRun: boolean }> {
   const supabase = await createClient();
+  const store = storeId
+    ? (
+        await supabase
+          .from('stores')
+          .select('id, cpa_target, roas_target, daily_budget_cap, agent_settings, aov_default, margin_pct, ltv_default')
+          .eq('id', storeId)
+          .eq('user_id', userId)
+          .maybeSingle()
+      ).data
+    : await loadActiveStore(userId);
 
-  const { data: profile } = await supabase
-    .from('users')
-    .select('cpa_target, roas_target, daily_budget_cap, agent_settings')
-    .eq('id', userId)
-    .maybeSingle();
+  const activeStoreId = store?.id || null;
 
-  const { data: brand } = await supabase
-    .from('brand_profiles')
-    .select('brand_name, website_url')
-    .eq('user_id', userId)
-    .maybeSingle();
+  const { data: profile } = store
+    ? { data: store }
+    : await supabase
+        .from('users')
+        .select('cpa_target, roas_target, daily_budget_cap, agent_settings')
+        .eq('id', userId)
+        .maybeSingle();
 
-  const { data: adAccount } = await supabase
-    .from('ad_accounts')
-    .select('pixel_id, page_id')
-    .eq('user_id', userId)
-    .maybeSingle();
+  let brandQuery = supabase.from('brand_profiles').select('brand_name, website_url').eq('user_id', userId);
+  if (activeStoreId) brandQuery = brandQuery.eq('store_id', activeStoreId);
+  const { data: brand } = await brandQuery.maybeSingle();
 
-  // Column is `budget` (not daily_budget) — wrong name made this query fail and forced sample account.
-  const { data: campaigns, error: campErr } = await supabase
+  let accountQuery = supabase.from('ad_accounts').select('pixel_id, page_id').eq('user_id', userId);
+  if (activeStoreId) accountQuery = accountQuery.eq('store_id', activeStoreId);
+  const { data: adAccount } = await accountQuery.maybeSingle();
+
+  let campQuery = supabase
     .from('meta_campaigns')
     .select('id, name, status, budget, objective, launch_config, ad_ids')
     .eq('user_id', userId);
+  if (activeStoreId) campQuery = campQuery.eq('store_id', activeStoreId);
+  const { data: campaigns, error: campErr } = await campQuery;
 
   if (campErr) {
     console.error('[optimize] meta_campaigns', campErr.message);
@@ -76,11 +89,9 @@ export async function loadOptimizeAccount(
     ads = data || [];
   } else {
     // Fallback: ads owned via campaigns_input for this user
-    const { data: inputs } = await supabase
-      .from('campaigns_input')
-      .select('id')
-      .eq('user_id', userId)
-      .limit(20);
+    let inputQuery = supabase.from('campaigns_input').select('id').eq('user_id', userId).limit(20);
+    if (activeStoreId) inputQuery = inputQuery.eq('store_id', activeStoreId);
+    const { data: inputs } = await inputQuery;
     const inputIds = (inputs || []).map((i) => i.id);
     if (inputIds.length) {
       const { data } = await supabase
@@ -208,8 +219,8 @@ export async function loadOptimizeAccount(
   return { account, dryRun: !hasInsights };
 }
 
-export async function runOptimizeForUser(userId: string) {
-  const { account, dryRun } = await loadOptimizeAccount(userId);
+export async function runOptimizeForUser(userId: string, storeId?: string | null) {
+  const { account, dryRun } = await loadOptimizeAccount(userId, storeId);
   const suite = runOptimizeSuite(account);
   return { dryRun, account, suite };
 }

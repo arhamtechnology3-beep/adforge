@@ -2,6 +2,7 @@ import type { CreativeQaScores } from '@/lib/creative-engine/types';
 
 export type CreativeMemoryRecord = {
   userId: string;
+  storeId?: string;
   creativeId?: string;
   campaignId?: string;
   conceptId?: string;
@@ -23,6 +24,7 @@ export async function recordCreativeMemory(record: CreativeMemoryRecord): Promis
     await admin.from('creative_memory').upsert(
       {
         user_id: record.userId,
+        store_id: record.storeId || null,
         creative_id: record.creativeId || null,
         campaign_id: record.campaignId || null,
         concept_id: record.conceptId || null,

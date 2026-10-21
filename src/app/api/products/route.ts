@@ -8,6 +8,7 @@ import {
   withDemoProducts,
   type Product,
 } from '@/lib/product-catalog';
+import { loadActiveStore } from '@/lib/stores';
 
 export async function GET(request: Request) {
   const user = await getSessionUser();
@@ -21,11 +22,13 @@ export async function GET(request: Request) {
   }
 
   const supabase = await createClient();
+  const store = await loadActiveStore(user.id);
   let query = supabase
     .from('products')
     .select('*')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
+  if (store) query = query.eq('store_id', store.id);
   if (activeOnly) query = query.eq('is_active', true);
 
   const { data, error } = await query;
@@ -83,9 +86,10 @@ export async function POST(request: Request) {
   }
 
   const supabase = await createClient();
+  const store = await loadActiveStore(user.id);
   const { data, error } = await supabase
     .from('products')
-    .insert({ ...input, user_id: user.id })
+    .insert({ ...input, user_id: user.id, ...(store ? { store_id: store.id } : {}) })
     .select()
     .single();
 

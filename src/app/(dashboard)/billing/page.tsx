@@ -9,6 +9,8 @@ import { daysUntil, isTrialActive, formatCurrency } from '@/lib/utils';
 
 export default function BillingPage() {
   const [profile, setProfile] = useState<User | null>(null);
+  const [stores, setStores] = useState<Array<{ id: string; name: string; website_url: string | null }>>([]);
+  const [maxStores, setMaxStores] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [subscribing, setSubscribing] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState<string | null>(null);
@@ -21,6 +23,15 @@ export default function BillingPage() {
           setProfile(data);
           setLoading(false);
         });
+        fetch('/api/stores')
+          .then((res) => res.json())
+          .then((data) => {
+            setStores(data.stores || []);
+            setMaxStores(typeof data.maxStores === 'number' ? data.maxStores : null);
+          })
+          .catch(() => {
+            /* stores list is optional until migration 017 */
+          });
       }
     });
   }, []);
@@ -72,6 +83,22 @@ export default function BillingPage() {
         </div>
         {profile?.razorpay_subscription_id && (
           <p className="text-sm text-muted mt-2">Active subscription</p>
+        )}
+        {maxStores != null && (
+            <div className="mt-4 pt-4 border-t">
+            <p className="text-sm font-medium">
+              Stores on this subscription · {stores.length} of {maxStores}
+            </p>
+            <ul className="mt-2 space-y-1 text-sm text-muted">
+              {stores.map((store) => (
+                <li key={store.id}>
+                  {store.name}
+                  {store.website_url ? ` · ${store.website_url}` : ''}
+                </li>
+              ))}
+              {stores.length === 0 && <li>No stores yet. Add one from the sidebar.</li>}
+            </ul>
+          </div>
         )}
       </div>
 

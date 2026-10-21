@@ -54,6 +54,8 @@ export function TrackingReadinessChecklist({
   userId,
   objective = 'OUTCOME_SALES',
 }: Props) {
+  const [storeId, setStoreId] = useState<string | null>(null);
+  const [storeCount, setStoreCount] = useState(1);
   const [copied, setCopied] = useState(false);
   const [capiStatus, setCapiStatus] = useState<CapiVerifyStatus>('loading');
   const [capiMessage, setCapiMessage] = useState<string>('');
@@ -63,9 +65,25 @@ export function TrackingReadinessChecklist({
   const sales = objective === 'OUTCOME_SALES';
   const origin =
     typeof window !== 'undefined' ? window.location.origin : 'https://adforge.arhamtechnology.com';
-  const capiUrl = userId
-    ? `${origin}/api/webhooks/shopify/capi?user_id=${userId}`
-    : `${origin}/api/webhooks/shopify/capi?user_id=<YOUR_USER_ID>`;
+  const capiUrl =
+    storeCount > 1 && storeId
+      ? `${origin}/api/webhooks/shopify/capi?store_id=${storeId}`
+      : userId
+        ? `${origin}/api/webhooks/shopify/capi?user_id=${userId}`
+        : `${origin}/api/webhooks/shopify/capi?user_id=<YOUR_USER_ID>`;
+
+  useEffect(() => {
+    fetch('/api/stores')
+      .then((res) => res.json())
+      .then((data) => {
+        const list = Array.isArray(data.stores) ? data.stores : [];
+        setStoreCount(list.length || 1);
+        setStoreId(data.activeStore?.id || list[0]?.id || null);
+      })
+      .catch(() => {
+        /* keep the single-store user_id URL */
+      });
+  }, []);
 
   const capiOk = capiStatus === 'test_ok' || capiStatus === 'live_ok';
   const ready = metaConnected && pageOk && pixelOk;

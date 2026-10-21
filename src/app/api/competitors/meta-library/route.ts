@@ -42,6 +42,7 @@ export async function POST(request: Request) {
   const scraped = await scrapeAllCompetitors(competitors, { fetchLiveAds: true });
   const withPrevious = await applyCompetitorLibraryCache(user.id, scraped, {
     isDemo: user.isDemo,
+    storeId: resolvedInput.store_id,
   });
   const competitorIntel = withDemoLibraryFallback(withPrevious, {
     isDemo: user.isDemo,

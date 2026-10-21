@@ -109,9 +109,25 @@ export interface User {
   created_at: string;
 }
 
+export interface Store {
+  id: string;
+  user_id: string;
+  name: string;
+  website_url: string | null;
+  cpa_target: number | null;
+  roas_target: number | null;
+  daily_budget_cap: number | null;
+  agent_settings: Record<string, unknown>;
+  margin_pct: number | null;
+  aov_default: number | null;
+  ltv_default: number | null;
+  created_at: string;
+}
+
 export interface AdAccount {
   id: string;
   user_id: string;
+  store_id?: string | null;
   meta_ad_account_id: string | null;
   access_token_encrypted: string | null;
   token_expires_at: string | null;
@@ -135,6 +151,7 @@ export interface CompetitorEntry {
 export interface CampaignInput {
   id: string;
   user_id: string;
+  store_id?: string | null;
   website_url: string;
   competitor_url: string | null;
   competitor_type: CompetitorType | null;
@@ -159,6 +176,7 @@ export interface GeneratedAd {
 export interface MetaCampaign {
   id: string;
   user_id: string;
+  store_id?: string | null;
   meta_campaign_id: string | null;
   ad_set_id: string | null;
   budget: number | null;

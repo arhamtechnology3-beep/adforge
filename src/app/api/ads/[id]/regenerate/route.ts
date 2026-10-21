@@ -14,6 +14,7 @@ import { evaluateCreativeQuality, type ProductBrief } from '@/lib/creative-quali
 import { resolveAppOrigin } from '@/lib/app-url';
 import { renderMotionTemplateVideo, type MotionVideoImage } from '@/lib/motion-video';
 import type { GeneratedAd } from '@/types/database';
+import { loadActiveStore } from '@/lib/stores';
 
 export const runtime = 'nodejs';
 export const maxDuration = 240;
@@ -65,14 +66,12 @@ export async function POST(
     existing = demoAds.find((ad) => ad.id === params.id) || null;
     product = (await readDemoProducts()).find((item) => item.id === productId) || null;
   } else {
+    const store = await loadActiveStore(user.id);
+    let productQuery = supabase.from('products').select('*').eq('id', productId).eq('user_id', user.id);
+    if (store) productQuery = productQuery.eq('store_id', store.id);
     const [adResult, productResult] = await Promise.all([
       supabase.from('generated_ads').select('*').eq('id', params.id).maybeSingle(),
-      supabase
-        .from('products')
-        .select('*')
-        .eq('id', productId)
-        .eq('user_id', user.id)
-        .maybeSingle(),
+      productQuery.maybeSingle(),
     ]);
     existing = (adResult.data as GeneratedAd | null) || null;
     product = (productResult.data as Product | null) || null;

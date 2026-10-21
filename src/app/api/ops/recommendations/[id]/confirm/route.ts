@@ -6,6 +6,7 @@ import {
   updateCampaignBudget,
 } from '@/lib/meta';
 import { notifyAgentChange } from '@/lib/ops-agent/change-email';
+import { loadActiveStore } from '@/lib/stores';
 
 type RecPayload = {
   source?: string;
@@ -35,6 +36,7 @@ export async function POST(
   }
 
   const userId = user.id;
+  const store = await loadActiveStore(userId);
   // Persist with service role after auth — user anon RLS historically lacked INSERT
   // on agent_recommendations (see migration 016). Auth already verified above.
   const db = await createServiceClient();
@@ -113,6 +115,7 @@ export async function POST(
     if (ephemeral) {
       const { error: insErr } = await db.from('agent_recommendations').insert({
         user_id: userId,
+        ...(store ? { store_id: store.id } : {}),
         meta_campaign_id: rec.meta_campaign_id,
         source: rec.source,
         type: rec.type,
@@ -140,11 +143,9 @@ export async function POST(
   }
 
   // Approve
-  const { data: adAccount } = await db
-    .from('ad_accounts')
-    .select('*')
-    .eq('user_id', userId)
-    .maybeSingle();
+  const { data: adAccount } = await (store
+    ? db.from('ad_accounts').select('*').eq('user_id', userId).eq('store_id', store.id).maybeSingle()
+    : db.from('ad_accounts').select('*').eq('user_id', userId).maybeSingle());
 
   const { data: profile } = await db
     .from('users')
@@ -218,6 +219,7 @@ export async function POST(
       .from('agent_recommendations')
       .insert({
         user_id: userId,
+        ...(store ? { store_id: store.id } : {}),
         meta_campaign_id: campaignId,
         source: rec.source,
         type: rec.type,
@@ -263,6 +265,7 @@ export async function POST(
 
   await db.from('agent_change_logs').insert({
     user_id: userId,
+    ...(store ? { store_id: store.id } : {}),
     meta_campaign_id: campaignId,
     recommendation_id: storedId,
     action: actionName,

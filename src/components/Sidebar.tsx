@@ -19,7 +19,7 @@ import {
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -37,6 +37,53 @@ export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [stores, setStores] = useState<Array<{ id: string; name: string }>>([]);
+  const [activeId, setActiveId] = useState('');
+  const [canAdd, setCanAdd] = useState(false);
+  const [maxStores, setMaxStores] = useState(1);
+  const [adding, setAdding] = useState(false);
+  const [storeName, setStoreName] = useState('');
+  const [storeWebsite, setStoreWebsite] = useState('');
+  const [storeError, setStoreError] = useState('');
+
+  useEffect(() => {
+    fetch('/api/stores')
+      .then((res) => res.json())
+      .then((data) => {
+        setStores(data.stores || []);
+        setActiveId(data.activeStore?.id || '');
+        setCanAdd(Boolean(data.canAdd));
+        setMaxStores(data.maxStores || 1);
+      })
+      .catch(() => {
+        /* billing still works if stores are unavailable */
+      });
+  }, []);
+
+  async function switchStore(storeId: string) {
+    setActiveId(storeId);
+    const res = await fetch('/api/stores/active', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ storeId }),
+    });
+    if (res.ok) window.location.reload();
+  }
+
+  async function addStore() {
+    setStoreError('');
+    const res = await fetch('/api/stores', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: storeName, website_url: storeWebsite }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setStoreError(data.error || 'Could not add store');
+      return;
+    }
+    window.location.href = '/onboarding';
+  }
 
   async function handleLogout() {
     const supabase = createClient();
@@ -54,6 +101,68 @@ export default function Sidebar() {
           <span className="font-bold text-white text-lg">AdForge</span>
         </Link>
       </div>
+
+      {stores.length > 0 && (
+        <div className="px-3 py-3 border-b border-white/10 space-y-2">
+          <label className="block text-[11px] uppercase tracking-wide text-white/50 px-1">
+            Store
+          </label>
+          <select
+            className="w-full rounded-lg bg-white/10 text-white text-sm px-2 py-2 border border-white/15"
+            value={activeId}
+            onChange={(event) => switchStore(event.target.value)}
+          >
+            {stores.map((store) => (
+              <option key={store.id} value={store.id} className="text-black">
+                {store.name}
+              </option>
+            ))}
+          </select>
+          {canAdd && !adding && (
+            <button
+              type="button"
+              className="text-xs text-white/80 hover:text-white px-1"
+              onClick={() => setAdding(true)}
+            >
+              Add store
+            </button>
+          )}
+          {canAdd && adding && (
+            <div className="space-y-2">
+              <input
+                className="w-full rounded-lg bg-white text-black text-sm px-2 py-1.5"
+                placeholder="Store name"
+                value={storeName}
+                onChange={(event) => setStoreName(event.target.value)}
+              />
+              <input
+                className="w-full rounded-lg bg-white text-black text-sm px-2 py-1.5"
+                placeholder="https://shop.myshopify.com"
+                value={storeWebsite}
+                onChange={(event) => setStoreWebsite(event.target.value)}
+              />
+              {storeError && <p className="text-xs text-amber-200">{storeError}</p>}
+              <div className="flex gap-2">
+                <button type="button" className="text-xs text-white underline" onClick={addStore}>
+                  Save
+                </button>
+                <button
+                  type="button"
+                  className="text-xs text-white/70"
+                  onClick={() => setAdding(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {!canAdd && (
+            <Link href="/billing" className="block text-xs text-white/70 hover:text-white px-1">
+              Plan includes {maxStores} store{maxStores === 1 ? '' : 's'}
+            </Link>
+          )}
+        </div>
+      )}
 
       <nav className="flex-1 px-3 py-4 space-y-1">
         {navItems.map(({ href, label, icon: Icon }) => (
