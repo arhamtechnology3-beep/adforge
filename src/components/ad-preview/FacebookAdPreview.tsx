@@ -164,7 +164,7 @@ export function FacebookAdPreview({
             : verticalPlacement
               ? ' · Feed/Carousel in Reels frame'
               : cards.length >= 2
-                ? ` · carousel ${Math.min(cardIndex, cards.length - 1) + 1}/${cards.length}${feedIsFourFive ? ' · 4:5' : ''}`
+                ? ` · carousel ${Math.min(cardIndex, cards.length - 1) + 1}/${cards.length}${feedAspect === '1:1' ? ' · 1:1' : feedIsFourFive ? ' · 4:5' : ''}`
                 : feedAspect === '1:1'
                   ? ' · 1:1'
                   : feedIsFourFive
@@ -231,7 +231,7 @@ export function FacebookAdPreview({
                   alt=""
                   className={cn(
                     'w-full h-full',
-                    feedIsFourFive ? 'object-contain' : 'object-cover'
+                    feedAspect === '1:1' || feedIsFourFive ? 'object-contain' : 'object-cover'
                   )}
                   onLoad={(event) => {
                     const { naturalWidth, naturalHeight } = event.currentTarget;

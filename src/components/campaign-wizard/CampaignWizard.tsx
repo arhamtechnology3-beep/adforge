@@ -101,6 +101,22 @@ const META_CONNECT_ERRORS: Record<string, string> = {
     'Meta connect failed while talking to Facebook. Try Connect with Facebook again.',
 };
 
+function diwaliSquareCarouselId(ads: GeneratedAd[]): string | null {
+  for (let i = ads.length - 1; i >= 0; i -= 1) {
+    const ad = ads[i];
+    const cards = ad.media_payload?.cards || [];
+    if (
+      ad.ad_format === 'carousel' &&
+      ad.angle === 'diwali-1x1' &&
+      ad.media_payload?.aspect === '1:1' &&
+      cards.length >= 2
+    ) {
+      return ad.id;
+    }
+  }
+  return null;
+}
+
 function squarePackIds(ads: GeneratedAd[]): string[] {
   return ads
     .filter((ad) => ad.ad_format === 'single_image' && ad.angle === 'diwali-1x1')
@@ -180,17 +196,20 @@ export function CampaignWizard({
   const [websiteUrl, setWebsiteUrl] = useState(initialWebsiteUrl);
   const [cta, setCta] = useState('SHOP_NOW');
   const [linkDescription, setLinkDescription] = useState('');
+  const diwaliCarouselId = diwaliSquareCarouselId(initialAds);
   const squareIds = squarePackIds(initialAds);
   const carouselFirstId = newestCarouselId(initialAds);
   const [selectedAds, setSelectedAds] = useState<string[]>(
-    squareIds.length
-      ? squareIds
-      : carouselFirstId
-        ? [carouselFirstId]
-        : initialAds.map((a) => a.id)
+    diwaliCarouselId
+      ? [diwaliCarouselId]
+      : squareIds.length
+        ? squareIds
+        : carouselFirstId
+          ? [carouselFirstId]
+          : initialAds.map((a) => a.id)
   );
   const [previewAdId, setPreviewAdId] = useState<string | null>(
-    squareIds[0] || carouselFirstId || initialAds[0]?.id || null
+    diwaliCarouselId || squareIds[0] || carouselFirstId || initialAds[0]?.id || null
   );
 
   const [validation, setValidation] = useState<CampaignValidationResult | null>(null);
@@ -1543,7 +1562,7 @@ export function CampaignWizard({
             )}
             <p className="mt-3 text-[10px] text-[var(--muted)] text-center leading-snug">
               {(previewAd?.media_payload?.cards?.length || 0) >= 2
-                ? 'This preview is the carousel. The picture changes by itself, and the arrows jump to the next pickle. The label should say Carousel, not Image.'
+                ? 'Carousel, 1:1. Card 1 is the full range. The next cards are the seven product squares. Arrows jump to the next pickle.'
                 : 'This preview is a single image. A carousel shows arrows and a card count such as 1 of 8.'}
             </p>
             {selectedAds.length > 1 && (
