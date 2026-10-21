@@ -8,6 +8,18 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-22
 
+### Diwali carousel starts with the full range, then the seven squares
+**What / why**  
+The eight 1:1 files were eight separate image ads, so the preview stopped on the range shot and never played the products as a carousel. They are now one 1:1 carousel on **Diwali 1:1 · Product Pages**.
+
+- Card 1: the image with all seven pickles (Taste of Tradition) → the collection
+- Cards 2–8: Gor Keri, Special Mango, Katka Keri, Chhundo, Chana Keri Methi, Sweet Mango, Gunda Keri, each to its product page
+- The files are the 1024×1024 squares, not the older 4:5 set
+
+**Paths:** `src/components/campaign-wizard/CampaignWizard.tsx`, `src/components/ad-preview/FacebookAdPreview.tsx`
+
+**Manual:** Hard-refresh `/campaigns`. The preview should say **Carousel · 1/8 · 1:1**, start on the full range, then swipe through the seven product squares.
+
 ### 1:1 Diwali preview and saved food interests
 **What / why**  
 The campaign wizard opened the old 4:5 carousel, and the Food interest list saved earlier was only on that carousel draft. The new square pack is now the default preview (labeled 1:1, with previous/next through all 8). Food and pickle campaigns load those saved interests. Draft **Diwali 1:1 · Product Pages** stores the same list.
