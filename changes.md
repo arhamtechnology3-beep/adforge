@@ -8,6 +8,12 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-22
 
+### Carousel files were still 1024×1024 in the preview
+**What / why**  
+The 1080 resize only happened while uploading to Meta. The preview loads the files in storage, and those were still 1024×1024. All eight Diwali carousel cards are now stored as 1080×1080 and the live Meta creative was rebuilt from those files.
+
+**Manual:** Hard-refresh `/campaigns`. In DevTools the image intrinsic size should read **1080 × 1080**, not 1024.
+
 ### Fix Meta carousel preview and feed delivery
 **What / why**  
 Ads Manager could not preview **Taste of Tradition** (`interactive_components_spec … position_spec height is required`) and would not deliver it to Feed, Stories, or Reels. The cards were 1024×1024, under Meta’s 1080px feed minimum, and Advantage+ was inventing a broken placement crop. Stories and Reels also cannot run a square carousel.
