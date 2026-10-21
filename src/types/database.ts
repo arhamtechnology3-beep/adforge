@@ -72,6 +72,8 @@ export interface AdMediaPayload {
   has_audio?: boolean | null;
   /** `random` asks Meta to add a catalog music track on image/carousel delivery. */
   meta_music?: 'random' | null;
+  /** Per-ad Shop Now URL. Overrides the campaign website when publishing to Meta. */
+  destination_url?: string | null;
   video_style?: 'ugc-motion' | 'motion-template' | null;
   scene_provider?: string | null;
   concept_id?: string | null;

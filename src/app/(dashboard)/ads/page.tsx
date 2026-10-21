@@ -2544,6 +2544,11 @@ export default function AdsPage() {
                       </p>
                       <p className="text-sm leading-relaxed">{ad.copy_text}</p>
                     </div>
+                    {ad.media_payload?.destination_url && (
+                      <p className="text-[11px] text-indigo-800 break-all">
+                        Shop URL · {ad.media_payload.destination_url}
+                      </p>
+                    )}
                   </>
                 )}
 

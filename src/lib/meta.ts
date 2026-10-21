@@ -721,6 +721,9 @@ export type PublishableAd = {
     video_url?: string | null;
     poster_url?: string | null;
     meta_music?: 'random' | null;
+    /** Product or store URL for this ad. Falls back to the campaign website. */
+    destination_url?: string | null;
+    link?: string | null;
   } | null;
 };
 
@@ -860,6 +863,13 @@ export async function publishAdsToMeta(opts: {
       errors.push(`Ad ${index + 1}: missing headline`);
       continue;
     }
+    const adLink = String(
+      ad.media_payload?.destination_url || ad.media_payload?.link || link
+    ).trim();
+    if (!isHttpsWebsiteUrl(adLink)) {
+      errors.push(`Ad ${index + 1}: needs an https product or store URL`);
+      continue;
+    }
     try {
       const created = await createAd(
         opts.accessToken,
@@ -868,7 +878,7 @@ export async function publishAdsToMeta(opts: {
         copy.slice(0, 2200),
         picture,
         opts.pageId,
-        link,
+        adLink,
         headline.slice(0, 40),
         ctaType,
         opts.linkDescription,

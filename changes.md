@@ -8,6 +8,14 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-22
 
+### Diwali 1:1 campaign with a product URL on every ad
+**What / why**  
+The 4:5 Diwali creatives are the wrong shape for these Meta placements. Eight square (1024×1024) creatives are now a draft campaign, and each ad keeps its own Shop Now URL so Confirm does not send every click to one store homepage.
+
+**Paths:** `src/lib/meta.ts`, `src/types/database.ts`, `src/app/(dashboard)/ads/page.tsx`, `scripts/seed-diwali-1x1-campaign.ts`
+
+**Manual:** Hard-refresh `/campaigns`. Open draft **Diwali 1:1 · Product Pages** (8 approved image ads). The range creative links to the collection; the other seven link to their product pages. Confirm & Launch when the copy looks right. Deploy this commit first so Meta receives each product URL.
+
 ### Hostinger build: local landing fonts
 **What / why**  
 `npm run build` failed on Hostinger in `src/app/page.tsx` because `next/font/google` (Syne, Outfit) could not download Google Fonts (`Cannot read properties of null (reading '1')`). Those faces are now vendored under `src/app/fonts` and loaded with `next/font/local`, so publish does not call fonts.googleapis.com.
