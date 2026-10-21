@@ -1270,6 +1270,14 @@ export function CampaignWizard({
                     ? '1:1'
                     : undefined
               }
+              carouselCards={(previewAd?.media_payload?.cards || [])
+                .filter((card) => card.image_url)
+                .map((card) => ({
+                  image_url: /^https?:\/\//i.test(card.image_url)
+                    ? `/api/ads/product-image?src=${encodeURIComponent(card.image_url)}`
+                    : card.image_url,
+                  headline: card.headline,
+                }))}
               hasAudio={Boolean(
                 (previewAd?.media_payload as { has_audio?: boolean } | undefined)?.has_audio
               )}

@@ -6,6 +6,26 @@ Format: newest entries first. Date is local project context (IST).
 
 ---
 
+## 2026-10-21
+
+### Diwali carousel draft — eight cards, not one still image
+**What / why**  
+The live Instagram ad is a single JPEG. “Swipe Left” is printed on that picture, so Meta has no second card. A real carousel needs one card per creative.
+
+- Approved carousel ad `ecd00eff-9756-4e58-84d2-c4b5282c6cd1` (8 cards, 1080×1350)
+- Card 1 is the range banner → `https://divyaprabhafoods.com/collections/all`
+- Cards 2–8 are the seven pickles, each linking to its product page
+- Draft **Diwali · Taste of Tradition · Carousel** (`7308790e-9e92-4611-915c-bc8474feae05`), ₹500/day, Sales, Feed only, not on Meta
+- Product carousels keep card order (`multi_share_optimized` off)
+- `meta_music: random` asks Meta to add a catalog track. This is not a custom brand song
+- Campaign preview can step through carousel cards
+
+**Paths:** `src/lib/meta.ts`, `src/types/database.ts`, `FacebookAdPreview.tsx`, `CampaignWizard.tsx`
+
+**Manual:** Pause the live single-image campaign. On `/campaigns`, Confirm **Diwali · Taste of Tradition · Carousel** only — after this build is deployed, so music and card order ship. Do not use the wizard Create button while every approved ad is selected.
+
+---
+
 ## 2026-10-20
 
 ### Feed preview shows 4:5 without cropping

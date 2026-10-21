@@ -70,6 +70,8 @@ export interface AdMediaPayload {
   duration_ms?: number | null;
   /** Soft ambient bed muxed into motion MP4 (not Meta Music). */
   has_audio?: boolean | null;
+  /** `random` asks Meta to add a catalog music track on image/carousel delivery. */
+  meta_music?: 'random' | null;
   video_style?: 'ugc-motion' | 'motion-template' | null;
   scene_provider?: string | null;
   concept_id?: string | null;

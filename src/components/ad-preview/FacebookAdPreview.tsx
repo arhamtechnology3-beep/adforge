@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Globe, MoreHorizontal, ThumbsUp, MessageCircle, Share2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Globe, MoreHorizontal, ThumbsUp, MessageCircle, Share2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { META_CTA_OPTIONS } from '@/lib/meta-campaign';
 import StoryFillImage from '@/components/ads/StoryFillImage';
@@ -69,6 +69,7 @@ export function FacebookAdPreview({
   isVerticalNineSixteen = false,
   /** Meta Feed shows 4:5 in full. Square is only for 1:1 creatives. */
   feedAspect,
+  carouselCards,
   hasAudio,
 }: {
   headline?: string;
@@ -82,10 +83,14 @@ export function FacebookAdPreview({
   adFormatLabel?: string;
   isVerticalNineSixteen?: boolean;
   feedAspect?: '1:1' | '4:5' | null;
+  carouselCards?: Array<{ image_url: string; headline?: string }>;
   hasAudio?: boolean;
 }) {
   const [format, setFormat] = useState<PreviewFormat>(preferredFormat || 'feed');
   const [measuredFeedAspect, setMeasuredFeedAspect] = useState<'1:1' | '4:5' | null>(null);
+  const [cardIndex, setCardIndex] = useState(0);
+  const cards = (carouselCards || []).filter((card) => card.image_url);
+  const activeCard = cards.length >= 2 ? cards[Math.min(cardIndex, cards.length - 1)] : null;
   const ctaLabel =
     META_CTA_OPTIONS.find((c) => c.value === cta)?.label || 'Shop Now';
 
@@ -95,7 +100,8 @@ export function FacebookAdPreview({
 
   useEffect(() => {
     setMeasuredFeedAspect(null);
-  }, [imageUrl]);
+    setCardIndex(0);
+  }, [imageUrl, cards.length]);
 
   const verticalPlacement = format === 'stories' || format === 'reels';
   const willCropOnMeta = verticalPlacement && !isVerticalNineSixteen;
@@ -141,9 +147,11 @@ export function FacebookAdPreview({
             ? ' · as on Meta'
             : verticalPlacement
               ? ' · Feed/Carousel in Reels frame'
-              : feedIsFourFive
-                ? ' · 4:5 as on Meta'
-                : ' · as on Meta'}
+              : cards.length >= 2
+                ? ` · carousel ${Math.min(cardIndex, cards.length - 1) + 1}/${cards.length}${feedIsFourFive ? ' · 4:5' : ''}`
+                : feedIsFourFive
+                  ? ' · 4:5 as on Meta'
+                  : ' · as on Meta'}
           {hasAudio ? ' · soft audio' : ''}
         </p>
       ) : null}
@@ -197,10 +205,10 @@ export function FacebookAdPreview({
                 feedIsFourFive ? 'aspect-[4/5]' : 'aspect-square'
               )}
             >
-              {imageUrl ? (
+              {imageUrl || activeCard?.image_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={imageUrl}
+                  src={activeCard?.image_url || imageUrl}
                   alt=""
                   className={cn(
                     'w-full h-full',
@@ -218,13 +226,48 @@ export function FacebookAdPreview({
                   Creative preview
                 </div>
               )}
+              {cards.length >= 2 ? (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Previous card"
+                    className="absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/55 p-1.5 text-white"
+                    onClick={() =>
+                      setCardIndex((index) => (index - 1 + cards.length) % cards.length)
+                    }
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Next card"
+                    className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/55 p-1.5 text-white"
+                    onClick={() => setCardIndex((index) => (index + 1) % cards.length)}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                  <div className="absolute bottom-2 left-0 right-0 z-10 flex justify-center gap-1">
+                    {cards.map((card, index) => (
+                      <span
+                        key={`${card.image_url}-${index}`}
+                        className={cn(
+                          'h-1.5 w-1.5 rounded-full',
+                          index === Math.min(cardIndex, cards.length - 1)
+                            ? 'bg-white'
+                            : 'bg-white/45'
+                        )}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : null}
             </div>
 
             <div className="bg-[#F0F2F5] px-3 py-2.5 flex items-center gap-3 border-t border-[#E4E6EB]">
               <div className="min-w-0 flex-1">
                 <p className="text-[12px] text-[#65676B] tracking-wide truncate">{domain}</p>
                 <p className="text-[17px] font-semibold text-[#050505] leading-[22px] line-clamp-2 break-words">
-                  {headline || 'Your headline here'}
+                  {activeCard?.headline || headline || 'Your headline here'}
                 </p>
               </div>
               <button

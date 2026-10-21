@@ -720,6 +720,7 @@ export type PublishableAd = {
     cards?: MetaCreateAdCard[];
     video_url?: string | null;
     poster_url?: string | null;
+    meta_music?: 'random' | null;
   } | null;
 };
 
@@ -882,6 +883,7 @@ export async function publishAdsToMeta(opts: {
                   posterUrl: ad.media_payload.poster_url || picture,
                 }
               : undefined,
+          music: ad.media_payload?.meta_music === 'random' ? 'random' : undefined,
         }
       );
       metaAdIds.push(created.id);
@@ -919,7 +921,11 @@ export async function createAd(
   creativeAccessToken?: string,
   /** Instagram Business user id — improves IG placement identity / preview binding. */
   instagramUserId?: string | null,
-  options?: { video?: { url: string; posterUrl?: string | null } }
+  options?: {
+    video?: { url: string; posterUrl?: string | null };
+    /** Meta catalog music. Not a brand file — Meta picks the track. */
+    music?: 'random';
+  }
 ): Promise<{ id: string; creative_id: string }> {
   const destination = String(link || '').trim();
   if (!isHttpsWebsiteUrl(destination)) {
@@ -967,10 +973,13 @@ export async function createAd(
       });
     }
     linkData.child_attachments = child_attachments;
-    // Story carousels (hook → benefits → Shop Now card) must keep their order and own end card.
+    // Story carousels and product carousels (each card has its own link) keep
+    // the order we send. Meta must not collapse them to one image or reshuffle.
     const isStory = cardList.some((card) => card.overlay_role === 'cta');
-    linkData.multi_share_optimized = !isStory;
-    if (isStory) linkData.multi_share_end_card = false;
+    const distinctLinks = new Set(cardList.map((card) => card.link || destination));
+    const lockOrder = isStory || distinctLinks.size > 1;
+    linkData.multi_share_optimized = !lockOrder;
+    if (lockOrder) linkData.multi_share_end_card = false;
   } else if (!options?.video) {
     const ref = await metaImageRef(
       accessToken,
@@ -1008,6 +1017,10 @@ export async function createAd(
   const igUser = String(instagramUserId || '').trim();
   if (igUser) storySpec.instagram_user_id = igUser;
   creativeBody.set('object_story_spec', JSON.stringify(storySpec));
+  if (options?.music === 'random') {
+    // Music is not a creative_features_spec key. Meta adds a catalog track.
+    creativeBody.set('asset_feed_spec', JSON.stringify({ audios: [{ type: 'random' }] }));
+  }
   creativeBody.set('access_token', tokenForCreative);
 
   const creativeRes = await fetch(`${META_BASE}/${actId}/adcreatives`, {
