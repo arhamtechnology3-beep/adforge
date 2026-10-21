@@ -103,6 +103,14 @@ export function FacebookAdPreview({
     setCardIndex(0);
   }, [imageUrl, cards.length]);
 
+  useEffect(() => {
+    if (cards.length < 2 || format !== 'feed') return;
+    const timer = window.setInterval(() => {
+      setCardIndex((index) => (index + 1) % cards.length);
+    }, 3200);
+    return () => window.clearInterval(timer);
+  }, [cards.length, format]);
+
   const verticalPlacement = format === 'stories' || format === 'reels';
   const willCropOnMeta = verticalPlacement && !isVerticalNineSixteen;
   const feedIsFourFive = feedAspect === '4:5' || measuredFeedAspect === '4:5';
@@ -139,6 +147,13 @@ export function FacebookAdPreview({
           </button>
         ))}
       </div>
+
+      {cards.length >= 2 ? (
+        <p className="mb-2 rounded-md bg-[#E7F3FF] px-2 py-1.5 text-[12px] font-semibold text-[#0866FF]">
+          Carousel is working · card {Math.min(cardIndex, cards.length - 1) + 1} of {cards.length}
+          {activeCard?.headline ? ` · ${activeCard.headline}` : ''}
+        </p>
+      ) : null}
 
       {adFormatLabel ? (
         <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[#65676B]">
@@ -208,6 +223,7 @@ export function FacebookAdPreview({
               {imageUrl || activeCard?.image_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
+                  key={activeCard?.image_url || imageUrl}
                   src={activeCard?.image_url || imageUrl}
                   alt=""
                   className={cn(

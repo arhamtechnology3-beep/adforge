@@ -46,6 +46,7 @@ import {
   type CityTier,
 } from '@/lib/audience-suggest';
 import type { CampaignValidationResult } from '@/lib/campaign-validation';
+import type { GeneratedAd } from '@/types/database';
 import { formatCurrency } from '@/lib/utils';
 import { WizardStepper } from './WizardStepper';
 import { ValidationChecklist } from './ValidationChecklist';
@@ -98,6 +99,16 @@ const META_CONNECT_ERRORS: Record<string, string> = {
   meta_failed:
     'Meta connect failed while talking to Facebook. Try Connect with Facebook again.',
 };
+
+function newestCarouselId(ads: GeneratedAd[]): string | null {
+  for (let i = ads.length - 1; i >= 0; i -= 1) {
+    const ad = ads[i];
+    if (ad.ad_format === 'carousel' && (ad.media_payload?.cards?.length || 0) >= 2) {
+      return ad.id;
+    }
+  }
+  return null;
+}
 
 export function CampaignWizard({
   campaigns: initialCampaigns,
@@ -162,11 +173,12 @@ export function CampaignWizard({
   const [websiteUrl, setWebsiteUrl] = useState(initialWebsiteUrl);
   const [cta, setCta] = useState('SHOP_NOW');
   const [linkDescription, setLinkDescription] = useState('');
+  const carouselFirstId = newestCarouselId(initialAds);
   const [selectedAds, setSelectedAds] = useState<string[]>(
-    initialAds.map((a) => a.id)
+    carouselFirstId ? [carouselFirstId] : initialAds.map((a) => a.id)
   );
   const [previewAdId, setPreviewAdId] = useState<string | null>(
-    initialAds[0]?.id || null
+    carouselFirstId || initialAds[0]?.id || null
   );
 
   const [validation, setValidation] = useState<CampaignValidationResult | null>(null);
@@ -1120,6 +1132,9 @@ export function CampaignWizard({
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">
                             {format?.shortLabel || 'Image'}
+                            {(ad.media_payload?.cards?.length || 0) >= 2
+                              ? ` · ${ad.media_payload?.cards?.length} cards`
+                              : ''}
                           </span>
                           {selected && <Check className="w-3.5 h-3.5 text-[var(--meta-green)]" />}
                         </div>
@@ -1305,8 +1320,9 @@ export function CampaignWizard({
               }
             />
             <p className="mt-3 text-[10px] text-[var(--muted)] text-center leading-snug">
-              Soft audio is set on <strong>/ads</strong> when you regenerate a Video creative — not
-              on Audience. Fresh creatives beat recycling the same carousel that already spent.
+              {(previewAd?.media_payload?.cards?.length || 0) >= 2
+                ? 'This preview is the carousel. The picture changes by itself, and the arrows jump to the next pickle. The label should say Carousel, not Image.'
+                : 'This preview is a single image. A carousel shows arrows and a card count such as 1 of 8.'}
             </p>
             {selectedAds.length > 1 && (
               <p className="mt-1 text-[10px] text-[var(--muted)] text-center">

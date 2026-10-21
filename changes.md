@@ -8,6 +8,18 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-21
 
+### Campaign preview now plays the carousel
+**What / why**  
+The Goal-step preview was the single banner (label **Image**), so it looked like the carousel was missing. Approved ads load oldest first, and that banner is the one that was showing.
+
+- Preview and the pre-selected creative start on the newest carousel
+- A blue line says “Carousel is working · card 2 of 8 · Diwali ki mithaas”
+- Cards advance every 3 seconds, and the arrows still work
+
+**Paths:** `CampaignWizard.tsx`, `FacebookAdPreview.tsx`
+
+**Manual:** After this deploy, hard-refresh `/campaigns`. The right-hand preview should change pickle on its own. If the label still says **Image**, the new build is not live yet.
+
 ### Diwali carousel draft — eight cards, not one still image
 **What / why**  
 The live Instagram ad is a single JPEG. “Swipe Left” is printed on that picture, so Meta has no second card. A real carousel needs one card per creative.
