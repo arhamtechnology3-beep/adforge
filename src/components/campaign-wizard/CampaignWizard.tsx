@@ -46,7 +46,6 @@ import {
   type CityTier,
 } from '@/lib/audience-suggest';
 import type { CampaignValidationResult } from '@/lib/campaign-validation';
-import type { GeneratedAd } from '@/types/database';
 import { formatCurrency } from '@/lib/utils';
 import { WizardStepper } from './WizardStepper';
 import { ValidationChecklist } from './ValidationChecklist';

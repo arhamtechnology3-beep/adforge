@@ -8,6 +8,14 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-21
 
+### Fix Hostinger build: duplicate GeneratedAd import
+**What / why**  
+Deploy of `3ce3722` failed typecheck. `CampaignWizard.tsx` imported `GeneratedAd` twice.
+
+**Paths:** `src/components/campaign-wizard/CampaignWizard.tsx`
+
+**Manual:** Wait for the next Hostinger deploy to finish, then hard-refresh `/campaigns`.
+
 ### Campaign preview now plays the carousel
 **What / why**  
 The Goal-step preview was the single banner (label **Image**), so it looked like the carousel was missing. Approved ads load oldest first, and that banner is the one that was showing.
