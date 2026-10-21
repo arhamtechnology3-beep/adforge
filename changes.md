@@ -8,6 +8,14 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-22
 
+### Diwali 1:1 campaign was on the wrong store
+**What / why**  
+Two stores are both named Divyaprabha Foods. The 1:1 campaign and its 8 approved ads were saved on the unused one, so `/campaigns` for the live store showed “No approved creatives yet” and hid the campaign list. Ads and the draft now sit on the store that already has Diwali Sale Revised 2026. The campaign list still renders when a store has campaigns but no approved creatives.
+
+**Paths:** `src/components/campaign-wizard/CampaignWizard.tsx`, `scripts/seed-diwali-1x1-campaign.ts`
+
+**Manual:** Hard-refresh `/campaigns` on Divyaprabha Foods. Draft **Diwali 1:1 · Product Pages** should be in the list. The list itself appears after the next Hostinger deploy; the ads are already on this store, so approving is not required again.
+
 ### Diwali 1:1 campaign with a product URL on every ad
 **What / why**  
 The 4:5 Diwali creatives are the wrong shape for these Meta placements. Eight square (1024×1024) creatives are now a draft campaign, and each ad keeps its own Shop Now URL so Confirm does not send every click to one store homepage.

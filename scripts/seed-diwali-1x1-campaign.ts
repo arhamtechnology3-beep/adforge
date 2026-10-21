@@ -90,8 +90,17 @@ async function main() {
     .select('id, user_id, name, website_url')
     .ilike('website_url', '%divyaprabha%');
   if (storeError) throw new Error(storeError.message);
-  const store = stores?.[0];
-  if (!store) throw new Error('No Divyaprabha store found');
+  if (!stores?.length) throw new Error('No Divyaprabha store found');
+  // Two stores can share this website. Use the account that already runs campaigns.
+  const { data: owners } = await admin
+    .from('meta_campaigns')
+    .select('user_id')
+    .in(
+      'user_id',
+      stores.map((row) => row.user_id)
+    );
+  const ownerId = owners?.[0]?.user_id;
+  const store = stores.find((row) => row.user_id === ownerId) || stores[0];
 
   const { data: existing } = await admin
     .from('meta_campaigns')

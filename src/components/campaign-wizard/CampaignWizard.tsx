@@ -710,17 +710,88 @@ export function CampaignWizard({
     }
   }
 
+  const campaignList =
+    campaigns.length > 0 ? (
+      <div className="mt-10">
+        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+          <Megaphone className="w-5 h-5" /> Your campaigns
+        </h2>
+        <div className="space-y-3">
+          {campaigns.map((c) => (
+            <div key={c.id} className="meta-card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="font-semibold">{c.name || c.objective}</p>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    c.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                  }`}>
+                    {c.status}
+                  </span>
+                </div>
+                <p className="text-sm text-[var(--muted)] mt-0.5">
+                  {formatCurrency(c.budget || 0)}/day · {new Date(c.created_at).toLocaleDateString('en-IN')}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {c.status === 'draft' && (
+                  <button
+                    type="button"
+                    className="btn-secondary text-sm flex items-center gap-2"
+                    onClick={() => startEdit(c)}
+                  >
+                    <Pencil className="w-4 h-4" />
+                    Edit
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn-secondary text-sm flex items-center gap-2"
+                  onClick={() => handleDuplicate(c.id)}
+                  disabled={duplicating === c.id}
+                >
+                  {duplicating === c.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Copy className="w-4 h-4" />
+                  )}
+                  Duplicate
+                </button>
+                {c.status === 'draft' && (
+                  <button
+                    type="button"
+                    className="btn-primary text-sm flex items-center gap-2"
+                    onClick={() => handleConfirm(c.id)}
+                    disabled={confirming === c.id}
+                  >
+                    {confirming === c.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Rocket className="w-4 h-4" />
+                    )}
+                    Confirm &amp; Launch
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    ) : null;
+
   if (approvedAds.length === 0) {
     return (
-      <div className="meta-card text-center py-16 px-6">
-        <ImageIcon className="w-12 h-12 text-[var(--muted)] mx-auto mb-4" />
-        <h2 className="text-xl font-bold mb-2">No approved creatives yet</h2>
-        <p className="text-[var(--muted)] text-sm mb-6 max-w-md mx-auto">
-          Clone competitor ads and approve creatives in Ad Generation, then return here to launch.
-        </p>
-        <Link href="/ads" className="btn-primary inline-flex items-center gap-2">
-          Go to Ad Generation →
-        </Link>
+      <div>
+        <div className="meta-card text-center py-16 px-6">
+          <ImageIcon className="w-12 h-12 text-[var(--muted)] mx-auto mb-4" />
+          <h2 className="text-xl font-bold mb-2">No approved creatives yet</h2>
+          <p className="text-[var(--muted)] text-sm mb-6 max-w-md mx-auto">
+            Clone competitor ads and approve creatives in Ad Generation, then return here to launch.
+          </p>
+          <Link href="/ads" className="btn-primary inline-flex items-center gap-2">
+            Go to Ad Generation →
+          </Link>
+        </div>
+        {campaignList}
       </div>
     );
   }
@@ -1444,73 +1515,7 @@ export function CampaignWizard({
         </div>
       </div>
 
-      {/* Existing campaigns */}
-      {campaigns.length > 0 && (
-        <div className="mt-10">
-          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-            <Megaphone className="w-5 h-5" /> Your campaigns
-          </h2>
-          <div className="space-y-3">
-            {campaigns.map((c) => (
-              <div key={c.id} className="meta-card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="font-semibold">{c.name || c.objective}</p>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      c.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
-                    }`}>
-                      {c.status}
-                    </span>
-                  </div>
-                  <p className="text-sm text-[var(--muted)] mt-0.5">
-                    {formatCurrency(c.budget || 0)}/day · {new Date(c.created_at).toLocaleDateString('en-IN')}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 shrink-0">
-                  {c.status === 'draft' && (
-                    <button
-                      type="button"
-                      className="btn-secondary text-sm flex items-center gap-2"
-                      onClick={() => startEdit(c)}
-                    >
-                      <Pencil className="w-4 h-4" />
-                      Edit
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="btn-secondary text-sm flex items-center gap-2"
-                    onClick={() => handleDuplicate(c.id)}
-                    disabled={duplicating === c.id}
-                  >
-                    {duplicating === c.id ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Copy className="w-4 h-4" />
-                    )}
-                    Duplicate
-                  </button>
-                  {c.status === 'draft' && (
-                    <button
-                      type="button"
-                      className="btn-primary text-sm flex items-center gap-2"
-                      onClick={() => handleConfirm(c.id)}
-                      disabled={confirming === c.id}
-                    >
-                      {confirming === c.id ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Rocket className="w-4 h-4" />
-                      )}
-                      Confirm &amp; Launch
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {campaignList}
     </div>
   );
 }
