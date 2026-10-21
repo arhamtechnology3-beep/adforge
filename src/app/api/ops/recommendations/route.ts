@@ -44,7 +44,7 @@ export async function GET(request: Request) {
   if (store) recQuery = recQuery.eq('store_id', store.id);
   const { data: storedRecs, error } = await recQuery;
 
-  let runQuery = supabase
+  const runQuery = supabase
     .from('agent_runs')
     .select('*')
     .or(store ? `and(user_id.eq.${userId},store_id.eq.${store.id}),user_id.is.null` : `user_id.eq.${userId},user_id.is.null`)

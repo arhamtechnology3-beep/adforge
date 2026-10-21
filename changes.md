@@ -8,6 +8,14 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-21
 
+### Fix Hostinger build: prefer-const on ops recommendations
+**What / why**  
+Live deploy of `f7f9360` failed lint. `runQuery` was declared with `let` and never reassigned.
+
+**Paths:** `src/app/api/ops/recommendations/route.ts`
+
+**Manual:** Wait for the next Hostinger deploy, then hard-refresh.
+
 ### One subscription, separate Shopify stores
 **What / why**  
 A subscriber can run more than one shop on the same AdForge plan. Campaigns, catalog, Meta connection, and performance stay on the store that is selected. Billing stays one Razorpay subscription.
