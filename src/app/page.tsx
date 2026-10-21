@@ -1,18 +1,20 @@
 import type { Metadata } from 'next';
-import { Syne, Outfit } from 'next/font/google';
+import localFont from 'next/font/local';
 import LandingPage from '@/components/landing/LandingPage';
 import './landing.css';
 
-const syne = Syne({
-  subsets: ['latin'],
+const syne = localFont({
+  src: './fonts/Syne-Variable.ttf',
   variable: '--font-display',
-  weight: ['600', '700', '800'],
+  weight: '400 800',
+  display: 'swap',
 });
 
-const outfit = Outfit({
-  subsets: ['latin'],
+const outfit = localFont({
+  src: './fonts/Outfit-Variable.ttf',
   variable: '--font-body',
-  weight: ['400', '500', '600', '700'],
+  weight: '100 900',
+  display: 'swap',
 });
 
 export const metadata: Metadata = {

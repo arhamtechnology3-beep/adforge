@@ -8,6 +8,14 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-22
 
+### Hostinger build: local landing fonts
+**What / why**  
+`npm run build` failed on Hostinger in `src/app/page.tsx` because `next/font/google` (Syne, Outfit) could not download Google Fonts (`Cannot read properties of null (reading '1')`). Those faces are now vendored under `src/app/fonts` and loaded with `next/font/local`, so publish does not call fonts.googleapis.com.
+
+**Paths:** `src/app/page.tsx`, `src/app/fonts/Syne-Variable.ttf`, `src/app/fonts/Outfit-Variable.ttf`
+
+**Manual:** Redeploy `main` after this commit. The failed build was on `b0a599e`; this commit is later and includes the carousel editor too.
+
 ### Carousel edit: all photos and URLs
 **What / why**  
 Full edit on a carousel only stored one image. Editors can now add every card photo and destination URL, or paste product page URLs and load all photos at once.
