@@ -8,6 +8,18 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-22
 
+### Edit draft campaigns only
+**What / why**  
+Draft rows need an Edit action. Live (active/paused) campaigns stay unchanged — duplicate those instead.
+
+- **Edit** on drafts loads name, budget, audience, and ads into the wizard
+- **Save changes** updates that draft (`PATCH /api/campaigns/[id]`)
+- API rejects edits when status is not `draft`
+
+**Paths:** `src/app/api/campaigns/[id]/route.ts`, `src/components/campaign-wizard/CampaignWizard.tsx`
+
+**Manual:** Deploy → `/campaigns` → **Edit** on a draft → change fields → **Save changes**. Active rows have Duplicate only.
+
 ### Duplicate an existing campaign
 **What / why**  
 Campaigns list had no way to clone a live or draft campaign. Duplicate copies ads, budget, audience, and website into a new **draft** (no shared Meta campaign id). Confirm & Launch publishes the copy separately.

@@ -23,6 +23,7 @@ import {
   X,
   Plus,
   Copy,
+  Pencil,
 } from 'lucide-react';
 import type { GeneratedAd, MetaCampaign } from '@/types/database';
 import { META_AD_FORMATS } from '@/lib/creatives';
@@ -186,6 +187,8 @@ export function CampaignWizard({
   const [launching, setLaunching] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [duplicating, setDuplicating] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
@@ -644,6 +647,69 @@ export function CampaignWizard({
     }
   }
 
+  function startEdit(campaign: MetaCampaign) {
+    if (campaign.status !== 'draft') return;
+    const config = (campaign.launch_config || {}) as Record<string, unknown>;
+    const audience = (config.audience || {}) as Record<string, unknown>;
+    setEditingId(campaign.id);
+    setName(campaign.name || '');
+    setObjective((campaign.objective as CampaignObjective) || DEFAULT_CAMPAIGN_OBJECTIVE);
+    setBudget(String(campaign.budget || 500));
+    setBudgetType(config.budget_type === 'lifetime' ? 'lifetime' : 'daily');
+    if (campaign.website_url) setWebsiteUrl(campaign.website_url);
+    setCta(String(config.cta || audience.cta || 'SHOP_NOW'));
+    setAgeMin(String(audience.age_min ?? 18));
+    setAgeMax(String(audience.age_max ?? 65));
+    const nextGender = String(audience.gender || 'ALL');
+    setGender(nextGender === 'MEN' || nextGender === 'WOMEN' ? nextGender : 'ALL');
+    if (Array.isArray(audience.locations)) setLocations(audience.locations.join(', '));
+    if (Array.isArray(audience.interests)) setInterests(audience.interests.join(', '));
+    if (audience.placements && typeof audience.placements === 'object') {
+      setPlacements({ ...DEFAULT_PLACEMENTS, ...(audience.placements as PlacementToggles) });
+    }
+    if (typeof audience.start_date === 'string' && audience.start_date) {
+      setStartDate(audience.start_date);
+    }
+    setEndDate(typeof audience.end_date === 'string' ? audience.end_date : '');
+    setLinkDescription(
+      typeof audience.link_description === 'string' ? audience.link_description : ''
+    );
+    const ids = (campaign.ad_ids || []).filter((id) => approvedAds.some((ad) => ad.id === id));
+    if (ids.length) {
+      setSelectedAds(ids);
+      setPreviewAdId(ids[0]);
+    }
+    setStep(0);
+    setError(null);
+    setToast(`Editing draft “${campaign.name || 'campaign'}”`);
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function handleSaveEdit() {
+    if (!editingId) return;
+    setSavingEdit(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/campaigns/${editingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildPayload()),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Could not save campaign');
+        return;
+      }
+      if (data.campaign) {
+        setCampaigns((prev) => prev.map((c) => (c.id === editingId ? data.campaign : c)));
+        setEditingId(null);
+        setToast(data.message || 'Draft updated');
+      }
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
   if (approvedAds.length === 0) {
     return (
       <div className="meta-card text-center py-16 px-6">
@@ -661,6 +727,21 @@ export function CampaignWizard({
 
   return (
     <div>
+      {editingId && (
+        <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-indigo-950">
+            Editing this <strong>draft</strong>. Live campaigns stay as they are — duplicate those if you need a copy.
+          </p>
+          <button
+            type="button"
+            className="btn-secondary text-xs"
+            onClick={() => setEditingId(null)}
+          >
+            Cancel edit
+          </button>
+        </div>
+      )}
+
       <div className="mb-4">
         <h1 className="text-2xl font-bold text-[var(--foreground)]">Launch Campaign</h1>
         <p className="text-[var(--muted)] mt-1 text-sm">
@@ -1252,6 +1333,16 @@ export function CampaignWizard({
                 <button type="button" className="btn-primary flex items-center gap-1" onClick={nextStep}>
                   Continue <ChevronRight className="w-4 h-4" />
                 </button>
+              ) : editingId ? (
+                <button
+                  type="button"
+                  className="btn-primary flex items-center gap-2"
+                  onClick={handleSaveEdit}
+                  disabled={savingEdit}
+                >
+                  {savingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pencil className="w-4 h-4" />}
+                  Save changes
+                </button>
               ) : (
                 <div className="flex gap-2">
                   <button
@@ -1376,6 +1467,16 @@ export function CampaignWizard({
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  {c.status === 'draft' && (
+                    <button
+                      type="button"
+                      className="btn-secondary text-sm flex items-center gap-2"
+                      onClick={() => startEdit(c)}
+                    >
+                      <Pencil className="w-4 h-4" />
+                      Edit
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="btn-secondary text-sm flex items-center gap-2"
