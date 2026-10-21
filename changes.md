@@ -8,6 +8,14 @@ Format: newest entries first. Date is local project context (IST).
 
 ## 2026-10-22
 
+### Carousel edit: all photos and URLs
+**What / why**  
+Full edit on a carousel only stored one image. Editors can now add every card photo and destination URL, or paste product page URLs and load all photos at once.
+
+**Paths:** `src/app/(dashboard)/ads/page.tsx`
+
+**Manual:** `/ads` → carousel → **Edit all** → set format **Carousel** → paste product URLs → **Add all photos from these URLs** → **Save all**.
+
 ### Edit draft campaigns only
 **What / why**  
 Draft rows need an Edit action. Live (active/paused) campaigns stay unchanged — duplicate those instead.

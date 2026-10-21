@@ -8,7 +8,7 @@ import {
   saveCarouselUrlPrefill,
 } from '@/lib/carousel-url-prefill';
 import { audienceSuggestionFromCompetitorIntel } from '@/lib/audience-suggest';
-import { CAROUSEL_URL_MIN } from '@/lib/carousel-limits';
+import { CAROUSEL_URL_MAX, CAROUSEL_URL_MIN } from '@/lib/carousel-limits';
 import StoryFillImage from '@/components/ads/StoryFillImage';
 import StoriesPhoneChrome from '@/components/ads/StoriesPhoneChrome';
 import {
@@ -686,6 +686,8 @@ export default function AdsPage() {
     copy_text: string;
     image_url: string;
     ad_format: MetaAdFormat;
+    cards: Array<{ image_url: string; link: string; headline: string }>;
+    bulk_urls: string;
   } | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -1162,20 +1164,111 @@ export default function AdsPage() {
     setTimeout(() => setToastMessage(null), 3000);
   }
 
+  function cardsFromAd(ad: GeneratedAd) {
+    const existing = ad.media_payload?.cards || [];
+    if (existing.length) {
+      return existing.map((card) => ({
+        image_url: card.image_url || '',
+        link: card.link || card.product_url || '',
+        headline: card.headline || '',
+      }));
+    }
+    return [
+      {
+        image_url: ad.image_url || '',
+        link: '',
+        headline: ad.headline || '',
+      },
+    ];
+  }
+
+  async function loadAllCarouselFromUrls() {
+    if (!editForm) return;
+    const lines = editForm.bulk_urls
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length < CAROUSEL_URL_MIN) {
+      alert(`Paste at least ${CAROUSEL_URL_MIN} product URLs, one per line.`);
+      return;
+    }
+    setResolvingCarousel(true);
+    try {
+      const res = await fetch('/api/ads/carousel-products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_urls: editForm.bulk_urls }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Could not load product photos');
+        return;
+      }
+      const cards = (data.products || [])
+        .filter((product: { image_url?: string | null }) => product.image_url)
+        .slice(0, CAROUSEL_URL_MAX)
+        .map(
+          (product: {
+            image_url: string;
+            product_url?: string;
+            product_name?: string;
+          }) => ({
+            image_url: product.image_url,
+            link: product.product_url || '',
+            headline: (product.product_name || editForm.headline || '').slice(0, 40),
+          })
+        );
+      if (!cards.length) {
+        alert('None of those URLs returned a product photo.');
+        return;
+      }
+      setEditForm({
+        ...editForm,
+        ad_format: 'carousel',
+        cards,
+        image_url: cards[0].image_url,
+      });
+      setToastMessage(`Loaded ${cards.length} carousel photos`);
+      setTimeout(() => setToastMessage(null), 2500);
+    } finally {
+      setResolvingCarousel(false);
+    }
+  }
+
   async function handleFullSaveEdit() {
     if (!editForm) return;
+    const carouselCards =
+      editForm.ad_format === 'carousel'
+        ? editForm.cards
+            .filter((card) => card.image_url.trim())
+            .slice(0, CAROUSEL_URL_MAX)
+            .map((card) => ({
+              image_url: card.image_url.trim(),
+              headline: (card.headline || editForm.headline).slice(0, 40),
+              link: card.link.trim() || undefined,
+              product_url: card.link.trim() || undefined,
+            }))
+        : [];
+    const cover = carouselCards[0]?.image_url || editForm.image_url;
     const res = await fetch(`/api/ads/${editForm.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         headline: editForm.headline.slice(0, 40),
         copy_text: editForm.copy_text.slice(0, 2200),
-        image_url: editForm.image_url,
+        image_url: cover,
         ad_format: editForm.ad_format,
         media_payload: {
           manual: true,
           aspect: editForm.ad_format === 'stories' ? '9:16' : '1:1',
-          product_images: editForm.image_url ? [editForm.image_url] : [],
+          product_images: carouselCards.length
+            ? carouselCards.map((card) => card.image_url)
+            : cover
+              ? [cover]
+              : [],
+          ...(editForm.ad_format === 'carousel'
+            ? { cards: carouselCards, carousel_source: 'manual' }
+            : {}),
         },
       }),
     });
@@ -2258,7 +2351,7 @@ export default function AdsPage() {
                         onChange={(e) => setEditForm({ ...editForm, image_url: e.target.value })}
                         placeholder="Or paste media URL"
                       />
-                      {editForm.image_url && (
+                      {editForm.ad_format !== 'carousel' && editForm.image_url && (
                         <div className="rounded-lg border bg-white max-h-32 overflow-hidden flex items-center justify-center">
                           {/\.(mp4|webm|mov)(\?|$)/i.test(editForm.image_url) ||
                           editForm.ad_format === 'video' ? (
@@ -2270,6 +2363,140 @@ export default function AdsPage() {
                               alt="Media"
                               className="max-h-32 object-contain"
                             />
+                          )}
+                        </div>
+                      )}
+                      {editForm.ad_format === 'carousel' && (
+                        <div className="space-y-2 rounded-lg border border-indigo-100 bg-white p-2">
+                          <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-900">
+                            All carousel photos &amp; URLs
+                          </p>
+                          <textarea
+                            className="input text-xs min-h-[72px] font-mono"
+                            placeholder={`Paste every product URL, one per line\nhttps://divyaprabhafoods.com/products/…`}
+                            value={editForm.bulk_urls}
+                            onChange={(e) =>
+                              setEditForm({ ...editForm, bulk_urls: e.target.value })
+                            }
+                          />
+                          <button
+                            type="button"
+                            className="btn-secondary text-[11px] py-1.5 w-full"
+                            disabled={resolvingCarousel}
+                            onClick={loadAllCarouselFromUrls}
+                          >
+                            {resolvingCarousel
+                              ? 'Loading photos…'
+                              : 'Add all photos from these URLs'}
+                          </button>
+                          {editForm.cards.map((card, index) => (
+                            <div key={index} className="rounded-lg border border-slate-200 p-2 space-y-1.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-[10px] font-semibold text-slate-600">
+                                  Card {index + 1}
+                                </p>
+                                <button
+                                  type="button"
+                                  className="text-[10px] text-red-600"
+                                  onClick={() =>
+                                    setEditForm({
+                                      ...editForm,
+                                      cards: editForm.cards.filter((_, i) => i !== index),
+                                    })
+                                  }
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                              <input
+                                className="input text-xs"
+                                value={card.headline}
+                                placeholder="Card headline"
+                                onChange={(e) => {
+                                  const cards = editForm.cards.slice();
+                                  cards[index] = { ...card, headline: e.target.value };
+                                  setEditForm({ ...editForm, cards });
+                                }}
+                              />
+                              <input
+                                className="input text-xs"
+                                value={card.link}
+                                placeholder="Product / destination URL"
+                                onChange={(e) => {
+                                  const cards = editForm.cards.slice();
+                                  cards[index] = { ...card, link: e.target.value };
+                                  setEditForm({ ...editForm, cards });
+                                }}
+                              />
+                              <input
+                                className="input text-xs"
+                                value={card.image_url}
+                                placeholder="Photo URL"
+                                onChange={(e) => {
+                                  const cards = editForm.cards.slice();
+                                  cards[index] = { ...card, image_url: e.target.value };
+                                  setEditForm({
+                                    ...editForm,
+                                    cards,
+                                    image_url: index === 0 ? e.target.value : editForm.image_url,
+                                  });
+                                }}
+                              />
+                              <label className="text-[10px] text-indigo-800 cursor-pointer">
+                                Upload photo
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  disabled={uploadingMedia}
+                                  onChange={async (e) => {
+                                    const file = e.target.files?.[0];
+                                    e.target.value = '';
+                                    if (!file) return;
+                                    const uploaded = await uploadMediaFile(file);
+                                    if (!uploaded) return;
+                                    setEditForm((current) => {
+                                      if (!current) return current;
+                                      const cards = current.cards.slice();
+                                      cards[index] = {
+                                        ...cards[index],
+                                        image_url: uploaded.url,
+                                      };
+                                      return {
+                                        ...current,
+                                        cards,
+                                        image_url: index === 0 ? uploaded.url : current.image_url,
+                                      };
+                                    });
+                                  }}
+                                />
+                              </label>
+                              {card.image_url && (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={card.image_url}
+                                  alt=""
+                                  className="h-16 w-16 object-contain rounded border bg-slate-50"
+                                />
+                              )}
+                            </div>
+                          ))}
+                          {editForm.cards.length < CAROUSEL_URL_MAX && (
+                            <button
+                              type="button"
+                              className="text-[11px] text-indigo-800 font-semibold"
+                              onClick={() =>
+                                setEditForm({
+                                  ...editForm,
+                                  cards: [
+                                    ...editForm.cards,
+                                    { image_url: '', link: '', headline: '' },
+                                  ],
+                                })
+                              }
+                            >
+                              + Add another photo &amp; URL
+                            </button>
                           )}
                         </div>
                       )}
@@ -2394,6 +2621,11 @@ export default function AdsPage() {
                           copy_text: ad.copy_text,
                           image_url: ad.image_url || '',
                           ad_format: normalizeFormat(ad),
+                          cards: cardsFromAd(ad),
+                          bulk_urls: (ad.media_payload?.cards || [])
+                            .map((card) => card.product_url || card.link || '')
+                            .filter(Boolean)
+                            .join('\n'),
                         });
                       }}
                     >
